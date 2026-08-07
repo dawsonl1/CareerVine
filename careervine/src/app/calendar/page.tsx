@@ -19,7 +19,15 @@ import { RefreshCw, Lock, RotateCcw, Video, MapPin, List, LayoutGrid, ChevronLef
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
-import { CONVERSATION_TYPE_OPTIONS, getRsvpDisplay } from "@/lib/constants";
+import {
+  CONVERSATION_TYPE_OPTIONS,
+  CONVERSATION_TYPE_HINT,
+  CONVERSATION_TYPE_DETAIL_MAX_LENGTH,
+  ConversationType,
+  conversationTypeLabel,
+  normalizeConversationTypeDetail,
+  getRsvpDisplay,
+} from "@/lib/constants";
 import { packOverlappingEvents, slotStyle } from "@/lib/calendar-layout";
 import { resolveCalendarSaveMode } from "@/lib/calendar-save-mode";
 import { useGmailConnection } from "@/hooks/use-gmail-connection";
@@ -61,7 +69,7 @@ interface CalendarEvent {
 
 type ContactFilter = "all" | "contacts" | "no-contacts";
 
-const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", title: "", notes: "", privateNotes: "", calendarDescription: "", transcript: "" };
+const emptyForm = { meeting_date: "", meeting_time: "", meeting_type: "", meeting_type_detail: "", title: "", notes: "", privateNotes: "", calendarDescription: "", transcript: "" };
 
 /** Comparable snapshot of everything the meeting form owns, for the discard guard. */
 const serializeMeetingForm = (form: typeof emptyForm, contactIds: number[], duration: number) =>
@@ -378,6 +386,7 @@ export default function CalendarPage() {
         meeting_date: parts?.dateKey ?? "",
         meeting_time: parts?.time ?? "",
         meeting_type: linked.meeting_type || "",
+        meeting_type_detail: linked.meeting_type_detail || "",
         title: linked.title || "",
         notes: linked.notes || "",
         privateNotes: linked.private_notes || "",
@@ -462,8 +471,12 @@ export default function CalendarPage() {
     const dateTime = formData.meeting_date && formData.meeting_time
       ? `${formData.meeting_date}T${formData.meeting_time}` : formData.meeting_date;
     const meetingType = formData.meeting_type || null;
+    // The detail CHECK rejects free text left over from a type the user
+    // switched away from, so normalize here rather than trusting the form.
+    const meetingTypeDetail = normalizeConversationTypeDetail(meetingType, formData.meeting_type_detail);
+    const typeLabel = conversationTypeLabel(meetingType, meetingTypeDetail);
     const autoSummary = formData.title ||
-      (meetingType ? `${meetingType.charAt(0).toUpperCase() + meetingType.slice(1).replace("-"," ")} with ${selectedContactIds.map(id => contactNameById.get(id)).filter(Boolean).join(", ") || "Contact"}` : "Meeting");
+      (typeLabel ? `${typeLabel} with ${selectedContactIds.map(id => contactNameById.get(id)).filter(Boolean).join(", ") || "Contact"}` : "Meeting");
     const saveMode = resolveCalendarSaveMode({
       hasLinkedMeeting: !!editingMeeting,
       editingGoogleEventId,
@@ -471,7 +484,7 @@ export default function CalendarPage() {
     try {
       if (saveMode === "update-linked" && editingMeeting) {
         await updateMeeting(editingMeeting.id, {
-          meeting_date: dateTime, meeting_type: meetingType,
+          meeting_date: dateTime, meeting_type: meetingType, meeting_type_detail: meetingTypeDetail,
           title: formData.title || null, notes: formData.notes || null,
           private_notes: formData.privateNotes || null,
           calendar_description: formData.calendarDescription || null,
@@ -491,7 +504,7 @@ export default function CalendarPage() {
       } else if (saveMode === "patch-existing-google" && editingGoogleEventId) {
         // Link a CareerVine meeting to the existing Google event; never create a duplicate
         const created = await createMeeting({
-          user_id: user.id, meeting_date: dateTime, meeting_type: meetingType,
+          user_id: user.id, meeting_date: dateTime, meeting_type: meetingType, meeting_type_detail: meetingTypeDetail,
           title: formData.title || null, notes: formData.notes || null,
           private_notes: formData.privateNotes || null,
           calendar_description: formData.calendarDescription || null,
@@ -510,7 +523,7 @@ export default function CalendarPage() {
         }
       } else {
         const created = await createMeeting({
-          user_id: user.id, meeting_date: dateTime, meeting_type: meetingType,
+          user_id: user.id, meeting_date: dateTime, meeting_type: meetingType, meeting_type_detail: meetingTypeDetail,
           title: formData.title || null, notes: formData.notes || null,
           private_notes: formData.privateNotes || null,
           calendar_description: formData.calendarDescription || null,
@@ -959,9 +972,31 @@ export default function CalendarPage() {
             <div><label className={labelClasses}>Time</label><TimePicker value={formData.meeting_time} onChange={v => setFormData({...formData, meeting_time: v})} /></div>
             <div>
               <label className={labelClasses}>Type</label>
-              <Select value={formData.meeting_type} onChange={v => setFormData({...formData, meeting_type: v})} placeholder="Optional…" options={[...CONVERSATION_TYPE_OPTIONS]} ariaLabel="Meeting type" />
+              <Select
+                value={formData.meeting_type}
+                // Clear the free text when leaving Other, or the detail CHECK
+                // rejects the save.
+                onChange={v => setFormData({...formData, meeting_type: v, meeting_type_detail: v === ConversationType.Other ? formData.meeting_type_detail : ""})}
+                placeholder="Optional…"
+                options={[...CONVERSATION_TYPE_OPTIONS]}
+                ariaLabel="Meeting type"
+              />
             </div>
           </div>
+          <p className="-mt-2 text-sm text-muted-foreground">{CONVERSATION_TYPE_HINT}</p>
+          {formData.meeting_type === ConversationType.Other && (
+            <div>
+              <label className={labelClasses}>What kind of conversation?</label>
+              <input
+                type="text"
+                value={formData.meeting_type_detail}
+                onChange={e => setFormData({...formData, meeting_type_detail: e.target.value})}
+                maxLength={CONVERSATION_TYPE_DETAIL_MAX_LENGTH}
+                className={inputClasses}
+                placeholder="e.g. Alumni panel"
+              />
+            </div>
+          )}
           {/* Contacts */}
           <div>
             <label className={labelClasses}>Contacts</label>

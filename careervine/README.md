@@ -94,9 +94,16 @@ search and stackable filters:
 - Search as you type across company names, program names, and tier labels. Results
   update instantly, no page reloads.
 - Narrow the list by target status (researching through closed), outreach traction,
-  tier, or whether you already know someone inside.
+  tier, whether you already know someone inside, whether one of your contacts works
+  there right now, and whether anyone there went to your school.
+- The traction, tier, contacts, and alumni menus each take several answers at once,
+  so "Big Tech or Utah" and "Replied or Call done" are single filters rather than
+  two separate views.
 - Filters combine, so "applied companies in Big Tech where I have no contacts yet"
   is two clicks, and a live count shows how much of your list matches.
+- The count on each status chip follows the rest of the bar. Filter to one tier and
+  the chips tell you how many researching, applied, and interviewing companies are
+  left in that tier, so the number you click is the number you get.
 - Every filtered view lives in the URL: share it, bookmark it, or click into a
   company and come back without losing your place.
 

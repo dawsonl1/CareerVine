@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalCancelButton } from "@/components/ui/modal";
@@ -10,6 +10,15 @@ import { withToastOnError } from "@/lib/with-toast-on-error";
 import { updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
 import type { ContactMeeting, InteractionRow, EmailMessage, CompletedActionEntry, TimelineEntry } from "@/lib/types";
 import { Calendar, MessageSquare, Pencil, Trash2, ArrowUpRight, ArrowDownLeft, CheckCircle } from "lucide-react";
+import {
+  CONVERSATION_TYPE_OPTIONS,
+  CONVERSATION_TYPE_HINT,
+  CONVERSATION_TYPE_DETAIL_MAX_LENGTH,
+  ConversationType,
+  SYSTEM_INTERACTION_TYPE_EMAIL,
+  conversationTypeLabel,
+  normalizeConversationTypeDetail,
+} from "@/lib/constants";
 
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 
@@ -62,13 +71,27 @@ export function ContactTimelineTab({
   const { error: toastError } = useToast();
   const [editingInteraction, setEditingInteraction] = useState<InteractionRow | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [interactionForm, setInteractionForm] = useState({ interaction_date: "", interaction_type: "", summary: "" });
+  const [interactionForm, setInteractionForm] = useState({ interaction_date: "", interaction_type: "", interaction_type_detail: "", summary: "" });
   const [saving, setSaving] = useState(false);
 
   const closeEditModal = useCallback(() => {
     setShowEditModal(false);
     setEditingInteraction(null);
   }, []);
+
+  /**
+   * The five user-selectable types, plus `email` ONLY while editing a row the
+   * send path wrote. `email` is system-written and deliberately absent from
+   * CONVERSATION_TYPE_OPTIONS, but every interaction in production carries it —
+   * without this the picker would render blank on the one kind of row that
+   * actually exists, and saving would silently retype a sent email.
+   */
+  const interactionTypeOptions = useMemo(() => {
+    const base = CONVERSATION_TYPE_OPTIONS.map(({ value, label }) => ({ value, label }));
+    return editingInteraction?.interaction_type === SYSTEM_INTERACTION_TYPE_EMAIL
+      ? [...base, { value: SYSTEM_INTERACTION_TYPE_EMAIL, label: "Email" }]
+      : base;
+  }, [editingInteraction]);
 
   // The pristine value is the row being edited, so no snapshot state is needed.
   // Gated on `saving`: mid-save the form is legitimately dirty, and offering to
@@ -78,6 +101,7 @@ export function ContactTimelineTab({
     !!editingInteraction &&
     (interactionForm.interaction_date !== editingInteraction.interaction_date ||
       interactionForm.interaction_type !== editingInteraction.interaction_type ||
+      interactionForm.interaction_type_detail !== (editingInteraction.interaction_type_detail || "") ||
       interactionForm.summary !== (editingInteraction.summary || ""));
 
   const entries: TimelineEntry[] = [
@@ -104,6 +128,12 @@ export function ContactTimelineTab({
       await updateInteraction(editingInteraction.id, {
         interaction_date: interactionForm.interaction_date,
         interaction_type: interactionForm.interaction_type,
+        // The detail CHECK rejects free text carried over from a type the user
+        // switched away from.
+        interaction_type_detail: normalizeConversationTypeDetail(
+          interactionForm.interaction_type,
+          interactionForm.interaction_type_detail,
+        ),
         summary: interactionForm.summary || null,
       });
       const updated = await getInteractions(contactId);
@@ -163,7 +193,7 @@ export function ContactTimelineTab({
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-base font-medium text-foreground capitalize">{m.title || m.meeting_type || "Meeting"}</span>
+                        <span className="text-base font-medium text-foreground">{m.title || conversationTypeLabel(m.meeting_type, m.meeting_type_detail) || "Meeting"}</span>
                         <span className="text-sm text-muted-foreground">
                           {new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </span>
@@ -182,7 +212,7 @@ export function ContactTimelineTab({
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-base font-medium text-foreground capitalize">{i.interaction_type}</span>
+                        <span className="text-base font-medium text-foreground">{conversationTypeLabel(i.interaction_type, i.interaction_type_detail) || "Interaction"}</span>
                         <span className="text-sm text-muted-foreground">
                           {new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </span>
@@ -198,6 +228,7 @@ export function ContactTimelineTab({
                           setInteractionForm({
                             interaction_date: i.interaction_date,
                             interaction_type: i.interaction_type,
+                            interaction_type_detail: i.interaction_type_detail || "",
                             summary: i.summary || "",
                           });
                           setShowEditModal(true);
@@ -293,21 +324,33 @@ export function ContactTimelineTab({
               <Select
                 ariaLabel="Interaction type"
                 value={interactionForm.interaction_type}
-                onChange={(val) => setInteractionForm({ ...interactionForm, interaction_type: val })}
+                onChange={(val) =>
+                  setInteractionForm({
+                    ...interactionForm,
+                    interaction_type: val,
+                    interaction_type_detail:
+                      val === ConversationType.Other ? interactionForm.interaction_type_detail : "",
+                  })
+                }
                 placeholder="Select..."
-                options={[
-                  { value: "email", label: "Email" },
-                  { value: "phone", label: "Phone Call" },
-                  { value: "video", label: "Video Call" },
-                  { value: "coffee", label: "Coffee Chat" },
-                  { value: "lunch", label: "Lunch/Dinner" },
-                  { value: "conference", label: "Conference" },
-                  { value: "social", label: "Social Media" },
-                  { value: "other", label: "Other" },
-                ]}
+                options={interactionTypeOptions}
               />
             </div>
           </div>
+          <p className="-mt-2 text-sm text-muted-foreground">{CONVERSATION_TYPE_HINT}</p>
+          {interactionForm.interaction_type === ConversationType.Other && (
+            <div>
+              <label className={labelClasses}>What kind of conversation?</label>
+              <input
+                type="text"
+                value={interactionForm.interaction_type_detail}
+                onChange={(e) => setInteractionForm({ ...interactionForm, interaction_type_detail: e.target.value })}
+                maxLength={CONVERSATION_TYPE_DETAIL_MAX_LENGTH}
+                className={inputClasses}
+                placeholder="e.g. Alumni panel"
+              />
+            </div>
+          )}
           <div>
             <label className={labelClasses}>Summary</label>
             <textarea

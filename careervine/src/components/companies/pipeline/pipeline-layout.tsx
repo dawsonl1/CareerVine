@@ -90,7 +90,10 @@ function filterPeople(people: CompanyPerson[], query: string): CompanyPerson[] {
   );
 }
 
-/** "coffee · Jul 8" — latest logged touchpoint, shown in the outreach stage. */
+/** "Coffee Chat · Jul 8" — latest logged touchpoint, shown in the outreach stage.
+ * `last_interaction.type` already arrives as a display label (CAR-242), not a
+ * raw column value, so do NOT add a `capitalize` class at the render sites: it
+ * would spell "Coffee chat" and force casing onto the user's own free text. */
 function lastInteractionSuffix(person: CompanyPerson): string | null {
   const li = person.last_interaction;
   if (!li) return null;

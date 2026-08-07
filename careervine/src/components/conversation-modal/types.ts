@@ -4,6 +4,9 @@ export type ConversationFormState = {
   selectedContactIds: number[];
   title: string;
   meetingType: string;
+  /** Free text for `meetingType === "other"`. Cleared on switch-away — the
+   * `meetings_meeting_type_detail_check` CHECK rejects a stale detail. */
+  meetingTypeDetail: string;
   date: string;
   time: string;
   notes: string;

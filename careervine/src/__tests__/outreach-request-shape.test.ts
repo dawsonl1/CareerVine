@@ -319,7 +319,7 @@ function route(q: RecordedQuery): unknown | undefined {
 
     case "interactions": {
       const ids = idsIn(q, "contact_id") ?? [];
-      return ids.slice(0, 5).map((contact_id) => ({ contact_id, interaction_type: "call", interaction_date: "2026-07-01" }));
+      return ids.slice(0, 5).map((contact_id) => ({ contact_id, interaction_type: "coffee", interaction_date: "2026-07-01" }));
     }
 
     case "email_message_contacts": {

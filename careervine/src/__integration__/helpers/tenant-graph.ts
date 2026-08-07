@@ -177,7 +177,7 @@ export async function seedTenantGraph(svc: Db, userId: string): Promise<TenantGr
   const interaction = await ins(svc, rows, "interactions", {
     contact_id: contact.id,
     interaction_date: nowIso,
-    interaction_type: "phone",
+    interaction_type: "coffee",
   });
   await ins(
     svc,

@@ -306,20 +306,116 @@ export const ActionDirection = {
 
 // ── Meeting / conversation type options ──────────────────────────────
 
-/** Unified type list for the conversation modal (with icon names for dynamic import) */
+/**
+ * The single vocabulary for a logged conversation (CAR-242). ONE list drives
+ * `meetings.meeting_type`, `interactions.interaction_type`, and the MCP
+ * `log_interaction` enum — before CAR-242 those were three disjoint lists
+ * agreeing on only `coffee` and `other`.
+ *
+ * `Coffee` is the 1:1-conversation bucket REGARDLESS OF MEDIUM: phone and video
+ * calls belong here, which is why neither is its own value. That is not obvious
+ * from the label, so every picker renders CONVERSATION_TYPE_HINT alongside it.
+ *
+ * Both columns carry a CHECK over exactly these values (plus the system-only
+ * `email` on interactions), enumerated for the conformance guard as
+ * CONVERSATION_TYPE_VALUES / INTERACTION_TYPE_VALUES below. Adding a value HERE
+ * without adding it to the CHECK is the CAR-132 failure mode: every write of it
+ * fails with 23514. Add it in a migration too.
+ */
+export const ConversationType = {
+  CareerFair: "career-fair",
+  Networking: "networking",
+  /** Includes phone and video calls — see the note above. */
+  Coffee: "coffee",
+  Text: "text",
+  /** The only value that may carry a `*_type_detail` free-text string. */
+  Other: "other",
+} as const;
+
+export type ConversationTypeValue = (typeof ConversationType)[keyof typeof ConversationType];
+
+/** Unified type list for every conversation picker (icon names for dynamic import) */
 export const CONVERSATION_TYPE_OPTIONS = [
-  { value: "coffee", label: "Coffee Chat", iconName: "Coffee" },
-  { value: "phone", label: "Phone Call", iconName: "Phone" },
-  { value: "video", label: "Video Call", iconName: "Video" },
-  { value: "in-person", label: "In Person", iconName: "Users" },
-  { value: "lunch", label: "Lunch/Dinner", iconName: "UtensilsCrossed" },
-  { value: "conference", label: "Conference", iconName: "Building2" },
-  { value: "networking", label: "Networking Event", iconName: "Globe" },
-  { value: "other", label: "Other", iconName: "MessageSquare" },
+  { value: ConversationType.CareerFair, label: "Career Fair", iconName: "Briefcase" },
+  { value: ConversationType.Networking, label: "Networking Event", iconName: "Users" },
+  { value: ConversationType.Coffee, label: "Coffee Chat", iconName: "Coffee" },
+  { value: ConversationType.Text, label: "Text Message Chat", iconName: "MessageSquare" },
+  { value: ConversationType.Other, label: "Other", iconName: "CircleEllipsis" },
 ] as const;
 
-/** @deprecated Use CONVERSATION_TYPE_OPTIONS instead */
-export const MEETING_TYPE_OPTIONS = CONVERSATION_TYPE_OPTIONS;
+/** Shown under every type picker. Without it, a user logging a phone call
+ * reaches for Other and defeats the consolidation. */
+export const CONVERSATION_TYPE_HINT = "Coffee Chat covers any one-on-one conversation, including phone and video calls.";
+
+/** A readonly TUPLE, not `Object.values(...)`: this feeds `z.enum()` in the MCP
+ * `log_interaction` tool directly, so the tool's accepted values cannot drift
+ * from this list the way the old hardcoded enum did. */
+export const CONVERSATION_TYPE_VALUES = [
+  ConversationType.CareerFair,
+  ConversationType.Networking,
+  ConversationType.Coffee,
+  ConversationType.Text,
+  ConversationType.Other,
+] as const;
+
+/**
+ * Written by the email send path (`email-send.ts`) and bulk import — NEVER
+ * user-selectable, so it is absent from CONVERSATION_TYPE_OPTIONS while still
+ * being a legal `interactions.interaction_type`. All 70 production interactions
+ * carried this value at the time of CAR-242.
+ */
+export const SYSTEM_INTERACTION_TYPE_EMAIL = "email";
+
+/** The full `interactions.interaction_type` CHECK vocabulary: the user-selectable
+ * five plus the system-only `email`. */
+export const INTERACTION_TYPE_VALUES = [
+  ...CONVERSATION_TYPE_VALUES,
+  SYSTEM_INTERACTION_TYPE_EMAIL,
+] as const;
+
+/** Mirrors the `char_length(...) BETWEEN 1 AND 80` half of the detail CHECK.
+ * Kept in sync by check-constraints.itest.ts's write-path assertions. */
+export const CONVERSATION_TYPE_DETAIL_MAX_LENGTH = 80;
+
+/**
+ * Normalizes a type/detail pair to what the DB will accept: the detail is
+ * dropped unless the type is `other`, and blank detail collapses to null. Use
+ * this at EVERY write site — the `*_type_detail` CHECK rejects a detail carried
+ * over from a type the user has since switched away from.
+ */
+export function normalizeConversationTypeDetail(
+  type: string | null,
+  detail: string | null | undefined,
+): string | null {
+  if (type !== ConversationType.Other) return null;
+  const trimmed = (detail ?? "").trim();
+  return trimmed ? trimmed.slice(0, CONVERSATION_TYPE_DETAIL_MAX_LENGTH) : null;
+}
+
+/**
+ * The display string for a stored type/detail pair. Use this EVERYWHERE a type
+ * is rendered instead of the CSS `capitalize` these call sites used before
+ * CAR-242 — `capitalize` turns `career-fair` into "Career-fair" and cannot show
+ * the user's own words for Other.
+ *
+ * Returns null for an absent type so callers keep their own fallback ("Meeting").
+ */
+export function conversationTypeLabel(
+  type: string | null | undefined,
+  detail?: string | null,
+): string | null {
+  if (!type) return null;
+  if (type === ConversationType.Other) {
+    const trimmed = detail?.trim();
+    if (trimmed) return trimmed;
+  }
+  const option = CONVERSATION_TYPE_OPTIONS.find((o) => o.value === type);
+  if (option) return option.label;
+  if (type === SYSTEM_INTERACTION_TYPE_EMAIL) return "Email";
+  // A value predating CAR-242's backfill, or written by a client that has not
+  // reloaded. The CHECK makes new ones impossible; humanize rather than 404.
+  return type.charAt(0).toUpperCase() + type.slice(1).replace(/[-_]/g, " ");
+}
 
 // ── Home page constants ──────────────────────────────────────────────
 

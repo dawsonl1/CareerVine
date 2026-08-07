@@ -79,6 +79,9 @@ export type InteractionWithContact = {
   contact_id: number;
   interaction_date: string;
   interaction_type: string;
+  /** Free text when interaction_type is 'other' (CAR-242). Render via
+   * `conversationTypeLabel(type, detail)`, never the raw type. */
+  interaction_type_detail: string | null;
   summary: string | null;
   contacts: { id: number; name: string };
 };
@@ -115,6 +118,8 @@ export type ContactMeeting = {
   id: number;
   meeting_date: string;
   meeting_type: string | null;
+  /** Free text when meeting_type is 'other' (CAR-242). */
+  meeting_type_detail: string | null;
   title: string | null;
   notes: string | null;
   private_notes: string | null;

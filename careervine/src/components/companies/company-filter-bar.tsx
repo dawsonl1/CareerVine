@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import {
   EMPTY_COMPANY_FILTERS,
   hasActiveCompanyFilters,
   TARGET_STATUSES,
+  type AlumniFilter,
   type CompanyFilters,
   type ContactsFilter,
   type TargetStatus,
 } from "@/lib/company-filters";
 import { STAGE_LABELS, STAGE_ORDER, type OutreachStage } from "@/lib/stage-derivation";
-import { Check, ChevronDown, GraduationCap, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronDown, GraduationCap, SlidersHorizontal, UserCheck } from "lucide-react";
 import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
 
 // Shared with the company cards on the page.
@@ -47,17 +48,26 @@ interface CompanyFilterBarProps {
   /** Distinct tier labels present in the loaded data. */
   tierOptions: string[];
   /**
-   * Per-status company counts (unfiltered), for chip labels. Omitted when the
-   * list could not be loaded: `countByStatus` seeds every status to 0, so
-   * passing it there would print five confident zeros about data that was never
-   * read. The chips stay usable as controls without them (CAR-205 review).
+   * Per-status company counts, with every other active facet already applied
+   * (`statusChipCounts`), so a count reads as "what I get if I click this".
+   *
+   * Omitted when the list could not be loaded: the counter seeds every status to
+   * 0, so passing it there would print five confident zeros about data that was
+   * never read. The chips stay usable as controls without them (CAR-205 review).
    */
   statusCounts?: Record<TargetStatus, number>;
 }
 
 /** How many of the secondary (non-stage) filters are active — drives the badge. */
 function secondaryActiveCount(f: CompanyFilters): number {
-  return (f.productAlum ? 1 : 0) + (f.traction ? 1 : 0) + (f.tier ? 1 : 0) + (f.contacts !== "any" ? 1 : 0);
+  return (
+    (f.productAlum ? 1 : 0) +
+    (f.currentOnly ? 1 : 0) +
+    (f.traction.length > 0 ? 1 : 0) +
+    (f.tiers.length > 0 ? 1 : 0) +
+    (f.contacts.length > 0 ? 1 : 0) +
+    (f.alumni.length > 0 ? 1 : 0)
+  );
 }
 
 // Checkmark slides open/closed so the label doesn't jump (contacts-page pattern).
@@ -129,7 +139,8 @@ export default function CompanyFilterBar({
         </button>
       </div>
 
-      {/* Secondary tier: warmth + traction/tier/contacts, collapsed by default */}
+      {/* Secondary tier: warmth + traction/tier/contacts/alumni, collapsed by default.
+          Toggle chips first, then the multi-select facets. */}
       {open && (
         <div className="flex flex-wrap items-center gap-2 border-t border-outline-variant pt-3">
           {/* Hidden, not disabled, without affinity (CAR-213): the filter
@@ -147,38 +158,71 @@ export default function CompanyFilterBar({
             </button>
           )}
 
-          <Select
+          {/* A toggle rather than a row in the contacts dropdown: options inside one
+              dropdown OR together, and this one NARROWS. "With contacts" or
+              "works there now" would be the wider set, not the intersection. */}
+          <button
+            onClick={() => onFiltersChange({ ...filters, currentOnly: !filters.currentOnly })}
+            aria-pressed={filters.currentOnly}
+            className={`${CHIP_BASE} ${filters.currentOnly ? CHIP_ON : CHIP_OFF}`}
+          >
+            <ChipCheck on={filters.currentOnly} />
+            <UserCheck className="h-4 w-4 mr-1.5" />
+            Contact works there now
+          </button>
+
+          <MultiSelect
             ariaLabel="Filter by traction"
-            value={filters.traction ?? ""}
-            onChange={(v) => onFiltersChange({ ...filters, traction: (v || null) as OutreachStage | null })}
-            options={[{ value: "", label: "Any traction" }, ...STAGE_ORDER.map((s) => ({ value: s, label: STAGE_LABELS[s] }))]}
+            anyLabel="Any traction"
+            values={filters.traction}
+            onChange={(v) => onFiltersChange({ ...filters, traction: v as OutreachStage[] })}
+            options={STAGE_ORDER.map((s) => ({ value: s, label: STAGE_LABELS[s] }))}
             className="text-sm"
             triggerClassName={SELECT_TRIGGER}
           />
 
           {tierOptions.length >= 2 && (
-            <Select
+            <MultiSelect
               ariaLabel="Filter by tier"
-              value={filters.tier ?? ""}
-              onChange={(v) => onFiltersChange({ ...filters, tier: v || null })}
-              options={[{ value: "", label: "Any tier" }, ...tierOptions.map((t) => ({ value: t, label: t }))]}
+              anyLabel="Any tier"
+              values={filters.tiers}
+              onChange={(v) => onFiltersChange({ ...filters, tiers: v })}
+              options={tierOptions.map((t) => ({ value: t, label: t }))}
               className="text-sm"
               triggerClassName={SELECT_TRIGGER}
             />
           )}
 
-          <Select
+          <MultiSelect
             ariaLabel="Filter by contacts"
-            value={filters.contacts}
-            onChange={(v) => onFiltersChange({ ...filters, contacts: v as ContactsFilter })}
+            anyLabel="Any contacts"
+            values={filters.contacts}
+            onChange={(v) => onFiltersChange({ ...filters, contacts: v as ContactsFilter[] })}
             options={[
-              { value: "any", label: "Any contacts" },
               { value: "with", label: "With contacts" },
               { value: "none", label: "No contacts yet" },
             ]}
             className="text-sm"
             triggerClassName={SELECT_TRIGGER}
           />
+
+          {/* Hidden without affinity for the same reason as the chip above: with no
+              school on the account every company has alum_count 0, so "With" would
+              match nothing and "Without" everything. */}
+          {affinity.hasAffinity && (
+            <MultiSelect
+              ariaLabel="Filter by alumni"
+              anyLabel="Any alumni"
+              values={filters.alumni}
+              onChange={(v) => onFiltersChange({ ...filters, alumni: v as AlumniFilter[] })}
+              options={[
+                { value: "with", label: affinity.abbr ? `With ${affinity.abbr} alumni` : "With alumni" },
+                { value: "without", label: affinity.abbr ? `No ${affinity.abbr} alumni` : "No alumni" },
+              ]}
+              className="text-sm"
+              triggerClassName={SELECT_TRIGGER}
+            />
+          )}
 
           {hasActiveCompanyFilters(filters) && (
             <button

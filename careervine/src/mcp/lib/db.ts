@@ -421,6 +421,10 @@ export async function setStageOverride(contactId: number, stage: string | null):
 export async function logInteraction(
   contactId: number,
   type: string,
+  /** Free text, only meaningful when `type` is 'other' — the
+   * interactions_interaction_type_detail_check CHECK rejects it otherwise.
+   * Callers pass it through normalizeConversationTypeDetail first. */
+  typeDetail: string | null,
   date: string,
   summary: string | null,
 ): Promise<{ interactionId: number; activated: boolean }> {
@@ -431,6 +435,7 @@ export async function logInteraction(
       contact_id: contactId,
       interaction_date: date,
       interaction_type: type,
+      interaction_type_detail: typeDetail,
       summary,
     })
     .select("id")
@@ -1019,7 +1024,7 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
   ] = await Promise.all([
     db()
       .from("interactions")
-      .select("id, interaction_date, interaction_type, summary")
+      .select("id, interaction_date, interaction_type, interaction_type_detail, summary")
       .eq("contact_id", contactId)
       .order("interaction_date", { ascending: false })
       .limit(limit),
@@ -1032,7 +1037,7 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
     // private reminders must not bleed into generated outreach.
     db()
       .from("meeting_contacts")
-      .select("meetings!inner(id, meeting_date, meeting_type, title, notes)")
+      .select("meetings!inner(id, meeting_date, meeting_type, meeting_type_detail, title, notes)")
       .eq("contact_id", contactId)
       .eq("meetings.user_id", uid()),
     db()

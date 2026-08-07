@@ -40,7 +40,7 @@ function renderFields(overrides: Record<string, unknown> = {}) {
     notes: "",
     transcript: "seed so the transcript section starts expanded",
     date: "2026-08-06",
-    meetingType: "video",
+    meetingType: "coffee",
     selectedContactIds: [] as number[],
     ...(overrides.form as object ?? {}),
   };

@@ -12,6 +12,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { UI_EVENTS, onUiEvent } from "@/lib/ui-events";
 import { useAuth } from "@/components/auth-provider";
+import { ConversationType } from "@/lib/constants";
 import LandingPage from "@/components/landing-page";
 import Navigation from "@/components/navigation";
 import { LoadErrorState, LoadErrorBanner } from "@/components/ui/load-error-state";
@@ -956,7 +957,9 @@ export default function Home() {
                   title: ev.title,
                   date: start ? `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}` : undefined,
                   time: start ? `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}` : undefined,
-                  meetingType: ev.meetLink ? "video" : undefined,
+                  // Coffee Chat covers video calls (CAR-242), so a Meet link
+                  // still prefills a real type rather than nothing.
+                  meetingType: ev.meetLink ? ConversationType.Coffee : undefined,
                 });
               }}
               onEventCreated={loadSchedule}
