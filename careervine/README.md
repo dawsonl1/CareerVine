@@ -94,8 +94,11 @@ search and stackable filters:
 - Search as you type across company names, program names, and tier labels. Results
   update instantly, no page reloads.
 - Narrow the list by target status (researching through closed), outreach traction,
-  tier, whether you already know someone inside, whether one of your contacts works
-  there right now, and whether anyone there went to your school.
+  tier, who you know inside, and whether anyone there went to your school.
+- Who you know inside is one menu, not two competing ones: pick "works there now",
+  "worked there before", "no contacts yet", or any combination. Companies where your
+  only connection has moved on are one click away, and so is the pair that means
+  "anyone at all".
 - The traction, tier, contacts, and alumni menus each take several answers at once,
   so "Big Tech or Utah" and "Replied or Call done" are single filters rather than
   two separate views.
@@ -106,6 +109,13 @@ search and stackable filters:
   left in that tier, so the number you click is the number you get.
 - Every filtered view lives in the URL: share it, bookmark it, or click into a
   company and come back without losing your place.
+
+Each card also carries a traction badge that reads like a status report rather
+than a label: "3 Contacted (2 days ago)", "2 Calls Done (2 weeks ago)", "1 Call
+Scheduled (in 3 days)". You can see at a glance how much has happened at a
+company and whether it has gone cold, without opening it. Only people who
+currently work there count toward it, so a conversation with someone who has
+since moved on never makes a company look warmer than it is.
 
 ## A network that keeps itself fresh
 

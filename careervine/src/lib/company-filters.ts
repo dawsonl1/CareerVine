@@ -4,10 +4,15 @@
  *
  * FACET CONTRACT (CAR-245). Every multi-value facet holds an array where **empty
  * means any** — the absence of a filter, never "match nothing". Values inside one
- * facet OR together; facets AND with each other. That is what makes the two
- * complementary pairs (`contacts` with/none, `alumni` with/without) need no special
- * case: selecting both sides ORs to everything, which is the same result as
- * selecting neither.
+ * facet OR together; facets AND with each other. That is what lets a facet's values
+ * exhaustively cover its dimension (`contacts` current/former/none, `alumni`
+ * with/without) with no special case: selecting every value ORs to everything, the
+ * same result as selecting none of them.
+ *
+ * The corollary, and the reason CAR-248 retired the standalone "works there now"
+ * chip: a criterion that belongs to a facet's dimension must be a VALUE in that
+ * facet, not a sibling control. Two controls over the same dimension read as
+ * overlapping — the user cannot see that one ORs and the other ANDs.
  *
  * Every facet reads a field `getCompanies` already returns, so nothing here implies
  * a query change.
@@ -25,8 +30,19 @@ export const TARGET_STATUSES = [
 ] as const;
 export type TargetStatus = (typeof TARGET_STATUSES)[number];
 
-/** `with` = at least one current or former contact; `none` = neither. */
-export const CONTACTS_FILTERS = ["with", "none"] as const;
+/**
+ * Contact presence, as ONE facet rather than a dropdown plus a chip (CAR-248).
+ *
+ * `current` = someone works there now; `former` = someone used to; `none` =
+ * neither. The first two are not exclusive — a company with one of each matches
+ * both — which is what makes their union the old `with`, and all three together
+ * the same as selecting nothing.
+ *
+ * Bench contacts count toward none of them, so a bench-only company reads as
+ * `none`. That is `company_network_counts`' split (CAR-229), and it is also what
+ * the company card badges, so the filter and the card agree.
+ */
+export const CONTACTS_FILTERS = ["current", "former", "none"] as const;
 export type ContactsFilter = (typeof CONTACTS_FILTERS)[number];
 
 /**
@@ -46,15 +62,10 @@ export interface CompanyFilters {
   traction: OutreachStage[];
   /** Tier labels to include; empty = any. */
   tiers: string[];
-  /** Contact-presence sides to include; empty (or both) = any. */
+  /** Contact-presence values to include; empty (or all three) = any. */
   contacts: ContactsFilter[];
   /** Alumni-presence sides to include; empty (or both) = any. */
   alumni: AlumniFilter[];
-  /**
-   * Only companies where a contact or prospect works there NOW. Distinct from
-   * `contacts: ["with"]`, which also keeps a company whose only person has left.
-   */
-  currentOnly: boolean;
   /** Only companies with an alum of the user's school in a product role. */
   productAlum: boolean;
 }
@@ -66,7 +77,6 @@ export const EMPTY_COMPANY_FILTERS: CompanyFilters = {
   tiers: [],
   contacts: [],
   alumni: [],
-  currentOnly: false,
   productAlum: false,
 };
 
@@ -83,9 +93,18 @@ export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
     f.tiers.length > 0 ||
     f.contacts.length > 0 ||
     f.alumni.length > 0 ||
-    f.currentOnly ||
     f.productAlum
   );
+}
+
+/** Does a company satisfy one contact-presence value? */
+function matchesContacts(c: CompanySummary, side: ContactsFilter): boolean {
+  // current_count is non-bench contacts (active + prospect) holding a CURRENT
+  // role at the company — exactly "someone is there now". former_count is the
+  // same people minus a current role, so the two never double-count a contact.
+  if (side === "current") return c.current_count > 0;
+  if (side === "former") return c.former_count > 0;
+  return c.current_count + c.former_count === 0;
 }
 
 /** AND-combine the free-text query with every active facet. */
@@ -102,17 +121,11 @@ export function filterCompanies(rows: CompanySummary[], f: CompanyFilters): Comp
     if (statuses.size > 0 && (!c.target || !statuses.has(c.target.status))) return false;
     if (traction.size > 0 && (c.traction === null || !traction.has(c.traction))) return false;
     if (tiers.size > 0 && (c.target?.tier == null || !tiers.has(c.target.tier))) return false;
-    if (f.contacts.length > 0) {
-      const withContacts = c.current_count + c.former_count > 0;
-      if (!f.contacts.some((side) => (side === "with" ? withContacts : !withContacts))) return false;
-    }
+    if (f.contacts.length > 0 && !f.contacts.some((side) => matchesContacts(c, side))) return false;
     if (f.alumni.length > 0) {
       const withAlumni = c.alum_count > 0;
       if (!f.alumni.some((side) => (side === "with" ? withAlumni : !withAlumni))) return false;
     }
-    // current_count is non-bench contacts (active + prospect) holding a CURRENT role
-    // at the company — exactly "someone is there now".
-    if (f.currentOnly && c.current_count === 0) return false;
     if (f.productAlum && c.product_alum_count === 0) return false;
     return true;
   });
@@ -161,12 +174,15 @@ export function statusChipCounts(
 
 // ── URL param round-trip ────────────────────────────────────────────────
 // Scheme: ?q=stripe&status=applied,interviewing&traction=replied,call_done
-//          &tier=Big+Tech&tier=Utah&contacts=none&alumni=with&current=1&product_alum=1
+//          &tier=Big+Tech&tier=Utah&contacts=none&alumni=with&product_alum=1
 //
 // Param names stay SINGULAR, so every link shared before the facets went
 // multi-value still parses: one value lands as a one-element array, and the
 // retired `contacts=any` fails validation and falls through to the empty array,
 // which is exactly what it meant.
+//
+// Two more retired spellings are MIGRATED rather than dropped, because unlike
+// `any` they carried a real filter (CAR-248) — see `migrateLegacyContacts`.
 //
 // Enum facets are comma-joined (the scheme `status` already used). `tier` is
 // REPEATED instead, and never split: a tier label is free text and may itself
@@ -184,6 +200,28 @@ function parseList<T extends string>(params: URLSearchParams, key: string, valid
   return [...new Set(values)];
 }
 
+/**
+ * Fold the pre-CAR-248 contact params into the three-value facet, so a link
+ * shared while the row had a dropdown AND a "works there now" chip still
+ * filters the way its author meant.
+ *
+ * - `contacts=with` was "current or former", which is now both values.
+ * - `current=1` was a separate AND-ing toggle, so it NARROWS what the dropdown
+ *   parsed to. A legacy link can only be in two states — `current=1` alone, or
+ *   `current=1&contacts=with` — and both map exactly onto `["current"]`.
+ * - `current=1&contacts=none` was self-contradictory and rendered an empty list.
+ *   It has no equivalent here, and resolving it toward `none` is the choice that
+ *   shows the user something rather than nothing.
+ */
+function migrateLegacyContacts(params: URLSearchParams, parsed: ContactsFilter[]): ContactsFilter[] {
+  const raw = params.getAll("contacts").flatMap((s) => s.split(",")).map((s) => s.trim());
+  const contacts = raw.includes("with")
+    ? CONTACTS_FILTERS.filter((v) => v !== "none" || parsed.includes("none"))
+    : parsed;
+  if (params.get("current") !== "1") return contacts;
+  return contacts.length === 0 || contacts.includes("current") ? ["current"] : contacts;
+}
+
 export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
   // Tiers are free text (a user-defined label), so there is no value list to
   // validate against — only blanks are dropped.
@@ -196,9 +234,11 @@ export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
     statuses: parseList<TargetStatus>(params, "status", VALID_STATUSES),
     traction: parseList<OutreachStage>(params, "traction", VALID_STAGES),
     tiers: [...new Set(tiers)],
-    contacts: parseList<ContactsFilter>(params, "contacts", VALID_CONTACTS),
+    contacts: migrateLegacyContacts(
+      params,
+      parseList<ContactsFilter>(params, "contacts", VALID_CONTACTS),
+    ),
     alumni: parseList<AlumniFilter>(params, "alumni", VALID_ALUMNI),
-    currentOnly: params.get("current") === "1",
     productAlum: params.get("product_alum") === "1",
   };
 }
@@ -227,7 +267,10 @@ export function serializeCompanyFilters(f: CompanyFilters, base: URLSearchParams
   setRepeated("tier", f.tiers);
   setList("contacts", f.contacts);
   setList("alumni", f.alumni);
-  setOrDelete("current", f.currentOnly ? "1" : null);
+  // Retired in CAR-248. Deleted rather than merely not written: `parse` has
+  // already folded it into `contacts`, so leaving it on the URL would apply it a
+  // second time on the next read and re-narrow a filter the user just widened.
+  out.delete("current");
   setOrDelete("product_alum", f.productAlum ? "1" : null);
   return out;
 }

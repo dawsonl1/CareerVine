@@ -68,8 +68,13 @@ function firstName(name: string | null): string | null {
  * what a job-seeker should actually do first: finish live conversations and
  * beat hard deadlines before starting cold ones, and always prefer a warm
  * (alumni) intro over a generic one.
+ *
+ * Null means there is genuinely nothing to say, which happens only when you
+ * know nobody currently inside the company and it carries no deadline or
+ * pipeline state of its own. The card renders no pill at all there; see the
+ * bottom of the ladder.
  */
-export function deriveNextAction(input: NextActionInput, now: Date = new Date()): NextAction {
+export function deriveNextAction(input: NextActionInput, now: Date = new Date()): NextAction | null {
   const { status, nextAppDate, traction, currentCount, alumCount, productAlumCount } = input;
   const lead = firstName(input.leadName);
 
@@ -112,11 +117,14 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
     return { text: lead ? `Follow up with ${lead} after your call` : "Follow up after your call", icon: "MessageSquare", tone: "active", rank: 65 };
   }
 
-  // Applied — nudge toward a human to back the application.
+  // Applied — nudge toward a human to back the application. With nobody current
+  // to nudge toward, there is no move to name: the status chip already says
+  // "Applied", so a pill repeating it and adding "find someone" is filler
+  // (CAR-246).
   if (status === "applied") {
     return currentCount > 0
       ? { text: "Applied, so ask a contact to refer you", icon: "Send", tone: "active", rank: 62 }
-      : { text: "Applied. Find someone here to back you up", icon: "Send", tone: "muted", rank: 48 };
+      : null;
   }
 
   // Contacted / bounced — you've already engaged, so this outranks a cold
@@ -158,12 +166,27 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
     return { text: `Applications closed ${shortDate(nextAppDate!)}. Mark applied or move on`, icon: "CalendarX", tone: "muted", rank: 22 };
   }
 
-  // Targeted, nobody known yet.
-  return { text: "Find people who work here", icon: "Search", tone: "muted", rank: 30 };
+  // Targeted, nobody currently inside. There is no next move that this card can
+  // name, so it says nothing rather than filling the slot with "find people"
+  // (CAR-246). Reaching here means currentCount is 0: every traction rung needs
+  // a current contact, and the warm-intro rungs above test for one explicitly.
+  //
+  // Company-level rungs still fire before this — a deadline, Interviewing, or
+  // Closed is a fact about the application, not about who you know, and an
+  // application closing in three days is exactly the pill worth showing to
+  // someone who knows nobody there yet.
+  return null;
 }
 
+/**
+ * Rank for a company the ladder has nothing to say about. Below every real
+ * rung (the lowest is Closed at 5), so the "What's next" sort parks these at
+ * the bottom instead of dropping them out of the list.
+ */
+export const NO_ACTION_RANK = 0;
+
 /** Adapt a CompanySummary to the next-action ladder. */
-export function nextActionForCompany(c: CompanySummary, now: Date = new Date()): NextAction {
+export function nextActionForCompany(c: CompanySummary, now: Date = new Date()): NextAction | null {
   return deriveNextAction(
     {
       status: c.target?.status ?? null,

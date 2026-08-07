@@ -17,6 +17,7 @@ const script = path.join(repoRoot, "scripts", "supabase-prod-drift-check.sh");
 
 let binDir: string;
 let stubLog: string;
+let stagedLog: string;
 
 function writeStub(name: string, body: string) {
   const p = path.join(binDir, name);
@@ -31,6 +32,7 @@ function runScript(env: Record<string, string>) {
       ...process.env,
       PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
       STUB_LOG: stubLog,
+      STAGED_LOG: stagedLog,
       DRIFT_CHECK_RETRY_DELAY: "0",
       ...env,
     },
@@ -113,18 +115,38 @@ function listenOn(): Promise<{ server: Server; port: number }> {
 beforeAll(() => {
   binDir = mkdtempSync(path.join(tmpdir(), "drift-check-stubs-"));
   stubLog = path.join(binDir, "supabase-invocations.log");
+  stagedLog = path.join(binDir, "staged-migrations.log");
   writeStub("docker", `exit 0`);
   writeStub(
     "supabase",
     // --version is answered BEFORE the invocation log, and with the exact
-    // version the script pins (CAR-229). The script refuses to run `db diff`
-    // through an unpinned CLI because 2.110.0 inverted the diff direction and
-    // reported a pending migration as production drift; a stub that cannot say
-    // what version it is would send every case here down the npx fallback and
-    // test nothing. Answering before the log keeps the invocation counts below
-    // measuring db diff attempts only.
-    `if [ "$1" = "--version" ]; then echo "2.109.1"; exit 0; fi
+    // version the script pins. That pin moved to 2.111.0 in CAR-247: 2.109.1
+    // turned out to be BLIND to real drift (it reported "No schema changes
+    // found" against a prod carrying two columns and four CHECK constraints the
+    // chain did not produce), so pinning to it made this tripwire pass
+    // unconditionally. A stub that cannot say what version it is would send
+    // every case here down the npx fallback and test nothing. Answering before
+    // the log keeps the invocation counts below measuring db diff attempts only.
+    `if [ "$1" = "--version" ]; then echo "2.111.0"; exit 0; fi
+# CAR-247: the script now asks which migrations prod has applied before it
+# diffs, so the shadow can be staged at the APPLIED chain. Answered before the
+# invocation log, like --version, so the counts below keep measuring db diff
+# attempts only. STUB_MIGRATIONS overrides the default all-applied answer.
+for a in "$@"; do
+  if [ "$a" = "migration" ]; then
+    if [ -n "$STUB_MIGRATIONS" ]; then printf '%s' "$STUB_MIGRATIONS"; else printf '%s' '{"migrations":[{"local":"20260101000000","remote":"20260101000000"}]}'; fi
+    exit 0
+  fi
+done
 echo run >> "$STUB_LOG"
+# CAR-247: record the staged shadow so tests can assert the EFFECT of staging
+# (which migration files the shadow was actually built from), not merely that
+# the script logged a message about it.
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--workdir" ]; then ls "$a/supabase/migrations" > "$STAGED_LOG" 2>/dev/null; echo "WORKDIR=$a" >> "$STAGED_LOG"; fi
+  prev="$a"
+done
 case "$STUB_MODE" in
   clean)
     printf '%s' '{"diff":"","dropStatements":[]}'
@@ -267,5 +289,118 @@ describe("supabase-prod-drift-check.sh shadow-port handling (CAR-171)", () => {
     expect(res.stderr).toContain("could not check drift after 3 attempts (prod connection / link / CLI issue)");
     expect(res.stderr).toContain("must not read as 'no drift'");
     expect(stubRuns()).toBe(3);
+  });
+});
+
+/**
+ * CAR-247. The script used to diff prod against the FULL local chain and treat
+ * anything reported as undocumented prod state. That is only sound if `db diff`
+ * never reports a pending migration's own objects — which is false: on the
+ * pinned 2.109.1, CAR-242's pending CHECK constraints came back as
+ * `DROP CONSTRAINT` for the four constraints that migration creates, and the
+ * operator was told to write a catch-up migration undoing them.
+ *
+ * The shadow is now staged at the APPLIED chain, so a report can only be real
+ * drift. These pin that staging, and the orphan case it made detectable.
+ */
+describe("supabase-prod-drift-check.sh applied-chain staging (CAR-247)", () => {
+  const applied = (...v: string[]) =>
+    JSON.stringify({ migrations: v.map((x) => ({ local: x, remote: x })) });
+
+  it("stages pending migrations out of the shadow and names them", async () => {
+    rmSync(stubLog, { force: true });
+    const port = await freePort();
+    const res = runScript({
+      DRIFT_CHECK_SHADOW_PORT: String(port),
+      STUB_MODE: "clean",
+      STUB_MIGRATIONS: JSON.stringify({
+        migrations: [
+          { local: "20260101000000", remote: "20260101000000" },
+          { local: "20260807040000", remote: "" },
+        ],
+      }),
+    });
+    assertPreCheckPassed(res, port);
+    expect(res.status).toBe(0);
+    expect(res.stderr).toContain("Staging shadow without 1 pending migration(s)");
+    expect(res.stderr).toContain("20260807040000");
+    expect(res.stderr).toContain("No production schema drift");
+    // The diff still ran; staging replaces the shadow, it does not skip the check.
+    expect(stubRuns()).toBe(1);
+
+    // The assertion that actually covers staging: db diff was pointed at a
+    // staged workdir, and the pending migration's FILE is absent from the chain
+    // that shadow is built from. Asserting only the log line above passes even
+    // if the staging never happens.
+    const staged = readFileSync(stagedLog, "utf8");
+    expect(staged).toContain("WORKDIR=");
+    expect(staged).not.toContain("20260807040000");
+    // ...while migrations prod has applied are still present, so the shadow is
+    // the applied chain rather than an empty one.
+    expect(staged).toContain("20260807030000");
+  });
+
+  it("does not stage anything when prod is level with the local chain", async () => {
+    rmSync(stubLog, { force: true });
+    const port = await freePort();
+    const res = runScript({
+      DRIFT_CHECK_SHADOW_PORT: String(port),
+      STUB_MODE: "clean",
+      STUB_MIGRATIONS: applied("20260101000000", "20260102000000"),
+    });
+    assertPreCheckPassed(res, port);
+    expect(res.status).toBe(0);
+    expect(res.stderr).not.toContain("Staging shadow without");
+    expect(res.stderr).toContain("No production schema drift");
+  });
+
+  it("fails loudly when prod has an applied migration with no local file", async () => {
+    rmSync(stubLog, { force: true });
+    const port = await freePort();
+    const res = runScript({
+      DRIFT_CHECK_SHADOW_PORT: String(port),
+      STUB_MODE: "clean",
+      STUB_MIGRATIONS: JSON.stringify({
+        migrations: [
+          { local: "20260101000000", remote: "20260101000000" },
+          { local: "", remote: "20260505000000" },
+        ],
+      }),
+    });
+    assertPreCheckPassed(res, port);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("prod has applied migrations with no local file");
+    expect(res.stderr).toContain("20260505000000");
+    // A lost migration file is decided before any diff, so no diff is attempted.
+    expect(stubRuns()).toBe(0);
+  });
+
+  it("refuses to proceed when the applied-migration list cannot be read", async () => {
+    rmSync(stubLog, { force: true });
+    const port = await freePort();
+    const res = runScript({
+      DRIFT_CHECK_SHADOW_PORT: String(port),
+      STUB_MODE: "clean",
+      STUB_MIGRATIONS: "not json at all",
+    });
+    assertPreCheckPassed(res, port);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("could not list applied migrations");
+    expect(res.stderr).not.toContain("No production schema drift");
+    expect(stubRuns()).toBe(0);
+  });
+
+  it("fails closed when the migration list is JSON but the wrong shape", async () => {
+    rmSync(stubLog, { force: true });
+    const port = await freePort();
+    const res = runScript({
+      DRIFT_CHECK_SHADOW_PORT: String(port),
+      STUB_MODE: "clean",
+      STUB_MIGRATIONS: '{"migrations":"not-an-array"}',
+    });
+    assertPreCheckPassed(res, port);
+    expect(res.status).toBe(1);
+    expect(res.stderr).not.toContain("No production schema drift");
+    expect(stubRuns()).toBe(0);
   });
 });

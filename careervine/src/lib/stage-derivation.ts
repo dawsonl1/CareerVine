@@ -40,6 +40,27 @@ export const STAGE_LABELS: Record<OutreachStage, string> = {
   referral: "Referral",
 };
 
+/**
+ * Counted labels for the companies-list traction chip (CAR-246), which reads
+ * "2 Calls Done (2 weeks ago)" rather than a bare stage name.
+ *
+ * Separate from STAGE_LABELS on purpose: that map labels ONE person's stage on
+ * the outreach page, the person modal and the pipeline board, where a count
+ * would be meaningless. Only the company chip aggregates, so only it pluralizes.
+ *
+ * "Contacted" and "Bounced" are past participles describing the people, not
+ * countable nouns, so they do not inflect: "3 Contacted", not "3 Contacteds".
+ */
+export const STAGE_CHIP_LABELS: Record<OutreachStage, { one: string; many: string }> = {
+  not_contacted: { one: "Not contacted", many: "Not contacted" },
+  contacted: { one: "Contacted", many: "Contacted" },
+  bounced: { one: "Bounced", many: "Bounced" },
+  replied: { one: "Reply", many: "Replies" },
+  call_scheduled: { one: "Call Scheduled", many: "Calls Scheduled" },
+  call_done: { one: "Call Done", many: "Calls Done" },
+  referral: { one: "Referral", many: "Referrals" },
+};
+
 export interface StageSignals {
   /** contacts.stage_override — wins over every derived signal. */
   stageOverride?: string | null;
