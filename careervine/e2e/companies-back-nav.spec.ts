@@ -458,9 +458,9 @@ test("restores the position itself when the browser's own restoration is off", a
  * restores, but no longer points at the row) without depending on a reordering
  * that is not under this test's control.
  *
- * Falsification, both run: reverting `refreshCompaniesList` to a plain delete
- * takes the request count from 0 to 18, and dropping the anchor block from
- * `use-scroll-restoration.ts` leaves the card off screen.
+ * Falsification, both run: making `refreshList` drop without refetching (the
+ * pre-CAR-278 behaviour) takes the return from 0 requests to 15, and pointing
+ * `findAnchor` at an attribute nothing carries leaves the card off screen.
  */
 test("a write keeps the list warm, and the return lands on the row you left", async ({ page }) => {
   // Chrome's own restoration would put the page back from ITS memory, which the
@@ -482,7 +482,7 @@ test("a write keeps the list warm, and the return lands on the row you left", as
 
   // A real write through `usePipelineAutosave`, which is the busiest caller of
   // `refreshCompaniesList` and the one that made the delete-only version hurt.
-  await page.getByRole("button", { name: "Company status" }).click();
+  await page.getByRole("combobox", { name: "Company status" }).click();
   await page.getByRole("option", { name: "Not a target" }).click();
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 

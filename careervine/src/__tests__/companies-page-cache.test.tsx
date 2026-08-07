@@ -2,8 +2,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
-import { resetListCache } from "@/lib/list-cache";
-import { refreshCompaniesList } from "@/lib/companies-list-cache";
+import { resetListCache, readList, writeList } from "@/lib/list-cache";
+import {
+  refreshCompaniesList,
+  companiesListKey,
+  COMPANIES_LIST_TTL_MS,
+} from "@/lib/companies-list-cache";
 import type { CompanySummary } from "@/lib/company-queries";
 
 /**
@@ -165,5 +169,30 @@ describe("companies list cache", () => {
     render(<CompaniesPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeTruthy());
     expect(q.getCompanies).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * CAR-278 widened this window from five minutes to fifteen. Stated as the trips
+ * it does and does not cover rather than as the digits, because the digits are
+ * not the claim: what the ticket decided is that a long detour through a company
+ * should still come back to a cached list, and that the window is still a bound
+ * rather than forever. Every write CareerVine itself makes refreshes the cache
+ * at the write site, so this governs only what the tab cannot see (a cron, MCP,
+ * another tab).
+ */
+describe("companies list TTL", () => {
+  const MINUTE = 60 * 1000;
+  const KEY = companiesListKey(USER_ID, "next");
+  const ROWS = [summary(1, "Acme")];
+
+  it("still serves the list after a ten-minute detour", () => {
+    writeList(KEY, ROWS, 0);
+    expect(readList(KEY, COMPANIES_LIST_TTL_MS, 10 * MINUTE)).toEqual(ROWS);
+  });
+
+  it("has let go by twenty minutes, so the blind window stays bounded", () => {
+    writeList(KEY, ROWS, 0);
+    expect(readList(KEY, COMPANIES_LIST_TTL_MS, 20 * MINUTE)).toBeUndefined();
   });
 });
