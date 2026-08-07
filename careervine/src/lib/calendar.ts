@@ -137,6 +137,19 @@ export async function fetchCalendarEvents(
     calendarId,
     maxResults: 250,
     singleEvents: true,
+    // Without this Google OMITS deleted events entirely rather than returning
+    // them as status:"cancelled" skeletons, and the sync route's whole
+    // cancellation branch — which keys on exactly that status — becomes
+    // unreachable. Deleting an event in Google then never removed it from
+    // CareerVine: it stayed in the cache forever, still counted as a scheduled
+    // call (CAR-254). Measured on the real account: 18 events without this
+    // flag, 19 with it, the extra one being the deleted event.
+    //
+    // Not merely a fallback for the syncToken path. `orderBy` (set below on the
+    // windowed path) is incompatible with Google returning a nextSyncToken, so
+    // no token is ever stored, so the windowed path is the ONLY path that runs
+    // and incremental sync never delivers the deletions instead.
+    showDeleted: true,
   };
 
   if (options.syncToken) {
