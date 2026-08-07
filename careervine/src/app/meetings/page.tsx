@@ -531,8 +531,17 @@ export default function MeetingsPage() {
                     </button>
                     <button
                       onClick={async () => {
+                        // The action items SURVIVE the meeting:
+                        // follow_up_action_items.meeting_id is ON DELETE SET
+                        // NULL, so they are unlinked rather than removed. The
+                        // old copy said only "cannot be undone", which left the
+                        // user expecting the opposite (CAR-249).
+                        const orphanCount = (meetingActions[meeting.id] || []).length;
                         if (!(await confirm({
-                          message: "Delete this meeting? This action cannot be undone.",
+                          title: "Delete this meeting?",
+                          message: orphanCount > 0
+                            ? `This cannot be undone. ${orphanCount} action item${orphanCount === 1 ? "" : "s"} from this meeting will be kept, no longer linked to it.`
+                            : "This cannot be undone.",
                           confirmLabel: "Delete",
                           destructive: true,
                         }))) return;

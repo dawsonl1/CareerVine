@@ -34,6 +34,10 @@ type ActionItem = {
 type CompletedAction = {
   id: number;
   title: string;
+  // Carried, not rendered here: this tab shows a completed item as one line, but
+  // the same row is handed to the page's timeline detail view (CAR-249), and the
+  // completing handler below rebuilds the object from an open action.
+  description: string | null;
   due_at: string | null;
   is_completed: boolean;
   completed_at: string | null;
@@ -257,7 +261,7 @@ export function ContactActionsTab({
             onClick={() => {
               onActionsChange(
                 actions.filter((a) => a.id !== action.id),
-                [{ id: action.id, title: action.title, due_at: action.due_at, is_completed: true, completed_at: new Date().toISOString(), direction: action.direction, meetings: action.meetings }, ...completedActions],
+                [{ id: action.id, title: action.title, description: action.description, due_at: action.due_at, is_completed: true, completed_at: new Date().toISOString(), direction: action.direction, meetings: action.meetings }, ...completedActions],
               );
               deferComplete(action);
             }}

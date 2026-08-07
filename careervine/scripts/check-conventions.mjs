@@ -1546,10 +1546,11 @@ const DOUBLE_SUBMIT_BASELINE = {
     "onClick~y02s",
   ],
   "src/components/contacts/contact-edit-modal.tsx": ["onClick~99bx"],
+  // handleExpandEmail drained by CAR-249: its body moved into the useEmailBody
+  // hook, which carries the guard.
   "src/components/contacts/contact-emails-tab.tsx": [
     "cancelFollowUp",
     "confirmMessage",
-    "handleExpandEmail",
     "markReplied",
     "retryScheduledEmail",
   ],
@@ -1563,10 +1564,8 @@ const DOUBLE_SUBMIT_BASELINE = {
     "saveCadence",
     "saveEmail",
   ],
-  "src/components/contacts/contact-timeline-tab.tsx": [
-    "handleDeleteInteraction",
-    "handleSaveInteraction",
-  ],
+  // Both drained by CAR-249: the tab is now presentational, and the interaction
+  // edit/delete handlers moved to timeline-detail-modal.tsx with ref guards.
   "src/components/contacts/resolve-linkedin-modal.tsx": ["link"],
   "src/components/conversation-modal/past-meeting-fields.tsx": ["handleAudioFile"],
   "src/components/email/inbox/inbox-shell.tsx": [

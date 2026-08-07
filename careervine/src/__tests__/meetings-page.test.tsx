@@ -97,6 +97,7 @@ vi.mock("@/lib/data/meetings", () =>
   typedMock<typeof import("@/lib/data/meetings")>({
     getMeetings: vi.fn(),
     getMeetingsForContact: vi.fn(),
+    getMeetingById: vi.fn(),
     createMeeting: vi.fn(),
     updateMeeting: vi.fn(),
     deleteMeeting: vi.fn(),
