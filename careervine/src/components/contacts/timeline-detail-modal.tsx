@@ -37,6 +37,7 @@ import type {
   TranscriptSegment,
 } from "@/lib/types";
 import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -105,6 +106,9 @@ export function TimelineDetailModal({
   // unmounted (CAR-268). One wrapper, because they all report through here.
   const handleChanged = useCallback(() => {
     invalidateCompanyScopes();
+    // Traction on the /companies card is derived from exactly the
+    // interactions this excludes and restores.
+    refreshCompaniesList();
     onChanged();
   }, [onChanged]);
 

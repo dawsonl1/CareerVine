@@ -28,6 +28,7 @@ import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import type { Contact } from "@/lib/types";
 import { apiFetch, jsonBody } from "@/lib/api-client";
 import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 
 interface ContactProfileCardProps {
   contact: Contact;
@@ -117,6 +118,9 @@ export function ContactProfileCard({
       }
       onContactUpdate();
       // The roster this person appears on is cached and unmounted (CAR-268).
+      // Deliberately NOT paired with `refreshCompaniesList()` the way the other
+      // writes in this file are: nothing on a /companies card is derived from an
+      // address. `CompanyRosterEntry` carries none, and the lead is a name.
       invalidateCompanyScopes();
       toastSuccess("Email updated");
     } catch {
@@ -130,6 +134,9 @@ export function ContactProfileCard({
       onContactUpdate();
       // The roster this person appears on is cached and unmounted (CAR-268).
       invalidateCompanyScopes();
+      // Same write, same staleness one level up: this moves the person out of
+      // the bench count and into the current count on their company's card.
+      refreshCompaniesList();
       toastSuccess(`${contact.name} added to your network`);
     } catch {
       toastError("Failed to add to network");

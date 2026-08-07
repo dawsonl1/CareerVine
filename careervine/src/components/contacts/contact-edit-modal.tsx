@@ -30,6 +30,7 @@ import { withToastOnError } from "@/lib/with-toast-on-error";
 import { canonicalUsState, isUnitedStates } from "@/lib/us-states";
 import { sortEducation, sortExperiences } from "@/lib/experience-order";
 import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 
 type CompanyEntry = { company_name: string; title: string; location?: string; is_current: boolean; start_month: string; end_month: string };
 /**
@@ -334,6 +335,9 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       onContactUpdate();
       // The roster this person appears on is cached and unmounted (CAR-268).
       invalidateCompanyScopes();
+      // A name or employment change moves who leads the company row
+      // on /companies, and which company that row is.
+      refreshCompaniesList();
       toastSuccess("Contact saved");
     } catch {
       toastError("Failed to save contact");

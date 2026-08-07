@@ -22,7 +22,7 @@ import {
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { activateContact, getFreshJobChangeContactIds } from "@/lib/queries";
-import { invalidateCompaniesList } from "@/lib/companies-list-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 import { hasInAppBackHistory } from "@/lib/nav-history";
 import type { ContactTier } from "@/components/companies/pipeline/pipeline-layout";
@@ -216,7 +216,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
       // company's contact counts, traction, and lead name on the list card.
       // The list is unmounted here, so it is invalidated at the write (CAR-256).
       if (user) {
-        invalidateCompaniesList(user.id);
+        refreshCompaniesList(user.id);
         // A tier move changes network_status, which moves this person's bucket
         // on EVERY company they hold a role at, not just this one (CAR-268).
         invalidateCompanyScopes();
@@ -270,10 +270,11 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
       );
       if (!deleted) return;
 
-      // The list is unmounted right now, so it cannot hear a ui-event:
-      // invalidate at the write site or the company sits in the 5-minute cache
-      // (CAR-256).
-      invalidateCompaniesList(user.id);
+      // The list is unmounted right now, so it cannot hear a ui-event: refresh
+      // at the write site or the company sits in the cache until its TTL
+      // expires (CAR-256). The push below lands mid-refetch, and the list joins
+      // that fetch rather than starting a second one (CAR-278).
+      refreshCompaniesList(user.id);
       toastSuccess(`${company.name} deleted`);
       // push, not back(): back() would land on a companies list restored from
       // history that still contains this company, and the entry for this page

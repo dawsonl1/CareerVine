@@ -19,6 +19,7 @@ import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-libra
  */
 
 vi.mock("@/components/ui/toast", () => mockToastModule());
+vi.mock("@/lib/companies-list-cache", () => ({ refreshCompaniesList: vi.fn() }));
 vi.mock("@/lib/company-detail-cache", () => ({
   invalidateCompanyScopes: vi.fn(),
   COMPANY_SCOPES_TTL_MS: 60_000,
@@ -28,6 +29,7 @@ vi.mock("@/lib/company-detail-cache", () => ({
 
 import { mockToastModule } from "./helpers/mock-toast";
 import { installFakeFetch } from "./helpers/fake-fetch";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 import { DiscoveryCard } from "@/components/companies/discovery-card";
 
 const CANDIDATE = {
@@ -75,6 +77,11 @@ describe("DiscoveryCard — the roster is re-read after an add (CAR-277)", () =>
     });
 
     expect(onAdded).toHaveBeenCalledTimes(1);
+    // And /companies, one level up (CAR-278). The new contact changes that
+    // company's counts, who leads its row, and under `minContacts: 1` whether
+    // the row exists at all. That list is unmounted, so it is refreshed here or
+    // it serves the old numbers until its TTL expires.
+    expect(refreshCompaniesList).toHaveBeenCalledTimes(1);
     expect(http.countOf("POST /api/discovery/candidates/11/add")).toBe(1);
     expect(http.unmatched).toEqual([]);
   });
@@ -89,6 +96,7 @@ describe("DiscoveryCard — the roster is re-read after an add (CAR-277)", () =>
     });
 
     expect(onAdded).not.toHaveBeenCalled();
+    expect(refreshCompaniesList).not.toHaveBeenCalled();
     expect(http.countOf("POST /api/discovery/candidates/11/dismiss")).toBe(1);
     expect(http.unmatched).toEqual([]);
   });
@@ -103,6 +111,7 @@ describe("DiscoveryCard — the roster is re-read after an add (CAR-277)", () =>
     });
 
     expect(onAdded).not.toHaveBeenCalled();
+    expect(refreshCompaniesList).not.toHaveBeenCalled();
     // The request was genuinely issued and genuinely refused — without this the
     // test would also pass if the button had simply done nothing.
     expect(http.countOf("POST /api/discovery/candidates/11/add")).toBe(1);

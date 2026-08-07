@@ -48,6 +48,7 @@ import { ActionItemsSection } from "./action-items-section";
 import { apiSend, jsonBody } from "@/lib/api-client";
 import { wallClockParts } from "@/lib/calendar-day";
 import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 
 // Map icon names to components. One entry per CONVERSATION_TYPE_OPTIONS
 // `iconName`; a missing entry degrades to a label-only chip (guarded below).
@@ -379,6 +380,9 @@ export function ConversationModal() {
       // Stage derivation reads this write, so a cached company roster
       // would show the old badge (CAR-268).
       invalidateCompanyScopes();
+      // A logged conversation is what the /companies traction chip and
+      // next-action ladder read (CAR-278).
+      refreshCompaniesList();
       emitUiEvent(UI_EVENTS.conversationLogged);
     } catch (err) {
       console.error("Error saving:", err);
@@ -546,9 +550,12 @@ export function ConversationModal() {
             onAiActionAccepted={(action) => setPendingActions((prev) => [...prev, action])}
             onActionCreated={() => {
               // Stage derivation reads this write, so a cached company roster
-      // would show the old badge (CAR-268).
-      invalidateCompanyScopes();
-      emitUiEvent(UI_EVENTS.conversationLogged);
+              // would show the old badge (CAR-268).
+              invalidateCompanyScopes();
+              // A logged conversation is what the /companies traction chip and
+              // next-action ladder read (CAR-278).
+              refreshCompaniesList();
+              emitUiEvent(UI_EVENTS.conversationLogged);
             }}
           />
           <ActionItemsSection

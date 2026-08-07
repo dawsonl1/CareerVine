@@ -3,6 +3,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   rememberScroll,
   recallScroll,
+  rememberAnchor,
+  consumeAnchor,
   forgetScroll,
   consumePopNavigation,
   setLastPopAtForTest,
@@ -72,6 +74,75 @@ describe("scroll memory", () => {
     expect(recallScroll("/companies", "")).toBeNull();
     sessionStorage.setItem("cv:scroll:/companies", '{"shape":"wrong"}');
     expect(recallScroll("/companies", "")).toBeNull();
+  });
+});
+
+/**
+ * CAR-278. Once a write refreshes the list in the background, the rows behind a
+ * remembered offset can be reordered by the time the user returns, so the row
+ * they left through is remembered too. The pairing rules are what matter here:
+ * the two slots are written by different events and neither may clobber the
+ * other, and the anchor describes ONE round trip.
+ */
+describe("scroll memory anchors", () => {
+  it("remembers and consumes the row the user left through", () => {
+    rememberAnchor("/companies", "", "42");
+    expect(consumeAnchor("/companies", "")).toBe("42");
+  });
+
+  it("is consumed once, so a later return uses the offset alone", () => {
+    // Left in place it would outlive its trip: the user comes back, scrolls
+    // somewhere else, leaves by the nav bar, and a much later pop yanks them to
+    // a row they had moved on from.
+    rememberAnchor("/companies", "", "42");
+    expect(consumeAnchor("/companies", "")).toBe("42");
+    expect(consumeAnchor("/companies", "")).toBeNull();
+  });
+
+  it("survives the scroll writes that follow it", () => {
+    // The real sequence: click a card, then Next scrolls the outgoing page and
+    // the cleanup pass records a final offset. An anchor overwritten there is an
+    // anchor that never reaches the return trip.
+    rememberAnchor("/companies", "", "42");
+    rememberScroll("/companies", "", 900);
+    expect(consumeAnchor("/companies", "")).toBe("42");
+    expect(recallScroll("/companies", "")).toBe(900);
+  });
+
+  it("keeps the offset already recorded for the view", () => {
+    rememberScroll("/companies", "", 1200);
+    rememberAnchor("/companies", "", "42");
+    expect(recallScroll("/companies", "")).toBe(1200);
+  });
+
+  it("consuming leaves the offset behind", () => {
+    rememberScroll("/companies", "", 1200);
+    rememberAnchor("/companies", "", "42");
+    consumeAnchor("/companies", "");
+    expect(recallScroll("/companies", "")).toBe(1200);
+  });
+
+  it("keys by view, like the offset does", () => {
+    rememberAnchor("/companies", "?status=applied", "42");
+    expect(consumeAnchor("/companies", "?status=closed")).toBeNull();
+    expect(consumeAnchor("/contacts", "?status=applied")).toBeNull();
+  });
+
+  it("reads entries written before anchors existed", () => {
+    // sessionStorage outlives the deploy, so every open tab is holding
+    // two-element entries at the moment this ships. Rejecting them would reset
+    // the scroll memory of all of them once.
+    sessionStorage.setItem("cv:scroll:/companies", JSON.stringify([["", 1200]]));
+    expect(recallScroll("/companies", "")).toBe(1200);
+    expect(consumeAnchor("/companies", "")).toBeNull();
+  });
+
+  it("treats a non-string anchor as absent rather than returning it", () => {
+    // JSON has no `undefined`, so a hand-written or round-tripped entry can
+    // carry a null in the slot.
+    sessionStorage.setItem("cv:scroll:/companies", JSON.stringify([["", 1200, null]]));
+    expect(consumeAnchor("/companies", "")).toBeNull();
+    expect(recallScroll("/companies", "")).toBe(1200);
   });
 });
 

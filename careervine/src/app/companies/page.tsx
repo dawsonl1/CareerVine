@@ -11,7 +11,11 @@ import { Select } from "@/components/ui/select";
 import { LoadErrorBanner, LoadErrorState } from "@/components/ui/load-error-state";
 import { useCachedList } from "@/hooks/use-cached-list";
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration";
-import { COMPANIES_LIST_TTL_MS, companiesListKey } from "@/lib/companies-list-cache";
+import {
+  COMPANIES_LIST_TTL_MS,
+  companiesListKey,
+  fetchCompaniesList,
+} from "@/lib/companies-list-cache";
 import CompanyFilterBar from "@/components/companies/company-filter-bar";
 import {
   locationOptions,
@@ -20,7 +24,7 @@ import {
 } from "@/lib/company-location-filter";
 import { CompanyCard } from "@/components/companies/company-card";
 import { AddCompanyModal } from "@/components/companies/add-company-modal";
-import { getCompanies, type CompanySummary, type CompanySort } from "@/lib/company-queries";
+import { type CompanySummary, type CompanySort } from "@/lib/company-queries";
 import {
   EMPTY_COMPANY_FILTERS,
   filterCompanies,
@@ -76,8 +80,9 @@ function CompaniesPage() {
   const fetchCompanies = useCallback(async () => {
     // Unreachable while `key` is null, which is the whole time `user` is null.
     if (!user) return NO_COMPANIES;
-    // One list: every company you're targeting or already know someone at.
-    return getCompanies(user.id, { scope: "in_play", sort, minContacts: 1 });
+    // Shared with the background refresh, which has to issue the identical
+    // query or it would fill this page's cache with a different row set.
+    return fetchCompaniesList(user.id, sort);
   }, [user, sort]);
 
   const {
@@ -96,7 +101,11 @@ function CompaniesPage() {
   // Put the user back where they were when they return from a company page.
   // Gated on `fromCache`: only then is the list at full height on this commit,
   // which is the condition the browser's own restoration cannot meet here.
-  useScrollRestoration({ pathname, search: searchParams.toString(), ready: fromCache });
+  const { rememberAnchor } = useScrollRestoration({
+    pathname,
+    search: searchParams.toString(),
+    ready: fromCache,
+  });
 
   const replaceParams = useCallback(
     (next: URLSearchParams) => {
@@ -315,7 +324,15 @@ function CompaniesPage() {
             ) : (
               <div className="grid gap-3">
                 {visible.map((c) => (
-                  <CompanyCard key={c.id} company={c} locationSelection={locationSelection} />
+                  <CompanyCard
+                    key={c.id}
+                    company={c}
+                    locationSelection={locationSelection}
+                    // A write on the detail page refreshes this list in the
+                    // background, so it can come back reordered. Remembering the
+                    // row is what lets the return trip land on it anyway.
+                    onNavigate={() => rememberAnchor(String(c.id))}
+                  />
                 ))}
               </div>
             )}

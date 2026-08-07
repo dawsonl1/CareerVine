@@ -226,18 +226,22 @@ update on `isLatest(token)`.
 A list read that must survive back-navigation goes through `useCachedList`
 (`careervine/src/hooks/use-cached-list.ts`) over the module store in
 `careervine/src/lib/list-cache.ts`, which is where the reasoning lives: why the cache is
-in-memory rather than localStorage, and why it is trusted for its TTL instead of revalidating in
-the background. Two rules that are easy to get wrong and are stated there: hydration happens in
-the state initializer (a list populated one render late is a list scroll restoration cannot
-use), and a write that changes what a row displays invalidates at the WRITE SITE, not over
-`ui-events.ts`, because the list is unmounted at that moment and has no listener mounted.
+in-memory rather than localStorage, why nothing stale is ever served while a refetch runs, and
+why a write REFRESHES the key rather than merely dropping it. Three rules that are easy to get
+wrong and are stated there: hydration happens in the state initializer (a list populated one
+render late is a list scroll restoration cannot use); a write that changes what a row displays
+refreshes at the WRITE SITE, not over `ui-events.ts`, because the list is unmounted at that
+moment and has no listener mounted; and the fetcher therefore lives beside the cache key rather
+than in the page, shared with the page so the two cannot issue different queries.
 `careervine/src/lib/companies-list-cache.ts` is the worked example. A test that renders a page
 using it must call `resetListCache()` in `beforeEach`, or the cache leaks between cases and the
 suite goes order-dependent.
 
 Scroll restoration pairs with it: `careervine/src/hooks/use-scroll-restoration.ts` over
 `careervine/src/lib/scroll-memory.ts`, which owns the `popstate` signal that separates a genuine
-return from a fresh visit through the nav bar.
+return from a fresh visit through the nav bar, and the anchor that survives a list reordering
+underneath a remembered offset. A row a return trip should land on carries
+`data-scroll-anchor`.
 
 Client code never calls `fetch` directly, and neither does a browser-reached helper under
 `careervine/src/lib`. "Browser-reached" is decided by import graph, not directory. Reads go

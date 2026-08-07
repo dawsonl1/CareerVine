@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
-import { consumePopNavigation, recallScroll, rememberScroll } from "@/lib/scroll-memory";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import {
+  consumeAnchor,
+  consumePopNavigation,
+  recallScroll,
+  rememberScroll,
+  rememberAnchor as storeAnchor,
+} from "@/lib/scroll-memory";
 
 /**
  * Puts a list page back where the user left it when they come back to it
@@ -16,7 +22,18 @@ import { consumePopNavigation, recallScroll, rememberScroll } from "@/lib/scroll
  *     fires while the page still reads "Loading companies…" and clamps to 0);
  *   * a genuine refetch never restores. Jumping the user down the page after
  *     they have already waited and started reading the top is worse than the
- *     reset it would be fixing.
+ *     reset it would be fixing. CAR-278 makes the cached path far more common
+ *     rather than relaxing this; the rule itself stands.
+ *
+ * ── Offset first, anchor as the rescue (CAR-278) ─────────────────────────
+ *
+ * A pixel offset is the better answer whenever it is available, because it
+ * reproduces the view exactly instead of re-centring on a row. It stops being
+ * available when the list changed while the user was away — which is now the
+ * normal case, since a write refreshes the cache in the background. So the
+ * offset is applied first, and the anchored row is scrolled into view only if it
+ * is not on screen once the offset has landed. An unchanged list therefore never
+ * moves, and a row that has vanished entirely leaves the offset standing.
  */
 
 // `useLayoutEffect` has no meaning during SSR and React warns about it there.
@@ -30,29 +47,75 @@ export interface UseScrollRestorationOptions {
   ready: boolean;
 }
 
-export function useScrollRestoration({ pathname, search, ready }: UseScrollRestorationOptions): void {
+export interface ScrollRestoration {
+  /**
+   * Record the row being navigated into, so the return trip can find it even if
+   * the list has been reordered underneath. Call it from the row's own click
+   * handler; the matching element must carry `data-scroll-anchor="<anchor>"`.
+   */
+  rememberAnchor: (anchor: string) => void;
+}
+
+/** How a remembered anchor is located in the DOM. */
+function findAnchor(anchor: string): HTMLElement | null {
+  // `CSS.escape` is guarded rather than assumed: jsdom has it, but this runs in
+  // whatever the caller's environment is and an id containing a quote would
+  // otherwise build a selector that throws inside a layout effect.
+  const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(anchor) : anchor;
+  const el = document.querySelector(`[data-scroll-anchor="${escaped}"]`);
+  return el instanceof HTMLElement ? el : null;
+}
+
+export function useScrollRestoration({
+  pathname,
+  search,
+  ready,
+}: UseScrollRestorationOptions): ScrollRestoration {
+  const signalsReadRef = useRef(false);
   const wasPopRef = useRef(false);
+  const anchorRef = useRef<string | null>(null);
   const restoredRef = useRef(false);
 
-  // Read the pop signal once, at mount, rather than when `ready` turns true:
-  // the signal expires, and the gap between the two is a fetch away in the
-  // worst case. Declared first so it is set before the restore effect below
-  // reads it on this same commit.
+  // Both one-shot signals are read at MOUNT, not when `ready` turns true. The
+  // pop signal expires, and the gap between the two is a fetch away in the worst
+  // case. The anchor is consumed on the same schedule and for the same reason in
+  // reverse: it describes the trip that just ended, so a mount that will never
+  // restore (a real fetch, or a visit from the nav bar) still has to clear it,
+  // or it springs on some later, unrelated return to this view.
+  //
+  // Declared first so both are set before the restore effect below reads them on
+  // this same commit.
   useIsomorphicLayoutEffect(() => {
+    if (signalsReadRef.current) return;
+    signalsReadRef.current = true;
     wasPopRef.current = consumePopNavigation();
-  }, []);
+    anchorRef.current = consumeAnchor(pathname, search);
+  }, [pathname, search]);
 
   useIsomorphicLayoutEffect(() => {
     if (restoredRef.current || !ready || !wasPopRef.current) return;
     // One shot either way: if the conditions are met and we decline below, we
     // decline permanently rather than pouncing on a later render.
     restoredRef.current = true;
+
     // Next runs its own popstate restoration. When that one succeeds there is
     // nothing to fix, and re-applying a remembered value on top of it would
     // fight the framework for no gain.
-    if (window.scrollY > 0) return;
-    const y = recallScroll(pathname, search);
-    if (y !== null && y > 0) window.scrollTo(0, y);
+    if (window.scrollY === 0) {
+      const y = recallScroll(pathname, search);
+      if (y !== null && y > 0) window.scrollTo(0, y);
+    }
+
+    // Whatever put the page at that offset — us or Next — it was measured
+    // against the list as it used to be. If the row the user left through is not
+    // actually on screen, the offset missed and the anchor is the ground truth.
+    const anchor = anchorRef.current;
+    if (anchor === null) return;
+    const el = findAnchor(anchor);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.top >= 0 && rect.bottom <= window.innerHeight) return;
+    el.scrollIntoView({ block: "center" });
   }, [ready, pathname, search]);
 
   // Record the position continuously. rAF-throttled because `scroll` fires far
@@ -101,4 +164,11 @@ export function useScrollRestoration({ pathname, search, ready }: UseScrollResto
       }
     };
   }, [pathname, search]);
+
+  const rememberAnchor = useCallback(
+    (anchor: string) => storeAnchor(pathname, search, anchor),
+    [pathname, search],
+  );
+
+  return { rememberAnchor };
 }

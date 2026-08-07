@@ -82,6 +82,7 @@ import {
   type Tenant,
 } from "./helpers/tenant";
 import { formatTally, measurePageLoad, tallyRequests } from "./helpers/request-budget";
+import { MIN_REFRESH_INTERVAL_MS } from "@/lib/list-cache";
 import type { Database } from "@/lib/database.types";
 
 type TableName = keyof Database["public"]["Tables"] & string;
@@ -440,4 +441,91 @@ test("restores the position itself when the browser's own restoration is off", a
       message: "with the browser's restoration off, the hook must put the list back itself",
     })
     .toBe(scrollY);
+});
+
+/**
+ * CAR-278. Everything above measures a return that nothing WROTE to. The write
+ * path was the hole: `refreshCompaniesList` used to only delete, so the moment
+ * the user was most likely to press Back was the one moment the cache was
+ * guaranteed to miss, and the return paid for a full `getCompanies` aggregate.
+ *
+ * Two claims, and the second needs the offset deliberately blinded to be worth
+ * anything. A background refresh can REORDER the list, which is what the anchor
+ * exists for, but on this seeded tenant the write does not happen to move the
+ * row — so a plain "the row is on screen" assertion would pass on the offset
+ * alone and prove nothing about the anchor. Rewriting the stored offset to 0
+ * reproduces exactly the state a reorder leaves behind (a position that still
+ * restores, but no longer points at the row) without depending on a reordering
+ * that is not under this test's control.
+ *
+ * Falsification, both run: making `refreshList` drop without refetching (the
+ * pre-CAR-278 behaviour) takes the return from 0 requests to 15, and pointing
+ * `findAnchor` at an attribute nothing carries leaves the card off screen.
+ */
+test("a write keeps the list warm, and the return lands on the row you left", async ({ page }) => {
+  // Chrome's own restoration would put the page back from ITS memory, which the
+  // blinding below cannot reach, and the anchor would have nothing to rescue.
+  await page.addInitScript(() => {
+    history.scrollRestoration = "manual";
+  });
+
+  await openListCold(page);
+  const { card } = await scrollToCard(page, CARD_INDEX);
+  const anchor = await card.getAttribute("data-scroll-anchor");
+  expect(anchor, "the card must carry the anchor the return trip looks for").toBeTruthy();
+  await rememberedScrollFor(page, "");
+
+  await card.click();
+  await expect(page).toHaveURL(/\/companies\/\d+/);
+  await expect(backButton(page)).toBeVisible();
+  await settle(page, "the company page");
+
+  // A real write through `usePipelineAutosave`, which is the busiest caller of
+  // `refreshCompaniesList` and the one that made the delete-only version hurt.
+  await page.getByRole("combobox", { name: "Company status" }).click();
+  await page.getByRole("option", { name: "Not a target" }).click();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+
+  // Quiet for longer than the refresh throttle, so a TRAILING run cannot still
+  // be pending when the measured window opens and score as a refetch.
+  await tallyRequests(page, async () => {}, {
+    quietMs: MIN_REFRESH_INTERVAL_MS + 2_000,
+    label: "the write and the background refresh it starts",
+  });
+
+  // Blind the offset — see the header. The anchor is left untouched.
+  await page.evaluate(() => {
+    const raw = sessionStorage.getItem("cv:scroll:/companies");
+    if (!raw) throw new Error("no scroll memory to blind; the recording half is broken");
+    const list = JSON.parse(raw) as [string, number, string?][];
+    sessionStorage.setItem(
+      "cv:scroll:/companies",
+      JSON.stringify(list.map((e) => (e[0] === "" ? [e[0], 0, e[2]] : e))),
+    );
+  });
+
+  const tally = await tallyRequests(
+    page,
+    async () => {
+      await backButton(page).click();
+      await expect(page).toHaveURL(/\/companies$/);
+      await expect(companyCards(page).first()).toBeVisible();
+    },
+    { label: "returning to /companies after a write" },
+  );
+
+  // ── 1. The write left the list WARM ─────────────────────────────────
+  expect(
+    tally.total,
+    `returning after a write made ${tally.total} data request(s). The write is supposed to ` +
+      `refetch the list in the background while the user is still on the company page, so the ` +
+      `return finds it cached (src/lib/companies-list-cache.ts).\n${formatTally(tally.byEndpoint)}`,
+  ).toBe(0);
+
+  // ── 2. The return landed on the row ─────────────────────────────────
+  await expect(
+    page.locator(`[data-scroll-anchor="${anchor}"]`),
+    "with the offset no longer pointing at it, only the remembered anchor can bring the row " +
+      "the user left through back on screen",
+  ).toBeInViewport();
 });

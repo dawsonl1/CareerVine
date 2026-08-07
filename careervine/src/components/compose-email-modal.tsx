@@ -27,6 +27,7 @@ import { editRatio } from "@/lib/analytics/edit-ratio";
 import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 import { useLatestRequest } from "@/hooks/use-latest-request";
 import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 
 type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
 
@@ -619,6 +620,8 @@ function ComposeEmailModalBody() {
       // Stage derivation reads this write, so a cached company roster
       // would show the old badge (CAR-268).
       invalidateCompanyScopes();
+      // A sent email moves the company's traction chip on /companies.
+      refreshCompaniesList();
       emitUiEvent(UI_EVENTS.emailSent, { onboardingIntro: !!templateFollowUps?.length });
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
@@ -704,6 +707,8 @@ function ComposeEmailModalBody() {
       // Stage derivation reads this write, so a cached company roster
       // would show the old badge (CAR-268).
       invalidateCompanyScopes();
+      // A sent email moves the company's traction chip on /companies.
+      refreshCompaniesList();
       emitUiEvent(UI_EVENTS.emailSent, { onboardingIntro: !!templateFollowUps?.length });
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
