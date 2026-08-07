@@ -317,8 +317,9 @@ export async function getContactStages(
             await db()
               .from("calendar_events")
               // `id` (CAR-246) so the two calendar legs can be deduped before
-              // counting — see the noteEvent aggregation below.
-              .select("id, contact_id, start_at, status")
+              // counting, and `google_event_id` (CAR-250) so a meeting mirroring
+              // this event collapses onto it — see the noteEvent aggregation.
+              .select("id, google_event_id, contact_id, start_at, status")
               .eq("user_id", userId)
               .in("contact_id", chunk)
               .order("id")
@@ -339,7 +340,7 @@ export async function getContactStages(
               // calendar_event_id (CAR-246): the same event reaches a contact
               // through this junction AND through calendar_events.contact_id, so
               // counting without the id double-counts one call.
-              .select("calendar_event_id, contact_id, calendar_events!inner(user_id, start_at, status)")
+              .select("calendar_event_id, contact_id, calendar_events!inner(user_id, google_event_id, start_at, status)")
               .eq("calendar_events.user_id", userId)
               .in("contact_id", chunk)
               .order("calendar_event_id")
@@ -357,7 +358,9 @@ export async function getContactStages(
             await db()
               .from("meeting_contacts")
               // meeting_id (CAR-246): same dedupe need as the calendar legs.
-              .select("meeting_id, contact_id, meetings!inner(user_id, meeting_date)")
+              // calendar_event_id (CAR-250) holds the GOOGLE event id when this
+              // meeting mirrors a calendar event, which is how the two collapse.
+              .select("meeting_id, contact_id, meetings!inner(user_id, meeting_date, calendar_event_id)")
               .eq("meetings.user_id", userId)
               .in("contact_id", chunk)
               .order("meeting_id")
@@ -451,12 +454,30 @@ export async function getContactStages(
   }
 
   /**
-   * Calls per contact, keyed by event so the two calendar legs cannot count the
-   * same conversation twice (CAR-246). A calendar event reaches a contact both
-   * through `calendar_events.contact_id` and through the
-   * `calendar_event_contacts` junction; when these were membership Sets the
-   * duplicate collapsed silently, but a COUNT would have reported one call as
-   * two. Meetings share the map under their own key prefix.
+   * Calls per contact, keyed by CONVERSATION so no leg counts the same one
+   * twice. Three legs reach the same call:
+   *
+   *  1. `calendar_events.contact_id`
+   *  2. the `calendar_event_contacts` junction
+   *  3. a `meetings` row mirroring that calendar event
+   *
+   * CAR-246 collapsed 1 and 2 (keyed on the calendar event id) and left 3 in its
+   * own `mtg:` namespace, so a synced call was counted twice — Adobe read "3
+   * Calls Scheduled" for two real conversations, because the Aug 14 call existed
+   * as both calendar_events 502 and meetings 24 (CAR-250). It reads as a
+   * former-employee leak, but the current/former filter was doing its job; the
+   * count itself was inflated.
+   *
+   * The join is `meetings.calendar_event_id` == `calendar_events.google_event_id`
+   * (both hold the GOOGLE id, not our PK), so the google id is the canonical key
+   * whenever a leg has one. `calendar_events.meeting_id` looks like the same
+   * link from the other side but is dead — 0 of 120 rows populated in prod.
+   *
+   * Meetings are folded in FIRST so the calendar legs' `start_at` overwrites
+   * their `meeting_date` on a shared key: meeting_date is a naive wall clock
+   * stored as UTC (CAR-206), so the two disagree by the author's offset, and the
+   * timestamptz is the one that can be compared against `now`. Same conversation
+   * either way; this only decides which timestamp the chip reports.
    */
   const callsByContact = new Map<number, Map<string, string>>();
   const noteEvent = (contactId: number | null, key: string, startAt: string | null, status: string | null) => {
@@ -465,15 +486,22 @@ export async function getContactStages(
     calls.set(key, startAt);
     callsByContact.set(contactId, calls);
   };
-  for (const e of calEvents) {
-    noteEvent(e.contact_id, `cal:${e.id}`, e.start_at, e.status);
-  }
-  for (const l of calLinks) {
-    noteEvent(l.contact_id, `cal:${l.calendar_event_id}`, l.calendar_events?.start_at ?? null, l.calendar_events?.status ?? null);
-  }
   for (const l of meetingLinks) {
     // meetings carry no status column, so any dated meeting counts.
-    noteEvent(l.contact_id, `mtg:${l.meeting_id}`, l.meetings?.meeting_date ?? null, null);
+    const googleId = l.meetings?.calendar_event_id ?? null;
+    noteEvent(l.contact_id, googleId ? `g:${googleId}` : `mtg:${l.meeting_id}`, l.meetings?.meeting_date ?? null, null);
+  }
+  for (const e of calEvents) {
+    noteEvent(e.contact_id, e.google_event_id ? `g:${e.google_event_id}` : `cal:${e.id}`, e.start_at, e.status);
+  }
+  for (const l of calLinks) {
+    const googleId = l.calendar_events?.google_event_id ?? null;
+    noteEvent(
+      l.contact_id,
+      googleId ? `g:${googleId}` : `cal:${l.calendar_event_id}`,
+      l.calendar_events?.start_at ?? null,
+      l.calendar_events?.status ?? null,
+    );
   }
 
   for (const contact of contacts) {
