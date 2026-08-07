@@ -223,6 +223,22 @@ Identity-keyed async reads go through `useLatestRequest`
 (`careervine/src/hooks/use-latest-request.ts`): claim a token with `begin()`, gate the state
 update on `isLatest(token)`.
 
+A list read that must survive back-navigation goes through `useCachedList`
+(`careervine/src/hooks/use-cached-list.ts`) over the module store in
+`careervine/src/lib/list-cache.ts`, which is where the reasoning lives: why the cache is
+in-memory rather than localStorage, and why it is trusted for its TTL instead of revalidating in
+the background. Two rules that are easy to get wrong and are stated there: hydration happens in
+the state initializer (a list populated one render late is a list scroll restoration cannot
+use), and a write that changes what a row displays invalidates at the WRITE SITE, not over
+`ui-events.ts`, because the list is unmounted at that moment and has no listener mounted.
+`careervine/src/lib/companies-list-cache.ts` is the worked example. A test that renders a page
+using it must call `resetListCache()` in `beforeEach`, or the cache leaks between cases and the
+suite goes order-dependent.
+
+Scroll restoration pairs with it: `careervine/src/hooks/use-scroll-restoration.ts` over
+`careervine/src/lib/scroll-memory.ts`, which owns the `popstate` signal that separates a genuine
+return from a fresh visit through the nav bar.
+
 Client code never calls `fetch` directly, and neither does a browser-reached helper under
 `careervine/src/lib`. "Browser-reached" is decided by import graph, not directory. Reads go
 through `apiFetch`, status-only mutations through `apiSend`. An interactive handler wraps the
@@ -393,8 +409,8 @@ unmeasured; the browser tier owns them.
 
 A third tier: real Chromium against a real `next build && next start`, backed by the same local
 Supabase stack the integration tier uses. It exists for the one thing neither other tier can
-express — whether a change the UI *claims* to have made actually persisted. Eleven flows live in
-`careervine/e2e/*.spec.ts`. Ten are persistence-or-rendering flows; the eleventh,
+express — whether a change the UI *claims* to have made actually persisted. Twelve flows live in
+`careervine/e2e/*.spec.ts`. Eleven are persistence-or-rendering flows; the twelfth,
 `request-budget.spec.ts`, is a per-route ceiling on how many data requests a page load may
 make, which is the other thing only a real browser can count (CAR-229). Run it:
 
@@ -427,7 +443,7 @@ reads must be pinned to a real value rather than blanked.
 
 Authentication never drives the login form. `careervine/e2e/auth.setup.ts` provisions a tenant
 and mints the session through the app's real `/auth/confirm` route. One shared tenant,
-single-worker, so flows write to one database in file order. Four specs mint their own identity
+single-worker, so flows write to one database in file order. Five specs mint their own identity
 instead. A spec that mutates shared state restores it in `afterEach`, not `finally`; where the
 damage is wider than the restore, own a tenant instead. Read
 `careervine/e2e/helpers/tenant.ts` before adding a spec.
@@ -441,8 +457,8 @@ against could have occurred; `careervine/e2e/fixtures/test.ts` carries the seque
   `careervine/e2e/server-stubs/register.mjs` (header), `careervine/e2e/fixtures/test.ts` (header),
   `careervine/e2e/helpers/env-allowlist.ts` (header), `careervine/e2e/helpers/tenant.ts` (header),
   `careervine/e2e/helpers/ports.ts`, and `careervine/e2e/helpers/stack-env.ts` (header)
-- Counted: Eleven flows in `careervine/e2e/*.spec.ts`, pinned by
-  `careervine/src/__tests__/conventions-doc.test.ts` so a twelfth cannot silently falsify this
+- Counted: Twelve flows in `careervine/e2e/*.spec.ts`, pinned by
+  `careervine/src/__tests__/conventions-doc.test.ts` so a thirteenth cannot silently falsify this
   section.
 - Enforced: CI runs it as the separate `e2e` job with `failOnFlakyTests`. The deny-by-default
   stub layers are self-enforcing. `careervine/src/__tests__/e2e-env-allowlist.test.ts` fails when

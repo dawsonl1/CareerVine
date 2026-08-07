@@ -21,13 +21,17 @@
  *
  * ONE SHARED TENANT, SINGLE-WORKER. `playwright.config.ts` sets
  * `fullyParallel: false` and `workers: 1`, so the flows write to one database in
- * file order. Three specs mint their own identity instead, because the shared
- * one cannot be it: `capability-gating` needs a FREE account and the shared
- * tenant is premium (`seedGmailConnection` grants `modify_scope_granted` and
- * leaves `premium_enabled` at its column default — which is why
+ * file order. Five specs mint their own identity instead, because the shared one
+ * cannot be it: `capability-gating` needs a FREE account and the shared tenant
+ * is premium (`seedGmailConnection` grants `modify_scope_granted` and leaves
+ * `premium_enabled` at its column default — which is why
  * `seedFreeTierConnection` sets that column explicitly rather than omitting it);
- * `admin-surface` needs both an admin and a non-admin; and `settings-keys`
- * destroys more than it can put back.
+ * `admin-surface` needs both an admin and a non-admin; `settings-keys` destroys
+ * more than it can put back; and `request-budget` and `companies-back-nav` both
+ * need VOLUME the shared tenant must not carry, since a request ceiling and a
+ * scroll-restoration assertion are both meaningless at one row per table. Those
+ * two also seed the SHARED `companies` catalog, which does not cascade on
+ * `deleteTenant`, so each removes its own rows in `afterAll`.
  *
  * A SPEC THAT MUTATES SHARED STATE PUTS IT BACK IN `afterEach` — `afterEach`
  * and not `finally`, because a body abandoned at the test timeout never reaches

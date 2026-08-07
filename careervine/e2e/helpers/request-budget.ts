@@ -81,23 +81,33 @@ export function budgetKey(method: string, url: string): string | null {
   return null;
 }
 
+export interface TallyOptions {
+  quietMs?: number;
+  settleTimeoutMs?: number;
+  /** Names the measured window in the settle-timeout message. */
+  label?: string;
+}
+
 /**
- * Load `path` and tally the data requests it makes, returning once the browser
- * has been quiet for `quietMs`.
+ * Run `action` and tally the data requests the browser makes while it is
+ * happening, returning once the browser has been quiet for `quietMs`.
  *
- * The page is parked on `about:blank` first so a previous route's in-flight
- * work cannot be charged to this one — without it the first measurement in a
- * file inherits whatever the session-minting navigation was still doing.
+ * Extracted from `measurePageLoad` (CAR-256) so a measurement window can be
+ * something other than a `goto`: a back navigation makes no document request,
+ * and the question "did returning to this list refetch it?" is asked with the
+ * same counter and the same settling rule as the per-route budgets.
+ *
+ * `action` is awaited INSIDE the listener's lifetime, so a request the action
+ * itself triggers is counted even if it is issued before the action resolves.
  */
-export async function measurePageLoad(
+export async function tallyRequests(
   page: Page,
-  path: string,
-  opts: { quietMs?: number; settleTimeoutMs?: number } = {},
+  action: () => Promise<unknown>,
+  opts: TallyOptions = {},
 ): Promise<RequestTally> {
   const quietMs = opts.quietMs ?? 2_000;
   const settleTimeoutMs = opts.settleTimeoutMs ?? 30_000;
-
-  await page.goto("about:blank");
+  const label = opts.label ?? "the measured window";
 
   const byEndpoint = new Map<string, number>();
   let total = 0;
@@ -113,17 +123,17 @@ export async function measurePageLoad(
 
   page.on("request", onRequest);
   try {
-    await page.goto(path);
-    // Reset once more at `load`: a slow document means the pre-navigation
-    // timestamp has already aged past quietMs, and the poll would then return
-    // before the page's own effects have fired a single request.
+    await action();
+    // Reset once more once the action has resolved: a slow document means the
+    // pre-action timestamp has already aged past quietMs, and the poll would
+    // then return before the page's own effects have fired a single request.
     lastActivityAt = Date.now();
     await expect
       .poll(() => Date.now() - lastActivityAt, {
         timeout: settleTimeoutMs,
         intervals: [200],
         message:
-          `${path} never went quiet for ${quietMs}ms — it is still requesting data after ` +
+          `${label} never went quiet for ${quietMs}ms — it is still requesting data after ` +
           `${settleTimeoutMs}ms. Either the page polls on a short interval, or something ` +
           `is looping. Requests so far:\n${formatTally(byEndpoint)}`,
       })
@@ -133,6 +143,23 @@ export async function measurePageLoad(
   }
 
   return { total, byEndpoint };
+}
+
+/**
+ * Load `path` and tally the data requests it makes, returning once the browser
+ * has been quiet for `quietMs`.
+ *
+ * The page is parked on `about:blank` first so a previous route's in-flight
+ * work cannot be charged to this one — without it the first measurement in a
+ * file inherits whatever the session-minting navigation was still doing.
+ */
+export async function measurePageLoad(
+  page: Page,
+  path: string,
+  opts: { quietMs?: number; settleTimeoutMs?: number } = {},
+): Promise<RequestTally> {
+  await page.goto("about:blank");
+  return tallyRequests(page, () => page.goto(path), { ...opts, label: path });
 }
 
 /** Endpoint → count, worst first, as indented lines. */

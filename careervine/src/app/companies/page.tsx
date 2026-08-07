@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef, Suspense } from "react";
+import { useState, useEffect, useCallback, useDeferredValue, useMemo, Suspense } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import Navigation from "@/components/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { LoadErrorBanner, LoadErrorState } from "@/components/ui/load-error-state";
-import { useLatestRequest } from "@/hooks/use-latest-request";
+import { useCachedList } from "@/hooks/use-cached-list";
+import { useScrollRestoration } from "@/hooks/use-scroll-restoration";
+import { COMPANIES_LIST_TTL_MS, companiesListKey } from "@/lib/companies-list-cache";
 import CompanyFilterBar from "@/components/companies/company-filter-bar";
 import {
   locationOptions,
@@ -32,6 +34,9 @@ import { Building2, Send, Plus, Search, X } from "lucide-react";
 
 const VALID_SORTS: readonly CompanySort[] = ["next", "priority", "next_app_date", "traction", "name"];
 
+// Stable empty list, so the cached-list fallback is not a new array each render.
+const NO_COMPANIES: CompanySummary[] = [];
+
 // useSearchParams requires a Suspense boundary (same pattern as settings/page.tsx)
 export default function CompaniesPageWrapper() {
   return (
@@ -44,6 +49,7 @@ export default function CompaniesPageWrapper() {
 function CompaniesPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   // URL is the source of truth for sort/search/filters so state survives
@@ -55,12 +61,42 @@ function CompaniesPage() {
   // Local echo of the search box so typing stays instant; synced to the URL
   // on a debounce below.
   const [searchInput, setSearchInput] = useState(urlFilters.q);
-  const lastWrittenQ = useRef(urlFilters.q);
+  // State rather than a ref: it is compared during render (below), and a ref
+  // may not be read there. Both writers set it before the URL write they are
+  // announcing, and React batches each pair into one commit, so it is never
+  // observed stale against the URL change it describes.
+  const [lastWrittenQ, setLastWrittenQ] = useState(urlFilters.q);
 
-  const [companies, setCompanies] = useState<CompanySummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
   const [showAddCompany, setShowAddCompany] = useState(false);
+
+  // The list read, cached across the trip into a company and back (CAR-256).
+  // Keyed on the user and the SERVER sort, which are the only two inputs
+  // getCompanies takes — every filter below is a pure client-side pass over the
+  // same rows, so filtering must never invalidate this.
+  const fetchCompanies = useCallback(async () => {
+    // Unreachable while `key` is null, which is the whole time `user` is null.
+    if (!user) return NO_COMPANIES;
+    // One list: every company you're targeting or already know someone at.
+    return getCompanies(user.id, { scope: "in_play", sort, minContacts: 1 });
+  }, [user, sort]);
+
+  const {
+    data: companies,
+    loading,
+    failed: loadFailed,
+    fromCache,
+    reload,
+  } = useCachedList<CompanySummary[]>({
+    key: user ? companiesListKey(user.id, sort) : null,
+    ttlMs: COMPANIES_LIST_TTL_MS,
+    fetcher: fetchCompanies,
+    fallback: NO_COMPANIES,
+  });
+
+  // Put the user back where they were when they return from a company page.
+  // Gated on `fromCache`: only then is the list at full height on this commit,
+  // which is the condition the browser's own restoration cannot meet here.
+  useScrollRestoration({ pathname, search: searchParams.toString(), ready: fromCache });
 
   const replaceParams = useCallback(
     (next: URLSearchParams) => {
@@ -71,20 +107,24 @@ function CompaniesPage() {
   );
 
   // External URL changes (back/forward, shared links) → sync the input.
-  // Our own debounced writes update lastWrittenQ first, so they don't
-  // clobber newer keystrokes when the URL catches up.
-  useEffect(() => {
-    if (urlFilters.q !== lastWrittenQ.current) {
-      setSearchInput(urlFilters.q);
-      lastWrittenQ.current = urlFilters.q;
-    }
-  }, [urlFilters.q]);
+  // Our own writes record lastWrittenQ first, so they don't clobber newer
+  // keystrokes when the URL catches up.
+  //
+  // Adjusted DURING RENDER rather than in an effect: an effect here commits a
+  // render, then immediately schedules another, and React's own guidance (plus
+  // `react-hooks/set-state-in-effect`) is to derive the new value in the render
+  // that already knows about the change. The comparison is what bounds it — the
+  // next render finds the two equal and falls straight through.
+  if (urlFilters.q !== lastWrittenQ) {
+    setLastWrittenQ(urlFilters.q);
+    setSearchInput(urlFilters.q);
+  }
 
   // Debounced input → URL so search state is shareable and survives back-nav
   useEffect(() => {
     if (searchInput === urlFilters.q) return;
     const t = setTimeout(() => {
-      lastWrittenQ.current = searchInput;
+      setLastWrittenQ(searchInput);
       replaceParams(serializeCompanyFilters({ ...urlFilters, q: searchInput }, searchParams));
     }, 250);
     return () => clearTimeout(t);
@@ -105,7 +145,7 @@ function CompaniesPage() {
   );
   const setFilters = useCallback(
     (f: CompanyFilters) => {
-      lastWrittenQ.current = f.q;
+      setLastWrittenQ(f.q);
       setSearchInput(f.q);
       replaceParams(serializeCompanyFilters(f, searchParams));
     },
@@ -119,8 +159,6 @@ function CompaniesPage() {
     () => filterCompanies(companies, { ...urlFilters, q: deferredQ }),
     [companies, urlFilters, deferredQ],
   );
-  // Over the whole list, not `visible`: options that disappear as you filter make
-  // the dropdown feel broken, and a tier you just deselected has to stay reachable.
   // Both computed over the WHOLE list, never `visible` — options that disappear
   // as you filter make the dropdown feel broken.
   const locationGroups = useMemo(() => locationOptions(companies), [companies]);
@@ -141,53 +179,11 @@ function CompaniesPage() {
   // Same load-vs-resync split the outreach page uses (section f). `companies` is
   // never cleared on a throw, so a failed REFRESH still has a valid list to show
   // and gets the inline banner; only a failure with nothing loaded earns the
-  // full-region error state.
+  // full-region error state. useCachedList preserves that no-clear rule, and its
+  // useLatestRequest gate keeps the CAR-205 fix where a stale REJECTION landing
+  // after a newer success set `loadFailed` with nothing left to clear it.
   const showingStaleList = loadFailed && companies.length > 0;
   const fullError = loadFailed && companies.length === 0;
-
-  // Identity-keyed on `sort`, and the sort control stays enabled while a read is
-  // in flight, so two reads genuinely overlap (CAR-205 review). Ungated, a stale
-  // REJECTION landing after a newer read succeeded set `loadFailed` with nothing
-  // left to clear it — the page then showed "Couldn't load your companies." on
-  // top of a correctly loaded list until the user hit Retry. Before this branch
-  // added `loadFailed` that race only reached console.error, so gating it is
-  // part of the same fix, not a separate concern.
-  //
-  // Deliberately NOT added to LATEST_REQUEST_BASELINE in check-conventions.mjs:
-  // the detector never flagged this callback (IDENTITY_DEP matches neither
-  // `user` nor `sort`), so a baseline entry would fail CI as a stale row.
-  const listRequest = useLatestRequest();
-
-  const load = useCallback(async () => {
-    if (!user) return;
-    const token = listRequest.begin();
-    setLoading(true);
-    setLoadFailed(false);
-    try {
-      // One list: every company you're targeting or already know someone at.
-      const data = await getCompanies(user.id, { scope: "in_play", sort, minContacts: 1 });
-      if (!listRequest.isLatest(token)) return;
-      setCompanies(data);
-    } catch (e) {
-      if (!listRequest.isLatest(token)) return;
-      console.error("Error loading companies:", e);
-      // Section f: `companies` stays at [] on a throw, and the render below
-      // reads an empty list as "No companies yet. Target a company or import
-      // your network to get started." That is an affirmative claim about the
-      // user's data, and over a 500 it invites them to re-add companies they
-      // already have (CAR-205).
-      setLoadFailed(true);
-    } finally {
-      // An `if` rather than an early return: a `return` inside `finally`
-      // discards any in-flight exception.
-      if (listRequest.isLatest(token)) setLoading(false);
-    }
-  }, [user, sort, listRequest]);
-
-  useEffect(() => {
-    // load() reports its own failures, so the effect can fire and forget
-    void load();
-  }, [load]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -283,7 +279,7 @@ function CompaniesPage() {
         ) : fullError ? (
           <LoadErrorState
             message="Couldn't load your companies."
-            onRetry={() => void load()}
+            onRetry={reload}
           />
         ) : (
           <>
@@ -293,7 +289,7 @@ function CompaniesPage() {
               <LoadErrorBanner
                 className="mb-3"
                 message="Couldn't refresh your companies. Showing what was already loaded."
-                onRetry={() => void load()}
+                onRetry={reload}
               />
             )}
             {visible.length === 0 ? (

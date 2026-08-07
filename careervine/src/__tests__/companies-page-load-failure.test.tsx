@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
 import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
+import { resetListCache } from "@/lib/list-cache";
 import type { CompanySummary } from "@/lib/company-queries";
 
 /**
@@ -23,6 +24,7 @@ vi.mock("@/components/navigation", () => ({ __esModule: true, default: () => <na
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/companies",
 }));
 
 import CompaniesPage from "@/app/companies/page";
@@ -53,7 +55,14 @@ function summary(id: number, name: string): CompanySummary {
 
 const EMPTY_COPY = /No companies yet/;
 
-beforeEach(() => vi.clearAllMocks());
+// The list cache is module state, so it outlives a test the same way it
+// outlives a route change (CAR-256). Without this reset the "Retry" case leaves
+// Acme cached under the same key and the genuinely-empty case below reads it
+// back instead of calling getCompanies at all.
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetListCache();
+});
 afterEach(cleanup);
 
 describe("companies page load failure", () => {

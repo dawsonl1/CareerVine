@@ -121,8 +121,13 @@ search and stackable filters:
 - The count on each status chip follows the rest of the bar. Filter to one state and
   the chips tell you how many researching, applied, and interviewing companies are
   left there, so the number you click is the number you get.
-- Every filtered view lives in the URL: share it, bookmark it, or click into a
-  company and come back without losing your place.
+- Every filtered view lives in the URL, so you can share it or bookmark it and
+  land on exactly the list you were looking at.
+- Clicking into a company and coming back returns you to the list you left, not
+  to a fresh one. The companies are already there with no second wait, you are
+  back at the row you were reading rather than the top of the page, and every
+  filter you had set is still set. Change something on the company page and the
+  list picks up the change instead of showing you what it said before.
 
 Each card also carries a traction badge that reads like a status report rather
 than a label: "3 Contacted (2 days ago)", "2 Calls Done (2 weeks ago)", "1 Call
