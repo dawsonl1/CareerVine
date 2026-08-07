@@ -81,6 +81,14 @@ export default function MeetingsPage() {
   const [contactsLoaded, setContactsLoaded] = useState(false);
   const contactsRequested = useRef(false);
   /**
+   * Meeting ids whose delete is in flight. Synchronous, and a Set rather than a
+   * boolean because the feed renders every meeting at once: guarding one card
+   * must not disable the trash control on all of them. `disabled` state would
+   * not help either way, since it has not rendered when the second click of a
+   * double click arrives (CAR-249).
+   */
+  const deletingMeetings = useRef<Set<number>>(new Set());
+  /**
    * Contacts named by a row on screen but not (yet) in the full list: the
    * action items an edit form opens over already carry their assigned contacts,
    * so the picker renders its chips immediately instead of blanking for as long
@@ -531,26 +539,35 @@ export default function MeetingsPage() {
                     </button>
                     <button
                       onClick={async () => {
-                        // The action items SURVIVE the meeting:
-                        // follow_up_action_items.meeting_id is ON DELETE SET
-                        // NULL, so they are unlinked rather than removed. The
-                        // old copy said only "cannot be undone", which left the
-                        // user expecting the opposite (CAR-249).
-                        const orphanCount = (meetingActions[meeting.id] || []).length;
-                        if (!(await confirm({
-                          title: "Delete this meeting?",
-                          message: orphanCount > 0
-                            ? `This cannot be undone. ${orphanCount} action item${orphanCount === 1 ? "" : "s"} from this meeting will be kept, no longer linked to it.`
-                            : "This cannot be undone.",
-                          confirmLabel: "Delete",
-                          destructive: true,
-                        }))) return;
+                        if (deletingMeetings.current.has(meeting.id)) return;
+                        deletingMeetings.current.add(meeting.id);
                         try {
-                          await deleteMeeting(meeting.id);
-                          await loadMeetings();
-                          toastSuccess("Meeting deleted");
-                        } catch {
-                          toastError("Failed to delete meeting");
+                          // The action items SURVIVE the meeting:
+                          // follow_up_action_items.meeting_id is ON DELETE SET
+                          // NULL, so they are unlinked rather than removed. The
+                          // old copy said only "cannot be undone", which left
+                          // the user expecting the opposite (CAR-249).
+                          const orphanCount = (meetingActions[meeting.id] || []).length;
+                          if (!(await confirm({
+                            title: "Delete this meeting?",
+                            message: orphanCount > 0
+                              ? `This cannot be undone. ${orphanCount} action item${orphanCount === 1 ? "" : "s"} from this meeting will be kept, no longer linked to it.`
+                              : "This cannot be undone.",
+                            confirmLabel: "Delete",
+                            destructive: true,
+                          }))) return;
+                          try {
+                            await deleteMeeting(meeting.id);
+                            await loadMeetings();
+                            toastSuccess("Meeting deleted");
+                          } catch {
+                            toastError("Failed to delete meeting");
+                          }
+                        } finally {
+                          // Released on every path, declines included: a
+                          // cancelled confirm that kept the claim would disable
+                          // this card's Delete for the rest of the session.
+                          deletingMeetings.current.delete(meeting.id);
                         }
                       }}
                       className="p-2 rounded-full text-muted-foreground hover:text-destructive cursor-pointer transition-colors"

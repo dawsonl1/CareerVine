@@ -1496,10 +1496,11 @@ const DOUBLE_SUBMIT_BASELINE = {
   "src/app/contacts/[id]/page.tsx": ["handleDelete"],
   "src/app/contacts/page.tsx": ["handleActivate", "handleSetTier", "onClick~aqoh"],
   "src/app/contacts/preview/page.tsx": ["handleSave"],
+  // The meeting-delete handler (was onClick~11fy) drained by CAR-249: it now
+  // claims a per-meeting-id slot in a ref before its first await.
   "src/app/meetings/page.tsx": [
     "handleMeetingAttachmentDelete",
     "handleMeetingAttachmentUpload",
-    "onClick~11fy",
     "onClick~17tt",
     "onClick~1ci0",
     "onClick~1ktz",
