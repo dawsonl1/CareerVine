@@ -22,8 +22,16 @@
  */
 import fs from "node:fs";
 import { STUB_LOG_PATH } from "./helpers/ports";
+import { releaseStackLock } from "./helpers/stack-lock";
+import { stackEnv } from "./helpers/stack-env";
 
 export default function globalTeardown(): void {
+  // Released FIRST, and outside the denial check below, because that check
+  // throws on a bad run and a thrown teardown must not leave the stack locked
+  // against the next one (CAR-273). A crashed process is covered separately, by
+  // the dead-pid takeover in `stack-lock.ts`.
+  releaseStackLock(stackEnv().dbUrl);
+
   let denials: string[];
   try {
     denials = fs.readFileSync(STUB_LOG_PATH, "utf8").split("\n").filter((l) => l.length > 0);
