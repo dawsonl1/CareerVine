@@ -2858,6 +2858,109 @@ function chainRootOf(node) {
   );
 }
 
+// ── (p) reads that must honor is_excluded ────────────────────────────────
+//
+// CAR-260 added `is_excluded` to the five tables the contact timeline is built
+// from. It means "this row is still stored, and must not count toward anything
+// derived": stage inference, company traction, network health, streaks,
+// last-touch, dossier grounding, aggregate counts.
+//
+// This guard exists because the codebase already ran this experiment. The
+// closest precedent, `email_messages.is_simulated`, means almost exactly the
+// same thing and is applied at 6 of the ~22 sites that derive something from
+// email — nothing catches the other 16, and the gap is invisible until a
+// number on a page is quietly wrong. A per-row flag is only as good as the
+// weakest read, so "did you remember" has to be mechanical.
+//
+// NOT a freeze at zero: plenty of reads correctly ignore the flag. Sync
+// bookkeeping must see struck rows or it re-inserts them on the next run;
+// reply threading must anchor to the real last message; the daily send cap is
+// an abuse control rather than a relationship metric. Those write down why:
+//
+//     // exclusion-exempt: <reason>
+//
+// The bar for that hatch is that the read is not deriving a value the user
+// sees. "It was easier" is not a reason.
+
+const EXCLUDABLE_TABLES = [
+  "email_messages",
+  "calendar_events",
+  "meetings",
+  "interactions",
+  "follow_up_action_items",
+];
+const EXCLUSION_OPT_OUT = /\/\/\s*exclusion-exempt:/;
+
+{
+  const violations = [];
+  const files = [...walk("src/lib", []), ...walk("src/app", []), ...walk("src/mcp", [])];
+  for (const file of files) {
+    const r = rel(file);
+    if (isTestFile(r)) continue;
+    const sf = parse(file);
+
+    for (const node of collect(sf)) {
+      if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) continue;
+      if (node.expression.name.text !== "from") continue;
+
+      const arg = node.arguments[0];
+      if (!arg || !ts.isStringLiteralLike(arg)) continue;
+
+      // The whole chain this `.from()` opens, so `.eq("is_excluded", false)`
+      // applied five lines later still counts.
+      let chain = node;
+      while (
+        chain.parent &&
+        (ts.isPropertyAccessExpression(chain.parent) || ts.isCallExpression(chain.parent))
+      ) {
+        chain = chain.parent;
+      }
+      const text = chain.getText(sf);
+
+      // Reads only. A write that selects its rows back is not deriving
+      // anything, and neither is a bare insert/update/delete.
+      if (!/\.select\s*\(/.test(text)) continue;
+      if (/\.(insert|update|upsert|delete)\s*\(/.test(text)) continue;
+
+      // Either the queried table carries the flag, or the chain embeds one that
+      // does through a junction (`email_messages!inner(...)`), which derives
+      // from it just the same.
+      const direct = EXCLUDABLE_TABLES.includes(arg.text);
+      const embedded = EXCLUDABLE_TABLES.some((t) => text.includes(`${t}!inner(`));
+      if (!direct && !embedded) continue;
+
+      if (text.includes("is_excluded")) continue;
+
+      // The hatch is accepted INSIDE the chain as well as above it. These
+      // chains routinely open with a bare `service` or `db()` on its own line,
+      // so a comment written above the statement sits nowhere near the
+      // `.from()` it explains, and one written where it belongs (next to the
+      // table) would not be found by an above-the-node scan at all.
+      const stmt = ts.findAncestor(node, ts.isStatement);
+      const hatch =
+        text +
+        "\n" +
+        annotationAbove(sf, node) +
+        "\n" +
+        (stmt ? leadingComments(sf, stmt) + "\n" + annotationAbove(sf, stmt) : "");
+      if (EXCLUSION_OPT_OUT.test(hatch)) continue;
+
+      violations.push(`${r}:${lineOf(sf, node)}: ${oneLine(text)}`);
+    }
+  }
+
+  report(
+    "read of an exclusion-bearing table that ignores is_excluded",
+    violations,
+    "CAR-260: `is_excluded` means the row is still stored but must not count toward\n" +
+      "  anything derived. This read would still count it. Add the filter:\n" +
+      '    .eq("is_excluded", false)          // or .eq("<embed>.is_excluded", false)\n' +
+      "  If the read genuinely should see struck rows (sync bookkeeping, real reply\n" +
+      "  threading, abuse controls), say so where it happens:\n" +
+      "    // exclusion-exempt: <reason>",
+  );
+}
+
 // ── Report ───────────────────────────────────────────────────────────────
 
 if (failures.length > 0) {

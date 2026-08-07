@@ -9,7 +9,6 @@ function scopeRow(overrides: Partial<CompanyTargetScopeRow>): CompanyTargetScope
     location_id: null,
     is_targeted: true,
     priority_score: null,
-    tier: null,
     program_name: null,
     app_window_text: null,
     next_app_date: null,
@@ -22,7 +21,7 @@ function scopeRow(overrides: Partial<CompanyTargetScopeRow>): CompanyTargetScope
 describe("deriveCompanyTarget", () => {
   it("returns null when no scope is targeted (containers don't count)", () => {
     const { target, office_scopes } = deriveCompanyTarget([
-      scopeRow({ is_targeted: false, tier: "Big Tech" }),
+      scopeRow({ is_targeted: false }),
       scopeRow({ id: 2, location_id: 5, is_targeted: false, location_label: "Dallas, Texas" }),
     ]);
     expect(target).toBeNull();
@@ -31,10 +30,9 @@ describe("deriveCompanyTarget", () => {
 
   it("company-wide only: passes the row through, no office scopes", () => {
     const { target, office_scopes } = deriveCompanyTarget([
-      scopeRow({ status: "applied", tier: "Big Tech", priority_score: 87 }),
+      scopeRow({ status: "applied", priority_score: 87 }),
     ]);
     expect(target?.status).toBe("applied");
-    expect(target?.tier).toBe("Big Tech");
     expect(target?.priority_score).toBe(87);
     expect(office_scopes).toEqual([]);
   });
@@ -58,12 +56,11 @@ describe("deriveCompanyTarget", () => {
     expect(office_scopes).toHaveLength(1);
   });
 
-  it("tier/program/window come from the company-wide row even when untargeted", () => {
+  it("program/window come from the company-wide row even when untargeted", () => {
     const { target } = deriveCompanyTarget([
-      scopeRow({ is_targeted: false, tier: "Big Tech", program_name: "APM", app_window_text: "Opens fall" }),
+      scopeRow({ is_targeted: false, program_name: "APM", app_window_text: "Opens fall" }),
       scopeRow({ id: 2, location_id: 5, status: "applied", location_label: "New York, New York" }),
     ]);
-    expect(target?.tier).toBe("Big Tech");
     expect(target?.program_name).toBe("APM");
     expect(target?.app_window_text).toBe("Opens fall");
     expect(target?.status).toBe("applied");

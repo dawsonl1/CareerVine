@@ -82,6 +82,7 @@ export async function sendTrackedEmail(
     .from("email_messages")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
+    // exclusion-exempt: daily send cap. An abuse control counts what was actually sent; striking a message must not hand back send quota.
     .eq("direction", EmailDirection.Outbound)
     .eq("is_simulated", false)
     .gte("date", midnight.toISOString());

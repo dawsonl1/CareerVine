@@ -40,6 +40,7 @@ export const GET = withApiHandler({
     // Fallback: check email_messages for a matched contact
     const { data: emailMsg } = await service
       .from("email_messages")
+      // exclusion-exempt: identity resolution: which contact owns an address. A struck message is still evidence of who the address belongs to.
       .select("matched_contact_id")
       .eq("user_id", user.id)
       .or(`from_address.eq.${emailForOr},to_addresses.cs.{${emailForOr}}`)

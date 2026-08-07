@@ -39,6 +39,7 @@ export const GET = withApiHandler({
         .from("email_messages")
         .select(emailSelect)
         .eq("user_id", user.id)
+        // exclusion-exempt: display. Excluding an email sets is_hidden, so this list already drops struck messages.
         .eq("is_trashed", false)
         .eq("is_hidden", false)
         .order("date", { ascending: false })
@@ -48,6 +49,7 @@ export const GET = withApiHandler({
         .from("email_messages")
         .select(emailSelect)
         .eq("user_id", user.id)
+        // exclusion-exempt: display. The trash view is Gmail state, not a derived value.
         .eq("is_trashed", true)
         .order("date", { ascending: false })
         .limit(100),
@@ -56,6 +58,7 @@ export const GET = withApiHandler({
         .from("email_messages")
         .select(emailSelect)
         .eq("user_id", user.id)
+        // exclusion-exempt: display, and deliberately the RECOVERY surface: excluding sets is_hidden, so a struck message shows up here and unhiding clears both flags.
         .eq("is_hidden", true)
         .eq("is_trashed", false)
         .order("date", { ascending: false })
@@ -179,6 +182,8 @@ export const GET = withApiHandler({
           const { data, error } = await service
             .from("calendar_events")
             .select("source_gmail_thread_id, id, title, start_at, google_event_id")
+            // CAR-260: struck by the user, so it must not count.
+            .eq("is_excluded", false)
             .eq("user_id", user.id)
             .in("source_gmail_thread_id", chunk);
           if (error) throw error;

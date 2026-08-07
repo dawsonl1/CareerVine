@@ -18,6 +18,8 @@ import {
   removePhonesFromContact, addPhoneToContact, getTags, createTag,
   addTagToContact, removeTagFromContact, findOrCreateLocation,
 } from "@/lib/queries";
+// New code goes straight to the domain module; the queries barrel takes no additions.
+import { ensureCompanyTargets } from "@/lib/company-queries";
 import type { Contact, TagRow } from "@/lib/types";
 import {
   Plus, X, Check, Mail, Phone,
@@ -262,9 +264,11 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       await updateContact(contact.id, contactData);
 
       await removeCompaniesFromContact(contact.id);
+      const currentEmployerIds: number[] = [];
       for (const entry of companies) {
         if (entry.company_name.trim()) {
           const company = await findOrCreateCompany(entry.company_name.trim());
+          if (entry.is_current) currentEmployerIds.push(company.id);
           const loc = await resolveManualCompanyLocation(entry.location);
           await addCompanyToContact({
             contact_id: contact.id,
@@ -282,6 +286,10 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
           });
         }
       }
+      // Same deliberate act as adding the person with the employer already on
+      // them (CAR-263) — without this, "add contact, then edit to add Stripe"
+      // would behave differently from "add contact at Stripe".
+      await ensureCompanyTargets(userId, currentEmployerIds);
 
       // Replace-all, same shape as the companies loop above. Every row the form
       // holds is written back, and each keeps the years it came in with, so a

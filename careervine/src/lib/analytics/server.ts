@@ -194,6 +194,8 @@ export async function checkCompaniesEmailedMilestone(
       .select("contact_id, email_message_id, email_messages!inner(user_id, direction)")
       .eq("email_messages.user_id", userId)
       .eq("email_messages.direction", EmailDirection.Outbound)
+      // CAR-260: a struck email is not outreach, so it cannot earn the badge.
+      .eq("email_messages.is_excluded", false)
       // Deterministic sample when a heavy sender exceeds the 1000-row cap:
       // newest links first, so the window is stable rather than arbitrary
       // (CAR-159 review F10). Best-effort milestone; full pagination is

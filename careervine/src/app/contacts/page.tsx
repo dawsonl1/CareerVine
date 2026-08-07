@@ -19,7 +19,7 @@ import {
 // Straight from the domain module rather than the frozen queries barrel: this
 // is new code, and the barrel takes no additions (src/lib/queries.ts header).
 import { getContactsSearchCorpus, type ContactSearchItem } from "@/lib/data/contacts";
-import { promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
+import { ensureCompanyTargets, promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
 import { track } from "@/lib/analytics/client";
 import { primaryCurrentRole, sortEducation, sortExperiences } from "@/lib/experience-order";
 import {
@@ -465,9 +465,12 @@ export default function ContactsPage() {
       const created = await createContact(contactData);
       const contactId = created.id;
 
+      // Employers the person works at NOW — targeted after the loop (CAR-263).
+      const currentEmployerIds: number[] = [];
       for (const entry of companies) {
         if (entry.company_name.trim()) {
           const company = await findOrCreateCompany(entry.company_name.trim());
+          if (entry.is_current) currentEmployerIds.push(company.id);
           const loc = await resolveManualCompanyLocation(entry.location);
           await addCompanyToContact({
             contact_id: contactId,
@@ -485,6 +488,10 @@ export default function ContactsPage() {
           });
         }
       }
+      // Adding someone by hand says you care where they work, so their current
+      // employer joins the target list (CAR-263). Never re-targets a company you
+      // untargeted, and past employers are excluded.
+      await ensureCompanyTargets(user.id, currentEmployerIds);
 
       if (formData.school_name.trim()) {
         const school = await findOrCreateSchool(formData.school_name.trim());

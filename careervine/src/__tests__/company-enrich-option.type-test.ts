@@ -13,7 +13,7 @@
  * failure mode being prevented (a company reported as having 0 alumni because
  * nobody asked) produces no error at all at runtime.
  */
-import { getCompanies, type CompanyBaseSummary, type CompanySummary } from "@/lib/company-queries";
+import { getCompanies, type CompanyBaseSummary, type CompanySummary, type LeadDetail } from "@/lib/company-queries";
 import { nextActionForCompany } from "@/lib/company-next-action";
 import { buildOutreachQueue } from "@/lib/outreach-queue";
 
@@ -30,11 +30,12 @@ export async function enrichedByDefault(): Promise<void> {
   const all: CompanySummary[] = await getCompanies(USER, { scope: "all", search: "acme" });
   const explicit: CompanySummary[] = await getCompanies(USER, { scope: "targets", enrich: true });
 
-  // The six fields are real numbers/values on the enriched row, not optionals.
+  // The seven fields are real numbers/values on the enriched row, not optionals.
   const alum: number = list[0].alum_count;
   const lead: string | null = list[0].lead_contact_name;
   const detail: { count: number; at: string | null } | null = list[0].traction_detail;
-  void detail;
+  const leadDetail: LeadDetail | null = list[0].lead_detail;
+  void [detail, leadDetail];
   // Null for a company the ladder has nothing to say about (CAR-246).
   const rank: number = nextActionForCompany(list[0])?.rank ?? 0;
 
@@ -77,11 +78,13 @@ export async function refusals(): Promise<void> {
   void rows[0].lead_contact_name;
   // @ts-expect-error traction_detail is not on an unenriched summary
   void rows[0].traction_detail;
+  // @ts-expect-error lead_detail is not on an unenriched summary
+  void rows[0].lead_detail;
 
   // 2. Laundering an unenriched row into somewhere that reads those fields.
   // @ts-expect-error a CompanyBaseSummary is not a CompanySummary
   const laundered: CompanySummary = rows[0];
-  // @ts-expect-error nextActionForCompany reads all five enrichment fields
+  // @ts-expect-error nextActionForCompany reads the enrichment fields
   void nextActionForCompany(rows[0]);
   void laundered;
 

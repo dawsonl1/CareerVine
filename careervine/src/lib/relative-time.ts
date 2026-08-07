@@ -55,3 +55,25 @@ export function formatRelativeTime(iso: string | null | undefined, now: Date = n
   if (days === -1) return "yesterday";
   return days > 0 ? `in ${magnitude(days)}` : `${magnitude(-days)} ago`;
 }
+
+/**
+ * The same ladder for a moment that can only be in the past: "today" |
+ * "yesterday" | "3 days ago" (CAR-253).
+ *
+ * A FUTURE timestamp returns null rather than "in 3 days". Callers here are
+ * sentences about something that already happened — "You reached out …" — and
+ * the dates behind them come from `Date:` headers and hand-entered interaction
+ * dates, either of which can land in the future. A clause that has to read as
+ * past tense is better dropped than rendered backwards.
+ */
+export function formatTimeAgo(iso: string | null | undefined, now: Date = new Date()): string | null {
+  if (!iso) return null;
+  const then = new Date(iso);
+  if (isNaN(then.getTime())) return null;
+
+  const days = calendarDayDelta(then, now);
+  if (days > 0) return null;
+  if (days === 0) return "today";
+  if (days === -1) return "yesterday";
+  return `${magnitude(-days)} ago`;
+}

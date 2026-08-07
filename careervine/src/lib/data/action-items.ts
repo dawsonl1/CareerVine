@@ -72,6 +72,8 @@ export async function getActionItems(userId: string) {
           action_item_contacts(contact_id, contacts(id, name))
         `)
         .eq("user_id", userId)
+        // CAR-260: struck by the user, so it must not count.
+        .eq("is_excluded", false)
         .eq("is_completed", false)
         .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
         .order("due_at", { ascending: true, nullsFirst: false })
@@ -97,6 +99,8 @@ export async function getActionItemsForMeeting(meetingId: number) {
       action_item_contacts(contact_id, contacts(id, name))
     `)
     .eq("meeting_id", meetingId)
+    // CAR-260: struck by the user, so it must not count.
+    .eq("is_excluded", false)
     .order("id", { ascending: true });
 
   if (error) throw error;
@@ -133,6 +137,8 @@ export async function getActionItemsForMeetings(meetingIds: number[]) {
           action_item_contacts(contact_id, contacts(id, name))
         `)
         .in("meeting_id", chunk)
+        // CAR-260: struck by the user, so it must not count.
+        .eq("is_excluded", false)
         // meeting_id leads so the range windows are a stable total order across
         // pages; id is the order getActionItemsForMeeting has always returned
         // within a meeting.
@@ -211,6 +217,8 @@ export async function getCompletedActionItems(userId: string) {
       action_item_contacts(contact_id, contacts(id, name))
     `)
         .eq("user_id", userId)
+        // CAR-260: struck by the user, so it must not count.
+        .eq("is_excluded", false)
         .eq("is_completed", true)
         .order("completed_at", { ascending: false })
         .order("id")
@@ -307,6 +315,7 @@ export async function getOnboardingActionItemId(userId: string): Promise<number 
       .from("follow_up_action_items")
       .select("id")
       .eq("user_id", userId)
+      // exclusion-exempt: onboarding bookkeeping: has this account ever been seeded, not a derived value.
       .eq("source", "onboarding")
       .eq("is_completed", false)
       .limit(1)

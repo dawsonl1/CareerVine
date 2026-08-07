@@ -91,26 +91,36 @@ side, a living pipeline on the other.
 As your target list grows, the Companies page keeps it navigable with instant
 search and stackable filters:
 
-- Search as you type across company names, program names, and tier labels. Results
-  update instantly, no page reloads.
+- Search as you type across company names and program names. Results update
+  instantly, no page reloads.
 - Narrow the list by target status (researching through closed), outreach traction,
-  tier, who you know inside, and whether anyone there went to your school.
+  office location, who you know inside, and whether anyone there went to your school.
 - The page shows every company you target plus every company you already know
   someone at, so a target menu separates the two. "Not a target" is the shortlist
   worth reading before you pick your next one: places you have a way in and have not
   claimed yet.
+- The location menu groups cities under their state, so you can take all of Utah in
+  one click or pick Lehi and Boston individually, and type to jump straight to a
+  city. Companies with no office on file are their own option, so they stay
+  reachable instead of disappearing.
 - Who you know inside is one menu, not two competing ones: pick "works there now",
   "worked there before", "no contacts yet", or any combination. Companies where your
   only connection has moved on are one click away, and so is the pair that means
   "anyone at all".
-- The target, traction, tier, contacts, and alumni menus each take several answers
-  at once, so "Big Tech or Utah" and "Replied or Call done" are single filters rather
-  than two separate views.
-- Filters combine, so "applied companies in Big Tech where I have no contacts yet"
-  is two clicks, and a live count shows how much of your list matches.
-- The count on each status chip follows the rest of the bar. Filter to one tier and
+- The target, traction, location, contacts, and alumni menus each take several
+  answers at once, so "Lehi or Boston" and "Replied or Call done" are single filters
+  rather than two separate views.
+- Filters combine, so "applied companies in Utah where I have no contacts yet" is
+  two clicks, and a live count shows how much of your list matches.
+- Filtering by location changes what each company card reports, not just which
+  companies appear. Ask for Lehi and a card counts the people you know at the Lehi
+  office, and says how many of your contacts there have no office on file rather
+  than quietly leaving them out.
+- Clicking a company opens straight to that office when your filter points at
+  exactly one of its locations, and to the whole company when it points at more.
+- The count on each status chip follows the rest of the bar. Filter to one state and
   the chips tell you how many researching, applied, and interviewing companies are
-  left in that tier, so the number you click is the number you get.
+  left there, so the number you click is the number you get.
 - Every filtered view lives in the URL: share it, bookmark it, or click into a
   company and come back without losing your place.
 
@@ -119,7 +129,24 @@ than a label: "3 Contacted (2 days ago)", "2 Calls Done (2 weeks ago)", "1 Call
 Scheduled (in 3 days)". You can see at a glance how much has happened at a
 company and whether it has gone cold, without opening it. Only people who
 currently work there count toward it, so a conversation with someone who has
-since moved on never makes a company look warmer than it is.
+since moved on never makes a company look warmer than it is. The badge says
+"Call" only when the conversations behind it really were calls: a career fair, a
+networking event or a text exchange reads "1 Conversation" instead.
+
+The next move follows the same rule, because what you should do after a
+conversation depends on what kind it was. A coffee chat asks you to follow up
+after your call, a career fair asks you to follow up after the career fair, and a
+networking event names the event. A text exchange or an "Other" conversation gets
+no follow-up nudge at all: those cards simply tell you when you last spoke, so
+the app never pushes you to chase something that was never a meeting.
+
+The next move on each card answers the same question with the same honesty.
+Waiting on someone reads "Waiting on Julian. You reached out 3 days ago", so the
+decision to nudge is yours to make from a number rather than a shrug. And
+"Samuel replied, write back" shows up only while you actually owe someone a
+response: answer the thread and it settles into "You had an email thread with
+Samuel (2 days ago)", which stays true even if Samuel writes again. A card should
+never ask you for something you have already done.
 
 ## A network that keeps itself fresh
 
@@ -147,6 +174,12 @@ automatically:
 New contacts saved from the browser extension are enriched automatically (photo,
 real work history, and a verified email in one pass), so a two-second save produces
 a complete profile.
+
+Adding someone by hand also adds their employer to your target companies, since
+choosing to save a person is already a statement about where they work. Only the
+job they hold now counts, not the ones they have left, and a company you have set
+to "Not a target" stays that way. Bulk imports are left out on purpose: loading a
+data bundle of two thousand prospects should not turn into two thousand targets.
 
 ### Admin spend controls
 
@@ -192,3 +225,17 @@ open to their full summary, an email opens to the message itself with a reply
 button, and a completed action can be reopened if it turns out not to be finished.
 Deleting a conversation keeps the action items that came out of it, and says so
 before you confirm rather than after.
+
+A back and forth is one conversation, not six rows. Emails on the same thread stack
+into a single entry showing how many messages it holds, and open to the individual
+messages when you want them, so a contact's history reads as the handful of things
+that actually happened rather than every message that carried them. A sent email no
+longer shows up twice either, once as the email and once as its own log entry.
+
+Some of what lands in your history is not really history. An automated calendar
+notice, a "so and so accepted your invitation" reply, a reminder nobody wrote: these
+used to count as the contact replying to you, which quietly retired your follow ups
+and moved the company forward. Any entry can now be struck from the record. It stays
+where it is, in Gmail and on your calendar, and stops counting toward your
+suggestions, your company progress and your network stats. Show removed on the
+timeline brings the struck entries back into view, and puts any of them back.
