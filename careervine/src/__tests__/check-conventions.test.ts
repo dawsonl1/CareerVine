@@ -139,6 +139,74 @@ afterAll(() => {
 // script twice. That made this suite flake on timeout rather than on an assertion, which
 // reads as a real failure. The budget is per test, so a genuine hang still fails, just later.
 describe("conventions guard", { timeout: 60_000 }, () => {
+  // ── tripwire (p): reads that must honor is_excluded (CAR-260) ──
+  //
+  // The precedent this guard exists to avoid repeating is is_simulated, which
+  // means nearly the same thing and is applied at 6 of ~22 derived reads. A
+  // guard for that failure is worthless unless it can be shown to trip, so:
+  // one read it must reject, one filtered read it must accept, one hatch it
+  // must honor, and one embed it must see through.
+
+  it("flags a derived read of an exclusion-bearing table with no is_excluded filter", () => {
+    const { code, out } = withFile(
+      "src/lib/probe.ts",
+      "export async function f(db: any) {\n" +
+        '  return await db.from("interactions").select("contact_id").eq("contact_id", 1);\n' +
+        "}\n",
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("ignores is_excluded");
+  });
+
+  it("accepts the same read once it filters", () => {
+    const { out } = withFile(
+      "src/lib/probe.ts",
+      "export async function f(db: any) {\n" +
+        '  return await db.from("interactions").select("contact_id").eq("is_excluded", false).limit(1);\n' +
+        "}\n",
+    );
+    // Asserted on THIS rule rather than on exit 0: a bare probe read trips
+    // unrelated tripwires (unbounded reads, CAS readback) that would mask
+    // whichever answer this rule gave. The two rejection cases above are what
+    // prove the detector runs at all.
+    expect(out).not.toContain("ignores is_excluded");
+  });
+
+  it("accepts an exclusion-exempt annotation written inside the chain", () => {
+    const { out } = withFile(
+      "src/lib/probe.ts",
+      "export async function f(db: any) {\n" +
+        "  return await db\n" +
+        '    .from("email_messages")\n' +
+        "    // exclusion-exempt: sync bookkeeping, not a derived value.\n" +
+        '    .select("gmail_message_id")\n' +
+        "    .limit(1);\n" +
+        "}\n",
+    );
+    expect(out).not.toContain("ignores is_excluded");
+  });
+
+  it("sees an exclusion-bearing table reached through an !inner embed", () => {
+    const { code, out } = withFile(
+      "src/lib/probe.ts",
+      "export async function f(db: any) {\n" +
+        '  return await db.from("email_message_contacts").select("contact_id, email_messages!inner(date)");\n' +
+        "}\n",
+    );
+    expect(code).toBe(1);
+    expect(out).toContain("ignores is_excluded");
+  });
+
+  it("leaves writes alone, including an update that selects its rows back", () => {
+    const { out } = withFile(
+      "src/lib/probe.ts",
+      "export async function f(db: any) {\n" +
+        '  return await db.from("meetings").update({ title: "x" }).eq("id", 1).select("id");\n' +
+        "}\n",
+    );
+    expect(out).not.toContain("ignores is_excluded");
+  });
+
   it("passes on a clean tree (control)", () => {
     const { code, out } = run();
     expect(code, out).toBe(0);

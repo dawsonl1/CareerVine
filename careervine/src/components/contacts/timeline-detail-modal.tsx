@@ -13,6 +13,7 @@ import { useEmailBody } from "@/hooks/use-email-body";
 import { useCompose } from "@/components/compose-email-context";
 import { useQuickCapture } from "@/components/quick-capture-context";
 import { withToastOnError } from "@/lib/with-toast-on-error";
+import { apiSend, jsonBody } from "@/lib/api-client";
 import { getMeetingById, deleteMeeting, getTranscriptSegments } from "@/lib/data/meetings";
 import { getActionItemsForMeeting, deleteActionItem, updateActionItem } from "@/lib/data/action-items";
 import { getAttachmentsForMeeting, getAttachmentUrl } from "@/lib/data/attachments";
@@ -41,6 +42,7 @@ import {
   Calendar,
   CheckCircle,
   CheckSquare,
+  EyeOff,
   MessageSquare,
   Paperclip,
   Pencil,
@@ -151,7 +153,113 @@ export function TimelineDetailModal({
           toastError={toastError}
         />
       )}
+
+      {entry && (
+        <CountToggle
+          entry={entry}
+          onClose={onClose}
+          onChanged={onChanged}
+          onConfirm={onConfirmDelete}
+          toastError={toastError}
+        />
+      )}
     </Modal>
+  );
+}
+
+/** Where the entry lives, for the copy that promises it survives removal. */
+const SURVIVES: Partial<Record<TimelineEntry["kind"], string>> = {
+  email: " The message stays in Gmail.",
+  meeting: " The event stays in Google Calendar if it came from there.",
+};
+
+/**
+ * Strike this entry from every derived calculation, or put it back (CAR-260).
+ *
+ * Shared across all four kinds rather than added to each detail component,
+ * because "does not count" has to mean one identical thing everywhere or the
+ * user cannot predict it. Deliberately NOT merged with the per-kind Delete
+ * buttons above: those destroy the record, this keeps it and stops it counting,
+ * and the two are different enough that collapsing them would make Delete
+ * quietly reversible. The label is the user's own phrasing for the same reason
+ * "Remove" was rejected: it is a synonym for Delete and would read as a
+ * duplicate of it.
+ */
+function CountToggle({
+  entry,
+  onClose,
+  onChanged,
+  onConfirm,
+  toastError,
+}: {
+  entry: TimelineEntry;
+  onClose: () => void;
+  onChanged: () => void;
+  onConfirm: (options: { message: string; title?: string }) => Promise<boolean>;
+  toastError: (message: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const excluded = !!entry.data.is_excluded;
+
+  const body =
+    entry.kind === "email"
+      ? { kind: "email" as const, gmailMessageId: entry.data.gmail_message_id }
+      : { kind: entry.kind, id: entry.data.id };
+
+  const run = async () => {
+    // Claimed BEFORE the confirm, not after it: the confirm is itself an await,
+    // so a ref set on the far side of it leaves the whole dialog round trip
+    // unguarded and a double click opens two of them.
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      if (
+        !excluded &&
+        !(await onConfirm({
+          title: "Stop counting this?",
+          message:
+            "It stops counting toward your suggestions, company progress and network stats." +
+            (SURVIVES[entry.kind] ?? "") +
+            " You can put it back with Show removed on the timeline.",
+        }))
+      ) {
+        return;
+      }
+      const ok = await withToastOnError(
+        () => apiSend("/api/timeline/exclude", jsonBody(body, excluded ? "DELETE" : "POST")),
+        toastError,
+        excluded ? "Couldn't put that back. Please try again." : "Couldn't remove that. Please try again."
+      );
+      if (!ok) return;
+      onChanged();
+      onClose();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-outline-variant/50">
+      <p className="text-sm text-muted-foreground">
+        {excluded
+          ? "Removed from your history, so it is not counted anywhere."
+          : "Counted toward your suggestions and company progress."}
+      </p>
+      <Button type="button" variant="text" disabled={busy} onClick={() => void run()}>
+        {excluded ? (
+          <>
+            <RotateCcw className="h-4 w-4" /> Count this again
+          </>
+        ) : (
+          <>
+            <EyeOff className="h-4 w-4" /> Do not count this
+          </>
+        )}
+      </Button>
+    </div>
   );
 }
 

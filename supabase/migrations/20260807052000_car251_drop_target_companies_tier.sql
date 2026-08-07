@@ -1,0 +1,21 @@
+-- CAR-251 step 3 of 3: drop target_companies.tier.
+--
+-- ⚠️ APPLY THIS ONLY AFTER THE NEW CODE IS LIVE. It inverts the usual
+-- migrate-then-merge order for a specific reason: supabase-js surfaces
+-- PostgREST's 42703 ("column does not exist") as `{ data: null }` WITHOUT
+-- throwing. Any still-running old deploy selects `tier` in its
+-- target_companies read, so applying this first would make the Companies page
+-- render as if the user had no targets at all, silently, for the length of the
+-- deploy window. Rule 42's hazard, running in reverse.
+--
+-- Safe to apply once the deploy is live because nothing reads the column any
+-- more: the app, the MCP tool surface, and the bulk-import endpoint all had it
+-- removed in the same change.
+--
+-- The geography this column carried is NOT lost. It was migrated into real
+-- office rows first (20260807050000), which is why 328 of 328 targeted
+-- companies have a location. What IS deliberately discarded is the two
+-- non-geographic labels, `Big Tech` (86 companies) and `Other Hubs` (14):
+-- they were segment tags with no location equivalent, and retiring them was an
+-- explicit product decision, recorded on CAR-251.
+ALTER TABLE target_companies DROP COLUMN IF EXISTS tier;

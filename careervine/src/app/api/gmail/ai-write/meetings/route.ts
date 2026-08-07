@@ -29,6 +29,8 @@ export const GET = withApiHandler({
     const { data: meetings } = await service
       .from("meetings")
       .select("id, meeting_date, meeting_type, meeting_type_detail, notes, transcript")
+      // CAR-260: struck by the user, so it must not count.
+      .eq("is_excluded", false)
       .eq("user_id", user.id)
       .in("id", meetingIds)
       .order("meeting_date", { ascending: false })

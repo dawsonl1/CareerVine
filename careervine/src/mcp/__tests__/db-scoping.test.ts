@@ -69,7 +69,7 @@ vi.mock("@/lib/analytics/server", () =>
 );
 
 import * as db from "@/mcp/lib/db";
-import { getContactStages, getCompanies, getCompanyDetail } from "@/lib/company-queries";
+import { ensureCompanyTargets, getContactStages, getCompanies, getCompanyDetail } from "@/lib/company-queries";
 import { getNeglectedContacts, getRelationshipsOnTrack } from "@/lib/data/follow-ups";
 import { deriveDueFollowUps } from "@/lib/rules/due-follow-ups";
 import { getNetworkingStreak as getStreakShared } from "@/lib/data/home";
@@ -608,13 +608,14 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
   },
 };
 
-// Named imports MCP files may take from @/lib/company-queries. The three
-// query entry points are userId-parameterized and driven below.
+// Named imports MCP files may take from @/lib/company-queries. The four
+// userId-parameterized entry points are driven below.
 const ALLOWED_COMPANY_QUERIES_IMPORTS = new Set([
   "setCompanyQueriesClient",
   "getContactStages",
   "getCompanies",
   "getCompanyDetail",
+  "ensureCompanyTargets",
   "CompanySummary",
   "ContactStage",
   "CompanyDetail",
@@ -904,6 +905,19 @@ describe("scoping drives (company-queries entry points MCP calls)", () => {
     db.initDb(USER);
     await getCompanies(USER, {});
     expect(recorded().length).toBeGreaterThan(0);
+    assertAllScoped(recorded(), USER);
+  });
+
+  it("ensureCompanyTargets scopes both its read and its write", async () => {
+    // add_contact reaches this (CAR-263). The read must filter user_id and the
+    // insert must carry it; the helper swallows its own errors, so an unscoped
+    // version would fail silently in production rather than throw.
+    resetRecorder();
+    db.initDb(USER);
+    state.route = () => [];
+    await ensureCompanyTargets(USER, [7]);
+    expect(recorded().length).toBeGreaterThan(0);
+    expect(recorded().some((q) => q.table === "target_companies" && q.op === "insert")).toBe(true);
     assertAllScoped(recorded(), USER);
   });
 

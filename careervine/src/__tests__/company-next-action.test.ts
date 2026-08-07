@@ -16,6 +16,8 @@ function input(partial: Partial<NextActionInput>): NextActionInput {
     leadName: null,
     lastOutreachAt: null,
     replyThread: null,
+    conversationKind: null,
+    conversationAt: null,
     ...partial,
   };
 }
@@ -273,16 +275,18 @@ describe("nextActionForCompany adapter", () => {
       target: {
         id: 1,
         priority_score: 90,
-        tier: "Tier 1",
         program_name: null,
         app_window_text: null,
         next_app_date: null,
         status: "outreach_active",
       },
       office_scopes: [],
+      offices: [],
+      roster: [],
       traction: "replied",
       traction_detail: { count: 1, at: "2026-07-18T00:00:00Z" },
       lead_detail: { last_outreach_at: null, reply: { awaitingOurReply: true, lastMessageAt: "2026-07-18T00:00:00Z" } },
+      conversation: null,
     } satisfies CompanySummary;
     const a = nextActionForCompany(c, NOW);
     expect(a).not.toBeNull();
@@ -327,5 +331,114 @@ describe("deriveNextAction — nothing to say (CAR-246)", () => {
 
   it("still speaks when someone currently works there", () => {
     expect(deriveNextAction(input({ currentCount: 1 }), NOW)).not.toBeNull();
+  });
+});
+
+describe("deriveNextAction — a conversation is not always a call (CAR-257)", () => {
+  /**
+   * Lucid Software's card advised "Follow up with Spencer after your call" off
+   * a meeting titled "LinkedIn chat" (`meeting_type: "text"`). Every logged
+   * conversation became `call_done`, and this rung read that as a phone call.
+   *
+   * `conversationKind` now carries the CAR-242 type down here. The two states
+   * that matter most are the ends: Text and Other must not produce a follow-up
+   * NUDGE at all, and an untyped conversation must still produce the original
+   * one, because a Google-synced calendar event carries no type and really is
+   * a call.
+   */
+  const done = (kind: NextActionInput["conversationKind"], at: string | null = "2026-06-11T17:00:00Z") =>
+    act({ traction: "call_done", leadName: "Spencer Hintze", conversationKind: kind, conversationAt: at });
+
+  it("keeps 'after your call' for a coffee chat", () => {
+    // CAR-242 made Coffee Chat the 1:1 bucket regardless of medium, so phone
+    // and video calls arrive here and nowhere else.
+    expect(done("call").text).toBe("Follow up with Spencer after your call");
+  });
+
+  it("keeps 'after your call' when no type was recorded", () => {
+    // The Google-synced case: calendar_events has no type column at all.
+    // Silencing these would be a far worse regression than the bug being fixed.
+    expect(done(null).text).toBe("Follow up with Spencer after your call");
+  });
+
+  it("names the career fair instead of a call", () => {
+    const a = done("career-fair");
+    expect(a.text).toBe("Follow up with Spencer after the career fair");
+    expect(a.text).not.toMatch(/call/i);
+    expect(a.rank).toBe(done("call").rank);
+  });
+
+  it("names the networking event instead of a call", () => {
+    const a = done("networking");
+    expect(a.text).toBe("Follow up with Spencer after the networking event");
+    expect(a.text).not.toMatch(/call/i);
+  });
+
+  it("states the fact for a text chat instead of nudging a follow-up", () => {
+    const a = done("text", "2026-06-11T17:00:00Z");
+    expect(a.text).toBe("You texted Spencer 1 month ago");
+    expect(a.text).not.toMatch(/follow up/i);
+    expect(a.tone).toBe("muted");
+  });
+
+  it("states the fact for Other instead of nudging a follow-up", () => {
+    const a = done("other", "2026-06-11T17:00:00Z");
+    expect(a.text).toBe("You connected with Spencer 1 month ago");
+    expect(a.text).not.toMatch(/follow up|call/i);
+    expect(a.tone).toBe("muted");
+  });
+
+  it("drops the time clause rather than inventing one when the date is missing", () => {
+    expect(done("text", null).text).toBe("You texted Spencer");
+  });
+
+  it("ranks a text or Other below every real move, and a real follow-up above them", () => {
+    // Nothing to do, so it must not win the "What's next" sort. The warm-intro
+    // band bottoms out at 34 ("Reach out, you know N people here"); a past-due
+    // deadline sits at 22.
+    const bareReachOut = act({ currentCount: 3, leadName: null }).rank;
+    const pastDue = act({ currentCount: 0, nextAppDate: "2026-06-01" }).rank;
+    for (const kind of ["text", "other"] as const) {
+      expect(done(kind).rank).toBeLessThan(bareReachOut);
+      expect(done(kind).rank).toBeGreaterThan(pastDue);
+      expect(done("call").rank).toBeGreaterThan(done(kind).rank);
+    }
+  });
+
+  it("falls back to a generic subject when there is no lead to name", () => {
+    const a = act({ traction: "call_done", leadName: null, conversationKind: "text", conversationAt: "2026-06-11T17:00:00Z" });
+    expect(a.text).toBe("You texted someone here 1 month ago");
+  });
+});
+
+describe("deriveNextAction — a scheduled conversation is not always a call (CAR-257)", () => {
+  // The same defect one rung earlier: a career fair on the calendar used to
+  // read "Prep for your call".
+  const soon = (kind: NextActionInput["conversationKind"]) =>
+    act({ traction: "call_scheduled", leadName: "Spencer Hintze", conversationKind: kind });
+
+  it("keeps 'your call' for a coffee chat and for an untyped event", () => {
+    expect(soon("call").text).toBe("Prep for your call with Spencer");
+    expect(soon(null).text).toBe("Prep for your call with Spencer");
+  });
+
+  it("preps for the event itself, not a call", () => {
+    expect(soon("career-fair").text).toBe("Prep for the career fair, Spencer will be there");
+    expect(soon("networking").text).toBe("Prep for the networking event, Spencer will be there");
+    expect(soon("career-fair").text).not.toMatch(/call/i);
+  });
+
+  it("uses the neutral 'conversation' for a scheduled text or Other", () => {
+    // You do not schedule a text exchange, so anything landing here is a
+    // mislabel; a generic word is the one wording that cannot be wrong.
+    expect(soon("text").text).toBe("Prep for your conversation with Spencer");
+    expect(soon("other").text).toBe("Prep for your conversation with Spencer");
+  });
+
+  it("keeps every kind at the same rank as the call it replaces", () => {
+    const call = soon("call").rank;
+    for (const kind of ["career-fair", "networking", "text", "other"] as const) {
+      expect(soon(kind).rank).toBe(call);
+    }
   });
 });

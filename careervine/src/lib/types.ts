@@ -125,6 +125,8 @@ export type ContactMeeting = {
   private_notes: string | null;
   calendar_description: string | null;
   transcript: string | null;
+  /** Struck from every derived calculation by the user (CAR-260). */
+  is_excluded: boolean;
 };
 
 // ── Gmail types ──
@@ -151,6 +153,29 @@ export type EmailMessage = Database["public"]["Tables"]["email_messages"]["Row"]
   contact_ids?: number[];
 };
 
+/**
+ * A Gmail conversation, as `buildThreads` in `gmail-helpers.ts` assembles it.
+ * Defined here rather than beside that function because the timeline row union
+ * below references it, and importing it back from `gmail-helpers` (which
+ * already imports this module) would be a cycle.
+ */
+export type EmailThread = {
+  threadId: string;
+  subject: string;
+  messages: EmailMessage[];
+  latestDate: string;
+  latestDirection: string | null;
+  /** Denormalized primary contact, for the display label / view-contact link. */
+  contactId: number | null;
+  /**
+   * Every tracked contact any message in the thread is attributed to
+   * (CAR-159/CAR-169), so the inbox contact filter surfaces a shared thread
+   * under all of them, not just the primary. Union of each message's
+   * contact_ids (junction), falling back to matched_contact_id.
+   */
+  contactIds: number[];
+};
+
 // ── Timeline types ──
 
 /**
@@ -169,12 +194,31 @@ export type CompletedActionEntry = {
   /** `ActionDirection.WaitingOn` when the user was waiting on the contact. */
   direction?: string | null;
   completed_at: string | null;
+  /** Struck from every derived calculation by the user (CAR-260). */
+  is_excluded?: boolean;
 };
 
 export type TimelineEntry =
   | { kind: "meeting"; date: string; data: ContactMeeting }
   | { kind: "interaction"; date: string; data: InteractionRow }
   | { kind: "email"; date: string; data: EmailMessage }
+  | { kind: "completed_action"; date: string; data: CompletedActionEntry };
+
+/**
+ * What the timeline LIST renders, as opposed to `TimelineEntry`, which is what
+ * the detail modal opens on (CAR-260).
+ *
+ * The two differ in exactly one place: emails arrive here grouped into threads,
+ * because a six-message conversation is one event in the relationship and was
+ * previously six rows. Expanding a stack and clicking a message inside it hands
+ * the modal a single-message `TimelineEntry`, so the modal never sees a thread
+ * and keeps its switch exhaustive over the four record kinds it can actually
+ * render.
+ */
+export type TimelineRowEntry =
+  | { kind: "meeting"; date: string; data: ContactMeeting }
+  | { kind: "interaction"; date: string; data: InteractionRow }
+  | { kind: "email_thread"; date: string; data: EmailThread }
   | { kind: "completed_action"; date: string; data: CompletedActionEntry };
 
 /** Full email content as returned by the message detail endpoint */

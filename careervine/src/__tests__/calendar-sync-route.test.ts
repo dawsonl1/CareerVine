@@ -270,6 +270,32 @@ describe("/api/calendar/sync", () => {
     );
   });
 
+  it("leaves is_excluded out of the upsert payload, so a re-sync cannot un-strike an event (CAR-260)", async () => {
+    // ON CONFLICT only overwrites the keys present in the payload. The moment
+    // is_excluded appears there, every calendar poll resets an event the user
+    // struck back to counting — the same reason the Gmail sync's safe-field
+    // update never touches is_read / is_trashed / is_hidden.
+    mockFetchCalendarEvents.mockResolvedValue({
+      events: [
+        {
+          id: "evt-1",
+          status: "confirmed",
+          start: { dateTime: "2026-07-10T15:00:00.000Z" },
+          end: { dateTime: "2026-07-10T16:00:00.000Z" },
+          summary: "Coffee chat",
+        },
+      ],
+      nextSyncToken: "next-token",
+    });
+
+    const res = await POST(makeRequest());
+    expect(res.status).toBe(200);
+    const [rows] = calendarEventUpsert.mock.calls.at(-1)!;
+    for (const row of rows as Record<string, unknown>[]) {
+      expect(Object.keys(row)).not.toContain("is_excluded");
+    }
+  });
+
   it("does NOT match an attendee email that belongs to another tenant's contact (CAR-133 / R2.1)", async () => {
     // contact_emails has no user_id column, so an unscoped service-client match
     // is global across tenants. A foreign contact whose email happens to be an

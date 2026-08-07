@@ -112,6 +112,7 @@ export const POST = withApiHandler({
         // contact still counts as this contact's recent thread.
         const recentThreadPromise = service
           .from("email_messages")
+          // exclusion-exempt: real threading. Picks the thread a generated follow-up replies on; striking a message does not move the conversation it belongs to.
           .select("thread_id, subject, email_message_contacts!inner(contact_id)")
           .eq("user_id", user.id)
           .eq("email_message_contacts.contact_id", contactId)

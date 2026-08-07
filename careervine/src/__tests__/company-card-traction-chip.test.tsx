@@ -34,9 +34,14 @@ function company(over: Partial<CompanySummary> = {}): CompanySummary {
     lead_contact_name: "Kelson Reid",
     target: null,
     office_scopes: [],
+    offices: [],
+    roster: [],
     traction: "call_done",
     traction_detail: { count: 2, at: daysAgo(14) },
     lead_detail: null,
+    // Two real calls behind the default fixture, matching what the query layer
+    // produces for a `call_done` company (CAR-257).
+    conversation: { kind: "call", allCalls: true },
     ...over,
   };
 }
@@ -123,7 +128,6 @@ describe("traction chip rendering (CAR-246)", () => {
           target: {
             id: 1,
             priority_score: null,
-            tier: null,
             program_name: null,
             app_window_text: null,
             next_app_date: soonLocal,
@@ -134,6 +138,59 @@ describe("traction chip rendering (CAR-246)", () => {
     );
 
     expect(screen.getByText(/Apply in 3 days/)).toBeTruthy();
+  });
+});
+
+describe("the chip only says 'Call' when the conversations were calls (CAR-257)", () => {
+  /**
+   * Lucid Software's chip read "1 Call Done (1 month ago)" for a meeting
+   * titled "LinkedIn chat". The stage is still `call_done` — a conversation
+   * really did happen — but the chip's noun was asserting the medium.
+   */
+  it("says Conversation for a company whose conversations were not all calls", () => {
+    render(
+      <CompanyCard
+        company={company({
+          traction_detail: { count: 1, at: daysAgo(30) },
+          conversation: { kind: "text", allCalls: false },
+        })}
+      />,
+    );
+    expect(screen.getByText("1 Conversation (1 month ago)")).toBeTruthy();
+    expect(screen.queryByText(/Call Done/)).toBeNull();
+  });
+
+  it("pluralizes the neutral noun too", () => {
+    render(<CompanyCard company={company({ conversation: { kind: "career-fair", allCalls: false } })} />);
+    expect(screen.getByText("2 Conversations (2 weeks ago)")).toBeTruthy();
+  });
+
+  it("keeps 'Calls Done' when every conversation was a call", () => {
+    // Including the untyped Google-synced case, which resolves to a call.
+    render(<CompanyCard company={company({ conversation: { kind: "call", allCalls: true } })} />);
+    expect(screen.getByText("2 Calls Done (2 weeks ago)")).toBeTruthy();
+  });
+
+  it("applies the same rule to a scheduled conversation", () => {
+    render(
+      <CompanyCard
+        company={company({
+          traction: "call_scheduled",
+          traction_detail: { count: 1, at: daysAgo(-3) },
+          conversation: { kind: "career-fair", allCalls: false },
+        })}
+      />,
+    );
+    expect(screen.getByText("1 Conversation Scheduled (in 3 days)")).toBeTruthy();
+  });
+
+  it("still falls back to the bare stage label for an override with no events", () => {
+    // conversation is null there, and the count is 0 — the earlier degradation
+    // must survive the new branch.
+    render(
+      <CompanyCard company={company({ traction_detail: { count: 0, at: null }, conversation: null })} />,
+    );
+    expect(screen.getByText("Call done")).toBeTruthy();
   });
 });
 

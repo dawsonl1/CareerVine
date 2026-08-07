@@ -36,6 +36,7 @@ const CALLS_UPCOMING = 13; // two future calls for one person
 const OVERRIDE = 14; // stage_override with no underlying event
 const FORMER_ONLY = 15; // the only person with history has left
 const TWO_REPLIERS = 16; // two people replied; the first one seen is already answered
+const REPLIER_CLASH = 17; // two people replied; the ANSWERED one replied more recently
 
 const PAST = "2020-03-05T17:00:00Z";
 const OLDER = "2020-01-02T17:00:00Z";
@@ -66,6 +67,11 @@ const people: Person[] = [
   // rank tie unless the tie-break prefers the person still owed a response.
   { company_id: TWO_REPLIERS, contact_id: 701, is_current: true },
   { company_id: TWO_REPLIERS, contact_id: 702, is_current: true },
+  // The case where the two tie-break criteria DISAGREE (CAR-253 + CAR-257).
+  // 703 is answered but replied LAST; 704 is still owed a response but replied
+  // first. Recency alone would name 703 and bury the reply actually waiting.
+  { company_id: REPLIER_CLASH, contact_id: 703, is_current: true },
+  { company_id: REPLIER_CLASH, contact_id: 704, is_current: true },
 ];
 
 /** Outbound mail, per contact. Everyone emailed also counts as "contacted". */
@@ -77,6 +83,8 @@ const OUTBOUND: Record<number, string[]> = {
   202: ["2026-05-01T10:00:00Z"],
   701: ["2026-05-01T10:00:00Z", "2026-05-06T10:00:00Z"], // wrote back after their reply
   702: ["2026-05-01T10:00:00Z"], // never wrote back
+  703: ["2026-05-01T10:00:00Z", "2026-05-10T10:00:00Z"], // wrote back after their reply
+  704: ["2026-05-01T10:00:00Z"], // never wrote back
 };
 
 /** Inbound mail from the contact's own address, per contact. */
@@ -84,9 +92,11 @@ const INBOUND: Record<number, string[]> = {
   201: ["2026-05-04T10:00:00Z"],
   701: ["2026-05-04T10:00:00Z"],
   702: ["2026-05-05T10:00:00Z"],
+  703: ["2026-05-09T10:00:00Z"], // the LATER reply, already answered
+  704: ["2026-05-02T10:00:00Z"], // the EARLIER reply, still owed a response
 };
 
-const COMPANY_IDS = [CONTACTED, REPLIED, CALLS_DONE, CALLS_UPCOMING, OVERRIDE, FORMER_ONLY, TWO_REPLIERS];
+const COMPANY_IDS = [CONTACTED, REPLIED, CALLS_DONE, CALLS_UPCOMING, OVERRIDE, FORMER_ONLY, TWO_REPLIERS, REPLIER_CLASH];
 
 const idsIn = (q: RecordedQuery, col: string): number[] | null => {
   const f = q.filters.find(([m, c]) => m === "in" && c === col);
@@ -355,5 +365,33 @@ describe("lead selection when two current contacts have both replied (CAR-253)",
     // names 702 must not be dated by mail sent to someone else.
     const c = (await summaries()).get(TWO_REPLIERS)!;
     expect(c.lead_detail?.last_outreach_at).toBe("2026-05-01T10:00:00Z");
+  });
+});
+
+/**
+ * The two rank tie-break criteria, when they disagree.
+ *
+ * Lead selection now answers to both CAR-253 (prefer whoever is still owed a
+ * response) and CAR-257 (otherwise prefer the most recent evidence, so the pill
+ * names the person whose conversation it describes). TWO_REPLIERS above cannot
+ * tell them apart: there the unanswered reply is also the most recent one.
+ *
+ * Here they point at different people, which pins the ORDER between them.
+ */
+describe("owing someone a reply outranks recency in lead selection (CAR-253 + CAR-257)", () => {
+  it("names the unanswered replier even though the answered one replied later", async () => {
+    const c = (await summaries()).get(REPLIER_CLASH)!;
+
+    expect(c.traction).toBe("replied");
+    expect(c.lead_contact_name).toBe("Person 704");
+    expect(c.lead_detail?.reply?.awaitingOurReply).toBe(true);
+    expect(nextActionForCompany(c, new Date("2026-08-06T12:00:00"))!.text).toMatch(/write back/);
+  });
+
+  it("still dates the chip from the most recent reply, whoever leads", async () => {
+    // The tie-break moves the NAME, never the tally: the chip counts both
+    // replies and reports the latest of them.
+    const c = (await summaries()).get(REPLIER_CLASH)!;
+    expect(c.traction_detail).toEqual({ count: 2, at: "2026-05-09T10:00:00Z" });
   });
 });

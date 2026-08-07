@@ -28,6 +28,8 @@ export async function getMeetings(userId: string) {
         contacts(*)
       )
     `)
+    // CAR-260: struck by the user, so it must not count.
+    .eq("is_excluded", false)
     .eq("user_id", userId)
     .order("meeting_date", { ascending: false })
     .limit(200);
@@ -56,7 +58,8 @@ export async function getMeetingsForContact(contactId: number) {
         notes,
         private_notes,
         calendar_description,
-        transcript
+        transcript,
+        is_excluded
       )
     `)
     .eq("contact_id", contactId);
@@ -91,6 +94,7 @@ export async function getMeetingById(id: number) {
   return must(
     await db()
       .from("meetings")
+      // exclusion-exempt: record view. The detail modal must load a struck meeting in order to offer Count this again.
       .select(`
         *,
         meeting_contacts(
@@ -159,6 +163,7 @@ async function exclusiveAttachmentIds(meetingId: number): Promise<number[]> {
   const meeting = must(
     await db()
       .from("meetings")
+      // exclusion-exempt: attachment bookkeeping, not a derived value.
       .select("transcript_attachment_id")
       .eq("id", meetingId)
       .maybeSingle(),
@@ -201,6 +206,7 @@ async function exclusiveAttachmentIds(meetingId: number): Promise<number[]> {
   const otherTranscripts = must(
     await db()
       .from("meetings")
+      // exclusion-exempt: attachment bookkeeping: counts other referents before deleting a blob, so a struck meeting still holds its reference.
       .select("transcript_attachment_id")
       .in("transcript_attachment_id", ids)
       .neq("id", meetingId),

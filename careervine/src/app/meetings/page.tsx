@@ -195,6 +195,7 @@ export default function MeetingsPage() {
           const supabase = createSupabaseBrowserClient();
           const { data: calEvents } = await supabase
             .from("calendar_events")
+            // exclusion-exempt: enrichment of meetings already fetched and filtered; this only decorates them with RSVP state.
             .select("google_event_id, attendees")
             .in("google_event_id", calEventIds)
             .eq("user_id", user.id);

@@ -3,26 +3,17 @@
  * Extracted for testability.
  */
 
-import type { EmailMessage } from "@/lib/types";
+import type { EmailMessage, EmailThread } from "@/lib/types";
+
+/**
+ * Re-exported so the many `import { buildThreads, type EmailThread }` call
+ * sites keep working. The definition itself moved to `types.ts` (CAR-260)
+ * because the timeline's row union now references it, and having `types.ts`
+ * import it back from here would be a cycle.
+ */
+export type { EmailThread };
 
 export type ParsedHeader = { name: string; value: string };
-
-export type EmailThread = {
-  threadId: string;
-  subject: string;
-  messages: EmailMessage[];
-  latestDate: string;
-  latestDirection: string | null;
-  /** Denormalized primary contact, for the display label / view-contact link. */
-  contactId: number | null;
-  /**
-   * Every tracked contact any message in the thread is attributed to
-   * (CAR-159/CAR-169), so the inbox contact filter surfaces a shared thread
-   * under all of them, not just the primary. Union of each message's
-   * contact_ids (junction), falling back to matched_contact_id.
-   */
-  contactIds: number[];
-};
 
 /** All contacts a message is attributed to: the junction set if present, else the primary. */
 function messageContactIds(m: EmailMessage): number[] {
