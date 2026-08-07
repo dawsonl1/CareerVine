@@ -471,12 +471,6 @@ export interface CompanyBaseSummary {
   target: TargetInfo | null;
   /** Targeted office scopes (location-level targets), highest priority first. */
   office_scopes: OfficeScopeSummary[];
-  /**
-   * Every office in the registry for this company, targeted or not (CAR-251).
-   * The location filter matches on these, so it works for a user with no
-   * targets and no data bundle.
-   */
-  offices: CompanyOfficeSummary[];
 }
 
 /** The five fields the who-you-know pass computes; see CompanyBaseSummary. */
@@ -496,10 +490,19 @@ export interface CompanyEnrichment {
   /** Max derived stage across non-bench contacts (pursuing/in_play views). */
   traction: OutreachStage | null;
   /**
-   * Per-(contact, office) rows backing location-scoped card counts (CAR-251).
-   * Enrichment-side because the alum/recruiter flags are what that pass
-   * computes; the location filter itself only needs `offices` on the base.
+   * Every office in the registry for this company, targeted or not (CAR-251).
+   * The location filter matches on these, so it works for a user with no
+   * targets and no data bundle.
+   *
+   * Enrichment-side, like the five above and for the same reason: an
+   * unenriched caller must not receive `[]` here, because "this company has no
+   * offices" and "nobody asked for its offices" are different claims and only
+   * one of them is true. The MCP list_companies path (`scope: "all"`) and the
+   * outreach queue (`enrich: false`) never filter by location, and
+   * company-enrich-option.test.ts pins that they do not pay for this read.
    */
+  offices: CompanyOfficeSummary[];
+  /** Per-(contact, office) rows backing location-scoped card counts (CAR-251). */
   roster: CompanyRosterEntry[];
 }
 
@@ -935,23 +938,27 @@ export async function getCompanies(
     // cap. Unpaginated it would silently drop offices, and a dropped office is
     // a company that vanishes from its own city's filter.
     //
-    // NOT gated on runEnrichment: `offices` lives on the BASE summary, so an
-    // `enrich: false` caller still gets it.
-    chunkedPaginated<{
-      company_id: number;
-      location_id: number;
-      locations: { city: string | null; state: string | null; country: string } | null;
-    }>(companyIds, async (chunk, from, to) =>
-      must(
-        await db()
-          .from("company_locations")
-          .select("id, company_id, location_id, locations(city, state, country)")
-          .in("company_id", chunk)
-          .order("company_id")
-          .order("id")
-          .range(from, to),
-      ),
-    ),
+    // Gated on runEnrichment for the same reason the employment read is: the
+    // only consumer is the location filter on the companies page, which is
+    // always enriched. Ungated, this added a third table to the MCP and
+    // outreach query shapes that CAR-229 deliberately trimmed.
+    runEnrichment
+      ? chunkedPaginated<{
+        company_id: number;
+        location_id: number;
+        locations: { city: string | null; state: string | null; country: string } | null;
+      }>(companyIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("company_locations")
+            .select("id, company_id, location_id, locations(city, state, country)")
+            .in("company_id", chunk)
+            .order("company_id")
+            .order("id")
+            .range(from, to),
+        ),
+      )
+      : Promise.resolve([]),
     chunked(companyIds, async (chunk) => {
       let q = db()
         .from("companies")
@@ -1194,7 +1201,6 @@ export async function getCompanies(
       scopes: {
         target: derived?.target ?? null,
         office_scopes: derived?.office_scopes ?? [],
-        offices: officesByCompany.get(c.id) ?? [],
       },
     };
   };
@@ -1220,6 +1226,7 @@ export async function getCompanies(
           lead_contact_name: leadNameByCompany.get(c.id) ?? null,
           ...scopes,
           traction: traction.get(c.id) ?? null,
+          offices: officesByCompany.get(c.id) ?? [],
           roster: rosterByCompany.get(c.id) ?? [],
         };
       })

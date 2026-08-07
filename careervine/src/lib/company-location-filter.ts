@@ -26,7 +26,7 @@
  * every evaluation instead.
  */
 
-import type { CompanyBaseSummary, CompanySummary, CompanyOfficeSummary } from "./company-queries";
+import type { CompanySummary, CompanyOfficeSummary } from "./company-queries";
 
 /** Companies with no office row at all — the deliberate escape hatch. */
 export const NO_LOCATION = "none";
@@ -70,7 +70,7 @@ export interface LocationGroupOption {
  * company with offices in both Lehi and Provo is one company in Utah, and a
  * header reading 2 there would overstate what clicking it returns.
  */
-export function locationOptions(rows: CompanyBaseSummary[]): LocationGroupOption[] {
+export function locationOptions(rows: CompanySummary[]): LocationGroupOption[] {
   const groups = new Map<string, { cities: Map<number, { label: string; ids: Set<number> }>; companies: Set<number> }>();
   for (const c of rows) {
     for (const o of c.offices) {
@@ -103,7 +103,7 @@ export function locationOptions(rows: CompanyBaseSummary[]): LocationGroupOption
 }
 
 /** Companies carrying no office row, for the `none` option's count. */
-export function noLocationCount(rows: CompanyBaseSummary[]): number {
+export function noLocationCount(rows: CompanySummary[]): number {
   return rows.filter((c) => c.offices.length === 0).length;
 }
 
@@ -159,7 +159,7 @@ function officeSelected(o: CompanyOfficeSummary, sel: LocationSelection): boolea
 
 /** The company's offices that the selection picks out. */
 export function matchedOffices(
-  c: Pick<CompanyBaseSummary, "offices">,
+  c: Pick<CompanySummary, "offices">,
   sel: LocationSelection,
 ): CompanyOfficeSummary[] {
   if (!sel.active) return [];
@@ -167,7 +167,7 @@ export function matchedOffices(
 }
 
 /** Row matching: any office in the selection, or no offices at all under `none`. */
-export function matchesLocation(c: Pick<CompanyBaseSummary, "offices">, sel: LocationSelection): boolean {
+export function matchesLocation(c: Pick<CompanySummary, "offices">, sel: LocationSelection): boolean {
   if (!sel.active) return true;
   if (sel.none && c.offices.length === 0) return true;
   return c.offices.some((o) => officeSelected(o, sel));
@@ -264,7 +264,7 @@ export function scopedCounts(c: CompanySummary, sel: LocationSelection): ScopedC
  * company company-wide.
  */
 export function preselectedOffice(
-  c: Pick<CompanyBaseSummary, "offices">,
+  c: Pick<CompanySummary, "offices">,
   sel: LocationSelection,
 ): CompanyOfficeSummary | null {
   const matched = matchedOffices(c, sel);
@@ -273,7 +273,7 @@ export function preselectedOffice(
 
 /** `/companies/123` or `/companies/123?location=456`. */
 export function companyHref(
-  c: Pick<CompanyBaseSummary, "id" | "offices">,
+  c: Pick<CompanySummary, "id" | "offices">,
   sel: LocationSelection,
 ): string {
   const office = preselectedOffice(c, sel);
