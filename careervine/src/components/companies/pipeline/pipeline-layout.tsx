@@ -1349,6 +1349,7 @@ export function PipelineLayout({
   onSetTier,
   jobChangeIds,
   onOfficesChanged,
+  onDiscoveryAdded,
   onDeleteCompany,
 }: {
   userId: string;
@@ -1374,6 +1375,8 @@ export function PipelineLayout({
   /** Bench contacts with an unactioned job-change event (plan 29 Q5 hint). */
   jobChangeIds: Set<number>;
   onOfficesChanged: () => void;
+  /** A discovery candidate became a contact at this company (CAR-277). */
+  onDiscoveryAdded: () => void;
   /** Delete the whole company profile (CAR-271). Owns its own confirm dialog. */
   onDeleteCompany: () => void;
 }) {
@@ -1541,7 +1544,7 @@ export function PipelineLayout({
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(440px,560px)] gap-6 items-start">
         <div className="min-w-0 space-y-6">
         {/* Discovery candidates (plan 41) — absent unless the weekly search found someone */}
-        <DiscoveryCard companyId={companyId} />
+        <DiscoveryCard companyId={companyId} onAdded={onDiscoveryAdded} />
         <section className="min-w-0 rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-4">
           <div className="flex items-center justify-between gap-3 mb-4">
             <h2 className="text-sm font-medium text-on-surface">Contacts</h2>

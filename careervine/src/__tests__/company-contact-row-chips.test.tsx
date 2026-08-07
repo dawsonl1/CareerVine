@@ -105,6 +105,7 @@ function renderRoster(all: LocationBlock) {
       onSetTier={vi.fn()}
       jobChangeIds={new Set()}
       onOfficesChanged={vi.fn()}
+      onDiscoveryAdded={vi.fn()}
       onDeleteCompany={vi.fn()}
     />,
   );
