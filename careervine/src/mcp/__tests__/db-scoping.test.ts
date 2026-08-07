@@ -257,6 +257,42 @@ const DB_TABLE: Record<string, Entry> = {
         ? { id: 21, active_cycle: 1, status: "researching" }
         : undefined,
   },
+  // CAR-270 pipeline. The reader's root target_companies select is scoped to
+  // uid(); everything under it keys on ids that read produced. The two writers
+  // reach save_pipeline_cycle, an RPC with NO ownership check of its own, so the
+  // target id they hand it must be one the same invocation already proved.
+  getCompanyPipeline: {
+    kind: "ownership",
+    drive: () => db.getCompanyPipeline(9),
+    route: (q) =>
+      q.table === "target_companies" && q.op === "select"
+        ? [{ id: 21, location_id: null, is_targeted: true, active_cycle: 1, status: "applied" }]
+        : q.table === "pipeline_cycles"
+          ? [{ id: 31, target_company_id: 21, cycle_number: 1, selected_stage: "applied", declined_next_cycle: false }]
+          : undefined,
+  },
+  logApplication: {
+    kind: "ownership",
+    drive: () => db.logApplication(9, "all", undefined, { jobTitle: "APM" }),
+    route: (q) =>
+      q.table === "target_companies" && q.op === "select"
+        ? [{ id: 21, location_id: null, is_targeted: true, active_cycle: 1, status: "applied" }]
+        : q.table === "pipeline_cycles"
+          ? [{ id: 31, target_company_id: 21, cycle_number: 1, selected_stage: "applied", declined_next_cycle: false }]
+          : undefined,
+    ownership: { allowedRpcs: ["save_pipeline_cycle"] },
+  },
+  logInterviewRound: {
+    kind: "ownership",
+    drive: () => db.logInterviewRound(9, "all", undefined, { interviewer: "Ada" }),
+    route: (q) =>
+      q.table === "target_companies" && q.op === "select"
+        ? [{ id: 21, location_id: null, is_targeted: true, active_cycle: 1, status: "interviewing" }]
+        : q.table === "pipeline_cycles"
+          ? [{ id: 31, target_company_id: 21, cycle_number: 1, selected_stage: "interviewing", declined_next_cycle: false }]
+          : undefined,
+    ownership: { allowedRpcs: ["save_pipeline_cycle"] },
+  },
   updateCompanyResearch: {
     kind: "ownership",
     drive: () => db.updateCompanyResearch(9, { next_app_date: "2026-10-01" }),
@@ -506,6 +542,9 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     addPipelineNote: { kind: "scoped" },
     setCompanyStage: { kind: "mcp-covered", coveredBy: "setCompanyStageForCompany", touches: "pipeline_cycles" },
     updateTargetResearch: { kind: "mcp-covered", coveredBy: "updateCompanyResearch", touches: "target_companies" },
+    loadCompanyPipeline: { kind: "mcp-covered", coveredBy: "getCompanyPipeline", touches: "target_companies" },
+    appendApplication: { kind: "mcp-covered", coveredBy: "logApplication", touches: "rpc:save_pipeline_cycle" },
+    appendInterviewRound: { kind: "mcp-covered", coveredBy: "logInterviewRound", touches: "rpc:save_pipeline_cycle" },
   },
   "@/lib/data/client": {
     setDataClient: { kind: "context" },
