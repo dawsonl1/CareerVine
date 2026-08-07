@@ -60,6 +60,12 @@ The server is no longer read-mostly. An agent that finds something can record it
 
 Still no delete tools, and nothing generates content: the model is the writer.
 
+### Structured output
+
+Every tool returns `structuredContent` alongside the text block, so a client can read a response as data instead of parsing prose. The text block is unchanged and still comes first, so nothing that reads it breaks.
+
+Tools do not yet declare an `outputSchema`. The MCP SDK treats that as a runtime contract rather than documentation, so one is only worth declaring against a harness that proves the handler's real payload matches it.
+
 ### The recruiting pipeline
 
 `get_company_pipeline` returns the board behind a company's stage: every scope (company-wide and per-office), every application cycle, the researching programs, the intel notes, the applications you submitted and the interview rounds you sat.
