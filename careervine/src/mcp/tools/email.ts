@@ -722,16 +722,40 @@ export function registerEmailTools(server: McpServer): void {
     {
       title: "Get email thread",
       description:
-        "Full message bodies for a Gmail thread (live fetch, HTML converted where possible). Returns the most recent 10 messages of long threads.",
-      inputSchema: { thread_id: z.string().min(1) },
+        "Full message bodies for a Gmail thread (live fetch, HTML converted where possible). Returns the most recent 10 messages by default; page back through a long thread with before_index.",
+      inputSchema: {
+        thread_id: z.string().min(1),
+        limit: z.number().int().min(1).max(50).optional().describe("How many messages to return (default 10, newest first)"),
+        before_index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(
+            "Return the window ENDING at this index in the thread's chronological order, for reading older messages. The response reports window_start, so pass that value back to step further into the past.",
+          ),
+      },
       annotations: { readOnlyHint: true },
     },
-    handler(async ({ thread_id }) => {
+    handler(async ({ thread_id, limit, before_index }) => {
       const cached = await getCachedThreadMessages(thread_id);
       if (cached.length === 0) {
         throw new Error(`No cached messages for thread ${thread_id} — check the id or sync Gmail first`);
       }
-      const recent = cached.slice(-10);
+      // Windowed rather than capped (CAR-262). The old `slice(-10)` had no way
+      // back: a long negotiation thread's opening message was unreachable, and
+      // the response gave no hint that anything was missing.
+      const size = limit ?? 10;
+      const end = Math.min(before_index ?? cached.length, cached.length);
+      const windowStart = Math.max(0, end - size);
+      const recent = cached.slice(windowStart, end);
+      const windowInfo = {
+        total_cached: cached.length,
+        window_start: windowStart,
+        window_end: end,
+        has_older: windowStart > 0,
+        older_hint: windowStart > 0 ? `pass before_index:${windowStart} for older messages` : null,
+      };
 
       // Free tier holds no mailbox-read scope, so the live getFullMessage hydration
       // below would 403. Serve the cached snippets instead (no full bodies) — CAR-102.
@@ -739,7 +763,7 @@ export function registerEmailTools(server: McpServer): void {
       if (!caps.has("mailbox:read")) {
         return {
           thread_id,
-          total_cached: cached.length,
+          ...windowInfo,
           preview_only: true,
           messages: recent.map((m) => ({
             gmail_message_id: m.gmail_message_id,
@@ -775,7 +799,7 @@ export function registerEmailTools(server: McpServer): void {
           }
         }),
       );
-      return { thread_id, total_cached: cached.length, messages };
+      return { thread_id, ...windowInfo, messages };
     }),
   );
 }

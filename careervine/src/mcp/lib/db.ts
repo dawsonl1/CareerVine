@@ -625,7 +625,7 @@ export async function listDueFollowUps(): Promise<DueFollowUp[]> {
 
 // ── Network health ─────────────────────────────────────────────────────
 
-export async function getNetworkHealth() {
+export async function getNetworkHealth(neglectedLimit = 15) {
   const userId = uid();
 
   // Tier counts + last-30-day totals are MCP-specific aggregations; the
@@ -664,6 +664,10 @@ export async function getNetworkHealth() {
       total: onTrackRes.total,
     },
     streakDays: streakRes.streak,
+    // Caller-controlled (CAR-262). A fixed 15 with no parameter and no total
+    // read as "these are the neglected contacts" when it meant "here are the
+    // worst 15 of however many".
+    neglectedTotal: neglectedRes.length,
     neglectedContacts: neglectedRes
       .map((n) => ({
         id: n.id,
@@ -671,7 +675,7 @@ export async function getNetworkHealth() {
         days_since_touch: n.days_since_touch,
         cadence_days: n.follow_up_frequency_days,
       }))
-      .slice(0, 15),
+      .slice(0, neglectedLimit),
     last30Days: {
       meetings: m30.count ?? 0,
       interactions: i30.count ?? 0,
@@ -837,6 +841,28 @@ export async function listScheduled() {
       thread_id: fu.thread_id,
       pending_messages: pending.length,
       next_send_at: pending[0]?.scheduled_send_at ?? null,
+      // The steps themselves (CAR-262). These rows were already fetched and then
+      // collapsed to the count above, which left an agent unable to answer the
+      // one question that matters before a send goes out on the user's behalf:
+      // what is it going to say, and when. It also made `reschedule_follow_up`
+      // unusable in practice, since that tool takes a `sequence_number` no tool
+      // ever revealed.
+      //
+      // Bodies are deliberately NOT included: they are large, and every caller
+      // that needs one is editing a specific step it can now identify.
+      steps: pending.map((m: {
+        id: number;
+        sequence_number: number;
+        subject: string | null;
+        status: string;
+        scheduled_send_at: string;
+      }) => ({
+        follow_up_message_id: m.id,
+        sequence_number: m.sequence_number,
+        subject: m.subject,
+        status: m.status,
+        scheduled_send_at: m.scheduled_send_at,
+      })),
     };
   });
 

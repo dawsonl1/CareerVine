@@ -29,17 +29,28 @@ That's it. The server is registered in the repo-root `.mcp.json`, so any Claude 
 - **No tier auto-graduation on outbound email** — prospects graduate on a reply, a logged interaction, or a meeting, same as the app.
 - **No delete tools** — the lowest-regret omission.
 
-## Tools (28)
+## Tools (29)
 
 | Area | Tools |
 | --- | --- |
 | Contacts & research | `search_contacts`, `get_contact_dossier`, `add_contact`, `add_contact_note`, `tag_contact`, `set_network_status` |
-| Email | `create_email_draft`, `send_email`, `check_delivery`, `schedule_email`, `create_follow_up_sequence`, `list_scheduled`, `cancel_scheduled`, `search_email_history`, `get_email_thread` |
+| Email | `create_email_draft`, `send_email`, `check_delivery`, `schedule_email`, `create_follow_up_sequence`, `list_scheduled`, `cancel_scheduled`, `reschedule_follow_up`, `search_email_history`, `get_email_thread` |
 | Outreach engine | `list_outreach_queue`, `list_companies`, `get_company`, `add_company_intel`, `set_stage_override` |
 | Relationship upkeep | `log_interaction`, `create_action_item`, `list_action_items`, `update_action_item`, `list_due_followups`, `get_network_health` |
 | Calendar | `list_meetings`, `create_meeting` |
 
 Deliberately excluded: AI generation tools — Claude is the generator; the server exposes data and actions only.
+
+### Reading past the first page
+
+Every list that can outgrow one response reports its window and how to move it, rather than truncating quietly:
+
+- `list_companies`, `list_outreach_queue` — `limit` + `offset`.
+- `get_company` — `limit` + `offset`, plus `group` to narrow to one of current/former/archived before paging a large roster.
+- `get_email_thread` — `limit` + `before_index`, walking backwards through a long thread; the response carries `window_start` to pass back.
+- `get_network_health` — `neglected_limit`, with `neglectedTotal` always reporting the real count.
+
+`list_companies(targets_only: false)` omits `traction` and the alumni counts entirely and sets `traction_included: false`. That scope is too large to compute them over, and sending them as `0`/`null` made "not measured" indistinguishable from "measured, and it is nothing". Use `get_company` for real traction on one company.
 
 ## Example prompts
 

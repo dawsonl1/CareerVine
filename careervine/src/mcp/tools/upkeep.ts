@@ -189,10 +189,18 @@ export function registerUpkeepTools(server: McpServer): void {
     {
       title: "Get network health",
       description:
-        "How am I doing? Networking streak, relationships-on-track ratio, most-neglected contacts, per-tier counts, and last-30-day activity totals.",
-      inputSchema: {},
+        "How am I doing? Networking streak, relationships-on-track ratio, most-neglected contacts (with the full count, so you can tell a short list from a short tail), per-tier counts, and last-30-day activity totals.",
+      inputSchema: {
+        neglected_limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("How many neglected contacts to list (default 15). neglectedTotal always reports the real count."),
+      },
       annotations: { readOnlyHint: true },
     },
-    handler(async () => getNetworkHealth()),
+    handler(async ({ neglected_limit }) => getNetworkHealth(neglected_limit)),
   );
 }
