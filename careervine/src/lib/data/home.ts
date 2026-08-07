@@ -73,6 +73,8 @@ export async function getHomeCoreData(userId: string) {
           .from("follow_up_action_items")
           .select("*, contacts(*), meetings(*), action_item_contacts(contact_id, contacts(id, name))")
           .eq("user_id", userId)
+          // CAR-260: struck by the user, so it must not count.
+          .eq("is_excluded", false)
           .eq("is_completed", false)
           .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
           .order("due_at", { ascending: true, nullsFirst: false })
@@ -189,6 +191,8 @@ export async function getActionListCounts(userId: string) {
       .from("follow_up_action_items")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
+      // CAR-260: struck by the user, so it must not count.
+      .eq("is_excluded", false)
       .eq("is_completed", false)
       .or("direction.is.null,direction.neq.waiting_on"),
 
@@ -252,6 +256,7 @@ function fetchActivityRows(userId: string, since: Date): Promise<ActivityRows> {
           .from("meetings")
           .select("meeting_date")
           .eq("user_id", userId)
+          .eq("is_excluded", false)
           .gte("meeting_date", sinceDay)
           .order("id")
           .range(from, to),
@@ -263,6 +268,7 @@ function fetchActivityRows(userId: string, since: Date): Promise<ActivityRows> {
           .from("follow_up_action_items")
           .select("completed_at")
           .eq("user_id", userId)
+          .eq("is_excluded", false)
           .eq("is_completed", true)
           .gte("completed_at", since.toISOString())
           .order("id")
@@ -275,6 +281,7 @@ function fetchActivityRows(userId: string, since: Date): Promise<ActivityRows> {
           .from("interactions")
           .select("interaction_date, contacts!inner()")
           .eq("contacts.user_id", userId)
+          .eq("is_excluded", false)
           .gte("interaction_date", sinceDay)
           .order("id")
           .range(from, to),
@@ -356,18 +363,18 @@ export async function getHomeStats(userId: string) {
     { count: emailsSentCurrent },
     { count: emailsSentPrevious },
   ] = await Promise.all([
-    db().from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", currentStr.split("T")[0]),
-    db().from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", previousStr.split("T")[0]).lt("meeting_date", currentStr.split("T")[0]),
-    db().from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", false),
-    db().from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", currentStr),
-    db().from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", previousStr).lt("completed_at", currentStr),
+    db().from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).gte("meeting_date", currentStr.split("T")[0]),
+    db().from("meetings").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).gte("meeting_date", previousStr.split("T")[0]).lt("meeting_date", currentStr.split("T")[0]),
+    db().from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).eq("is_completed", false),
+    db().from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).eq("is_completed", true).gte("completed_at", currentStr),
+    db().from("follow_up_action_items").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).eq("is_completed", true).gte("completed_at", previousStr).lt("completed_at", currentStr),
     // "Contacts added" counts the real network only; imported prospects/bench are not contacts the user added (matches the active-only Recently Added list)
     db().from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("network_status", "active").gte("created_at", currentStr),
     db().from("contacts").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("network_status", "active").gte("created_at", previousStr).lt("created_at", currentStr),
-    db().from("interactions").select("*, contacts!inner()", { count: "exact", head: true }).eq("contacts.user_id", userId).gte("interaction_date", currentStr.split("T")[0]),
-    db().from("interactions").select("*, contacts!inner()", { count: "exact", head: true }).eq("contacts.user_id", userId).gte("interaction_date", previousStr.split("T")[0]).lt("interaction_date", currentStr.split("T")[0]),
-    db().from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").gte("date", currentStr.split("T")[0]),
-    db().from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").gte("date", previousStr.split("T")[0]).lt("date", currentStr.split("T")[0]),
+    db().from("interactions").select("*, contacts!inner()", { count: "exact", head: true }).eq("contacts.user_id", userId).eq("is_excluded", false).gte("interaction_date", currentStr.split("T")[0]),
+    db().from("interactions").select("*, contacts!inner()", { count: "exact", head: true }).eq("contacts.user_id", userId).eq("is_excluded", false).gte("interaction_date", previousStr.split("T")[0]).lt("interaction_date", currentStr.split("T")[0]),
+    db().from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).eq("direction", "outbound").gte("date", currentStr.split("T")[0]),
+    db().from("email_messages").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).eq("direction", "outbound").gte("date", previousStr.split("T")[0]).lt("date", currentStr.split("T")[0]),
   ]);
 
   return {
@@ -430,6 +437,7 @@ export async function getActivityHeatmap(userId: string, prefetched?: Prefetched
           .from("email_messages")
           .select("date")
           .eq("user_id", userId)
+          .eq("is_excluded", false)
           .eq("direction", "outbound")
           .gte("date", startStr)
           .order("id")

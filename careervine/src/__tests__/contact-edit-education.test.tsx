@@ -35,6 +35,13 @@ const schoolIds = new Map<string, number>([
   ["Open University", 33],
 ]);
 
+// The modal targets a hand-added contact's current employer on save (CAR-263).
+// Unmocked, the real module reaches for a browser Supabase client and the save
+// dies before the education writes this file is about.
+vi.mock("@/lib/company-queries", () => ({
+  ensureCompanyTargets: () => Promise.resolve(0),
+}));
+
 vi.mock("@/lib/queries", () => ({
   getTags: () => Promise.resolve([]),
   updateContact: () => Promise.resolve({}),

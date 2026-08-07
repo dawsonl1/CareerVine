@@ -17,6 +17,9 @@ export const GET = withApiHandler({
       .from("calendar_events")
       .select("*")
       .eq("user_id", user.id)
+      // CAR-260: struck by the user, so it is off the calendar and off the
+      // home page's schedule band. Both surfaces read this one route.
+      .eq("is_excluded", false)
       .order("start_at", { ascending: true });
 
     if (start) {

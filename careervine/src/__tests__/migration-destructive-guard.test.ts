@@ -60,6 +60,10 @@ const CALENDAR_EVENTS_APP_OWNED = [
   "source_gmail_message_id",
   "meeting_id",
   "zoom_link",
+  // CAR-260. Purely a user decision, with no counterpart anywhere in Google's
+  // data, so a delete-and-resync would silently restore every struck event to
+  // counting and there would be no way to tell which ones had been struck.
+  "is_excluded",
 ] as const satisfies ReadonlyArray<keyof TablesInsert<"calendar_events">>;
 
 const APP_OWNED_COLUMNS: Record<string, readonly string[]> = {
@@ -166,12 +170,12 @@ describe("scanner trips where it must (fixtures)", () => {
       "DELETE FROM calendar_events WHERE start_at >= now() AND source_gmail_thread_id IS NULL;",
     );
     expect(v).toHaveLength(1);
-    expect(v[0].missing).toEqual(["source_gmail_message_id", "meeting_id", "zoom_link"]);
+    expect(v[0].missing).toEqual(["source_gmail_message_id", "meeting_id", "zoom_link", "is_excluded"]);
   });
 
   it("does not let a comment satisfy the column check or hide a statement", () => {
     const commentGuard =
-      "-- preserves source_gmail_thread_id source_gmail_message_id meeting_id zoom_link\n" +
+      "-- preserves source_gmail_thread_id source_gmail_message_id meeting_id zoom_link is_excluded\n" +
       "DELETE FROM calendar_events;\n";
     expect(scanMigrationSql("fixture.sql", commentGuard)).toHaveLength(1);
 
@@ -186,7 +190,8 @@ describe("scanner trips where it must (fixtures)", () => {
       "  AND source_gmail_thread_id IS NULL\n" +
       "  AND source_gmail_message_id IS NULL\n" +
       "  AND meeting_id IS NULL\n" +
-      "  AND zoom_link IS NULL;\n";
+      "  AND zoom_link IS NULL\n" +
+      "  AND is_excluded = false;\n";
     expect(scanMigrationSql("fixture.sql", guarded)).toHaveLength(0);
   });
 

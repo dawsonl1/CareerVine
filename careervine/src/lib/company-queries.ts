@@ -38,7 +38,7 @@ import {
 import { chunked, chunkedPaginated, paginateAll, escapeIlike } from "@/lib/data/postgrest";
 import { must } from "@/lib/data/client";
 import { getUserSchool } from "@/lib/data/users";
-import { findOrCreateCompany } from "./company-helpers";
+import { ensureCompanyTargets as ensureCompanyTargetsShared, findOrCreateCompany } from "./company-helpers";
 import { nextActionForCompany, NO_ACTION_RANK } from "./company-next-action";
 import { isByuFamilySchool, schoolsMatch } from "@/lib/schools/affinity";
 import { sortExperiences } from "@/lib/experience-order";
@@ -274,6 +274,8 @@ export async function getContactStages(
             )
             .eq("email_messages.user_id", userId)
             .eq("email_messages.is_simulated", false)
+            // CAR-260: struck by the user, so it must not derive a stage.
+            .eq("email_messages.is_excluded", false)
             .in("contact_id", chunk)
             .order("email_message_id")
             .order("contact_id")
@@ -328,6 +330,8 @@ export async function getContactStages(
               .from("interactions")
               .select("contact_id, interaction_date, contacts!inner()")
               .eq("contacts.user_id", userId)
+              // CAR-260: struck by the user, so it must not derive a stage.
+              .eq("is_excluded", false)
               .in("contact_id", chunk)
               .order("id")
               .range(from, to),
@@ -383,6 +387,8 @@ export async function getContactStages(
               // this event collapses onto it — see the noteEvent aggregation.
               .select("id, google_event_id, contact_id, start_at, status")
               .eq("user_id", userId)
+              // CAR-260: struck by the user, so it must not derive a stage.
+              .eq("is_excluded", false)
               .in("contact_id", chunk)
               .order("id")
               .range(from, to),
@@ -404,6 +410,8 @@ export async function getContactStages(
               // counting without the id double-counts one call.
               .select("calendar_event_id, contact_id, calendar_events!inner(user_id, google_event_id, start_at, status)")
               .eq("calendar_events.user_id", userId)
+              // CAR-260: struck by the user, so it must not derive a stage.
+              .eq("calendar_events.is_excluded", false)
               .in("contact_id", chunk)
               .order("calendar_event_id")
               .order("contact_id")
@@ -427,6 +435,8 @@ export async function getContactStages(
               // calendar_events carries no such column.
               .select("meeting_id, contact_id, meetings!inner(user_id, meeting_date, calendar_event_id, meeting_type)")
               .eq("meetings.user_id", userId)
+              // CAR-260: struck by the user, so it must not derive a stage.
+              .eq("meetings.is_excluded", false)
               .in("contact_id", chunk)
               .order("meeting_id")
               .order("contact_id")
@@ -2005,6 +2015,8 @@ export async function getCompanyDetail(
           await db()
             .from("interactions")
             .select("contact_id, interaction_type, interaction_type_detail, interaction_date")
+            // CAR-260: struck by the user, so it must not count.
+            .eq("is_excluded", false)
             .in("contact_id", chunk)
             // interaction_date DESC stays PRIMARY, with id DESC only as the
             // tiebreaker range pagination needs. The consumer below keeps the
@@ -2459,6 +2471,20 @@ export async function addTargetCompany(userId: string, companyId: number) {
     .single();
   if (error) throw error;
   return data as { id: number };
+}
+
+/**
+ * Target the companies a deliberately-added contact CURRENTLY works at (CAR-263).
+ *
+ * Lives here rather than in the contacts data layer because it is target
+ * bookkeeping, and because THIS module's client seam is the one MCP injects into
+ * (`setCompanyQueriesClient`), so browser and MCP callers share one wrapper. The
+ * rules — create missing rows only, never write `is_targeted`, company-wide
+ * scope — live in the shared helper. API routes with their own client call that
+ * helper directly instead.
+ */
+export async function ensureCompanyTargets(userId: string, companyIds: number[]): Promise<number> {
+  return await ensureCompanyTargetsShared(db() as never, userId, companyIds);
 }
 
 export async function updateTargetCompanyTargeted(targetId: number, isTargeted: boolean) {

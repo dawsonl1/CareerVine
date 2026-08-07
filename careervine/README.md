@@ -180,6 +180,12 @@ New contacts saved from the browser extension are enriched automatically (photo,
 real work history, and a verified email in one pass), so a two-second save produces
 a complete profile.
 
+Adding someone by hand also adds their employer to your target companies, since
+choosing to save a person is already a statement about where they work. Only the
+job they hold now counts, not the ones they have left, and a company you have set
+to "Not a target" stays that way. Bulk imports are left out on purpose: loading a
+data bundle of two thousand prospects should not turn into two thousand targets.
+
 ### Admin spend controls
 
 For account managers, the admin dashboard adds per-account switches for all of
@@ -224,3 +230,17 @@ open to their full summary, an email opens to the message itself with a reply
 button, and a completed action can be reopened if it turns out not to be finished.
 Deleting a conversation keeps the action items that came out of it, and says so
 before you confirm rather than after.
+
+A back and forth is one conversation, not six rows. Emails on the same thread stack
+into a single entry showing how many messages it holds, and open to the individual
+messages when you want them, so a contact's history reads as the handful of things
+that actually happened rather than every message that carried them. A sent email no
+longer shows up twice either, once as the email and once as its own log entry.
+
+Some of what lands in your history is not really history. An automated calendar
+notice, a "so and so accepted your invitation" reply, a reminder nobody wrote: these
+used to count as the contact replying to you, which quietly retired your follow ups
+and moved the company forward. Any entry can now be struck from the record. It stays
+where it is, in Gmail and on your calendar, and stops counting toward your
+suggestions, your company progress and your network stats. Show removed on the
+timeline brings the struck entries back into view, and puts any of them back.

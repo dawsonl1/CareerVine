@@ -52,6 +52,7 @@ export const POST = withApiHandler({
     const ownershipPromise = meetingId
       ? serviceClient
           .from("meetings")
+          // exclusion-exempt: ownership check before writing a transcript, not a derived value.
           .select("id")
           .eq("id", meetingId)
           .eq("user_id", user.id)

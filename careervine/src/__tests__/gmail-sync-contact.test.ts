@@ -141,11 +141,11 @@ describe("syncEmailsForContact — parsing and safe updates", () => {
     expect(byId["m-bad"].date).toBeNull();
   });
 
-  it("updates only safe fields on existing rows — never is_read / is_trashed / is_hidden", async () => {
+  it("updates only safe fields on existing rows — never is_read / is_trashed / is_hidden / is_excluded", async () => {
     seedDb({
       contacts: [{ id: CONTACT, user_id: USER, email_synced_through: null, network_status: "active" }],
       email_messages: [
-        { user_id: USER, gmail_message_id: "m1", thread_id: "t1", direction: "inbound", is_read: false, is_trashed: true, is_hidden: true, subject: "old" },
+        { user_id: USER, gmail_message_id: "m1", thread_id: "t1", direction: "inbound", is_read: false, is_trashed: true, is_hidden: true, is_excluded: true, subject: "old" },
       ],
     });
     fake = createFakeGmail({
@@ -166,6 +166,10 @@ describe("syncEmailsForContact — parsing and safe updates", () => {
     expect(row.is_read).toBe(false);
     expect(row.is_trashed).toBe(true);
     expect(row.is_hidden).toBe(true);
+    // CAR-260. The whole feature rests on this: a struck message that a
+    // re-sync un-struck would start counting again on the next mailbox poll,
+    // silently and with nothing on screen to explain it.
+    expect(row.is_excluded).toBe(true);
   });
 });
 

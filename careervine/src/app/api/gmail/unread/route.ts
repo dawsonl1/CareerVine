@@ -15,6 +15,7 @@ export const GET = withApiHandler({
       .from("email_messages")
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
+      // exclusion-exempt: display. Excluding an email sets is_hidden, which this count already filters.
       .eq("is_read", false)
       .eq("is_trashed", false)
       .eq("is_hidden", false)

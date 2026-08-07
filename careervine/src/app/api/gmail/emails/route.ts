@@ -100,14 +100,24 @@ export const GET = withApiHandler({
     // through the email_message_contacts junction (CAR-159): a thread shared
     // with another tracked contact appears on this contact too, which the
     // single-valued matched_contact_id column could never express.
-    const { data: messages, error: queryError } = await serviceClient
+    // "Show removed" on the contact timeline (CAR-260) needs the struck
+    // messages back. Excluding sets is_hidden too, so the default filter below
+    // already drops them; opting in widens to "not hidden OR struck" rather
+    // than dropping the is_hidden leg, which would also surface messages the
+    // user merely archived out of their inbox.
+    const base = serviceClient
       .from("email_messages")
       .select("*, email_message_contacts!inner(contact_id)")
       .eq("user_id", user.id)
       .eq("email_message_contacts.contact_id", numericContactId)
-      .eq("is_trashed", false)
-      .eq("is_hidden", false)
-      .order("date", { ascending: false });
+      // exclusion-exempt: display, and handled: excluding sets is_hidden, which the default branch below filters, while includeExcluded opts back in for the timeline's Show removed view.
+      .eq("is_trashed", false);
+
+    const { data: messages, error: queryError } = await (
+      query.includeExcluded === "1"
+        ? base.or("is_hidden.eq.false,is_excluded.eq.true")
+        : base.eq("is_hidden", false)
+    ).order("date", { ascending: false });
 
     if (queryError) throw queryError;
 

@@ -38,6 +38,7 @@ export async function recordThreadReply(
   const existingInbound = must(
     await service
       .from("email_messages")
+      // exclusion-exempt: idempotency probe. Re-recording a reply the user struck would resurrect its side effects.
       .select("id")
       .eq("user_id", userId)
       .eq("thread_id", threadId)
@@ -59,6 +60,7 @@ export async function recordThreadReply(
   const outbound = must(
     await service
       .from("email_messages")
+      // exclusion-exempt: attribution of a real inbound reply to the thread we sent on; striking our own outbound does not unsend it.
       .select("ai_assisted, matched_contact_id, email_message_contacts(contact_id)")
       .eq("user_id", userId)
       .eq("thread_id", threadId)

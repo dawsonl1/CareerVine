@@ -138,6 +138,7 @@ export async function gatherContactContext(
         .select("id, meeting_date, meeting_type, meeting_type_detail, title, notes")
         .in("id", meetingIds)
         .eq("user_id", userId)
+        .eq("is_excluded", false)
         .order("meeting_date", { ascending: false })
         .limit(MAX_MEETINGS),
     );
@@ -187,6 +188,7 @@ export async function gatherContactContext(
     .from("interactions")
     .select("interaction_date, interaction_type, interaction_type_detail, summary")
     .eq("contact_id", contactId)
+    .eq("is_excluded", false)
     .order("interaction_date", { ascending: false })
     .limit(MAX_INTERACTIONS)
     .then(must);
