@@ -60,7 +60,7 @@ export function registerOutreachTools(server: McpServer): void {
       const page = queue.slice(start, start + (limit ?? 25));
       const range = page.length > 0 ? ` showing ${start + 1}–${start + page.length}` : " none on this page";
       return {
-        summary: `${queue.length} companies in the queue (${skippedCount} targets skipped: nobody contactable);${range}`,
+        summary: `${queue.length} companies in the queue (${skippedCount} targets skipped: nobody works there now);${range}`,
         boost_window_days: APP_DATE_BOOST_DAYS,
         queue: page.map((c, i) => ({
           position: start + i + 1,
