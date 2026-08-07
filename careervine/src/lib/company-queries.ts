@@ -160,6 +160,29 @@ export interface ConversationSummary {
   allCalls: boolean;
 }
 
+/**
+ * Where a contact's reply conversation actually stands (CAR-253).
+ *
+ * Stage `replied` is sticky — it stays true forever once someone has written
+ * back once — so it cannot answer "is there anything for me to do here?". This
+ * can: it is computed PER THREAD, because whether we owe a response is a fact
+ * about a conversation, not about a person.
+ */
+export interface ReplyThreadState {
+  /**
+   * True while no message of ours is dated after their FIRST reply on some
+   * thread. Deliberately "first", not "latest": once we have answered, a later
+   * reply from them does not restore the write-back prompt — the exchange is
+   * live and the card should stop issuing instructions about it.
+   *
+   * ANY unanswered thread sets this. Two conversations with one still owed a
+   * response is still a conversation owed a response.
+   */
+  awaitingOurReply: boolean;
+  /** Latest message on those threads, either direction — what "(2 days ago)" counts from. */
+  lastMessageAt: string | null;
+}
+
 export interface ContactStage {
   stage: OutreachStage;
   rank: number;
@@ -169,6 +192,13 @@ export interface ContactStage {
    * one without a null check; unreached stages are `{ count: 0, at: null }`.
    */
   tallies: Record<OutreachStage, StageTally>;
+  /**
+   * Null unless a real inbound reply backs the stage. A `stage_override` of
+   * "replied" therefore lands here as null rather than as a claim about a
+   * thread that does not exist, and callers fall back to copy that asserts
+   * nothing about who wrote last.
+   */
+  replyThread: ReplyThreadState | null;
   /**
    * The conversation kinds behind `tallies.call_done` / `tallies.call_scheduled`
    * (CAR-257). Null on either side when that side has no conversations —
@@ -230,11 +260,18 @@ export async function getContactStages(
       // page is indistinguishable from "this contact has no email signal", and
       // deriveStage would then compute an earlier stage from partial evidence,
       // putting an already-contacted person back into outreach queues.
+      //
+      // thread_id + email_message_id (CAR-253): "have we written back?" is a
+      // question about a CONVERSATION, so the aggregation buckets by thread.
+      // The junction id is only the bucket key for a message whose thread_id is
+      // null, which keeps such a message from merging with unrelated ones.
       paginateAll(async (from, to) =>
         must(
           await db()
             .from("email_message_contacts")
-            .select("contact_id, email_messages!inner(user_id, direction, date, from_address, is_simulated)")
+            .select(
+              "contact_id, email_message_id, email_messages!inner(user_id, direction, date, from_address, is_simulated, thread_id)",
+            )
             .eq("email_messages.user_id", userId)
             .eq("email_messages.is_simulated", false)
             .in("contact_id", chunk)
@@ -415,9 +452,32 @@ export async function getContactStages(
   const firstOutboundAt = new Map<number, string>(); // earliest DATED outbound
   const lastOutboundAt = new Map<number, string>(); // latest DATED outbound (chip recency)
   const inboundAt = new Map<number, string[]>();
-  for (const link of emails as Array<{ contact_id: number; email_messages: { direction: string | null; date: string | null; from_address: string | null } | null }>) {
+  /**
+   * The same dated messages, bucketed per contact per thread (CAR-253), which
+   * is the only grouping that can answer "did we write back on that thread".
+   * Undated messages are skipped here for the same reason the reply gate above
+   * ignores them: nothing can be ordered against a date we do not have.
+   */
+  type ThreadBucket = { lastOutAt: string | null; theirReplyAts: string[]; lastMessageAt: string | null };
+  const threadsByContact = new Map<number, Map<string, ThreadBucket>>();
+  const threadBucket = (contactId: number, key: string): ThreadBucket => {
+    const byThread = threadsByContact.get(contactId) ?? new Map<string, ThreadBucket>();
+    threadsByContact.set(contactId, byThread);
+    const bucket = byThread.get(key) ?? { lastOutAt: null, theirReplyAts: [], lastMessageAt: null };
+    byThread.set(key, bucket);
+    return bucket;
+  };
+  for (const link of emails as Array<{
+    contact_id: number;
+    email_message_id: number | null;
+    email_messages: { direction: string | null; date: string | null; from_address: string | null; thread_id: string | null } | null;
+  }>) {
     const m = link.email_messages;
     if (m == null) continue;
+    // A message with no thread_id gets a bucket of its own rather than sharing
+    // one with every other thread-less message: merging them would let an
+    // unrelated later send read as a reply to this conversation.
+    const threadKey = m.thread_id ?? `msg:${link.email_message_id}`;
     if (m.direction === "outbound") {
       // Outbound credits every linked contact — they all received the outreach.
       //
@@ -433,6 +493,9 @@ export async function getContactStages(
         if (!prevFirst || m.date < prevFirst) firstOutboundAt.set(link.contact_id, m.date);
         const prevLast = lastOutboundAt.get(link.contact_id);
         if (!prevLast || m.date > prevLast) lastOutboundAt.set(link.contact_id, m.date);
+        const bucket = threadBucket(link.contact_id, threadKey);
+        bucket.lastOutAt = laterOf(bucket.lastOutAt, m.date);
+        bucket.lastMessageAt = laterOf(bucket.lastMessageAt, m.date);
       }
     } else if (m.direction === "inbound") {
       // Inbound counts as a REPLY only for the contact who sent it (their
@@ -446,6 +509,9 @@ export async function getContactStages(
         const list = inboundAt.get(link.contact_id) ?? [];
         list.push(m.date);
         inboundAt.set(link.contact_id, list);
+        const bucket = threadBucket(link.contact_id, threadKey);
+        bucket.theirReplyAts.push(m.date);
+        bucket.lastMessageAt = laterOf(bucket.lastMessageAt, m.date);
       }
     }
   }
@@ -597,6 +663,30 @@ export async function getContactStages(
       }
     }
 
+    // Where those replies leave us, per thread (CAR-253). The qualification
+    // repeats the rule above rather than reusing `replies`, because the answer
+    // is per-conversation: a reply that predates our outreach is not a reply on
+    // ANY thread, and a thread holding only such messages must not contribute a
+    // "you owe them a response".
+    let replyThread: ReplyThreadState | null = null;
+    if (replies.length > 0) {
+      let awaitingOurReply = false;
+      let lastMessageAt: string | null = null;
+      for (const bucket of threadsByContact.get(contact.id)?.values() ?? []) {
+        const theirs = firstOutbound
+          ? bucket.theirReplyAts.filter((d) => d >= firstOutbound)
+          : bucket.theirReplyAts;
+        if (theirs.length === 0) continue;
+        const firstReplyAt = theirs.reduce((a, b) => (a < b ? a : b));
+        // Compared against their FIRST reply, so answering once retires the
+        // prompt for good: their replying again afterwards is a live exchange,
+        // not an outstanding task.
+        if (!bucket.lastOutAt || bucket.lastOutAt <= firstReplyAt) awaitingOurReply = true;
+        lastMessageAt = laterOf(lastMessageAt, bucket.lastMessageAt);
+      }
+      replyThread = { awaitingOurReply, lastMessageAt };
+    }
+
     const referrals = referralCount.get(contact.id) ?? 0;
     const interactedHere = interacted.has(contact.id);
     const signals: StageSignals = {
@@ -635,6 +725,7 @@ export async function getContactStages(
       stage,
       rank: stageRank(stage),
       tallies,
+      replyThread,
       conversations: {
         past: pastCalls > 0 ? { kind: latestPastKind ?? "call", allCalls: allPastAreCalls } : null,
         upcoming: upcomingCalls > 0 ? { kind: soonestUpcomingKind ?? "call", allCalls: allUpcomingAreCalls } : null,
@@ -686,7 +777,25 @@ export interface CompanyBaseSummary {
   office_scopes: OfficeScopeSummary[];
 }
 
-/** The six fields the who-you-know pass computes; see CompanyBaseSummary. */
+/**
+ * The lead contact's OWN history, for the next-action line (CAR-253).
+ *
+ * Separate from `traction_detail`, which is summed across everyone at the
+ * company for the chip. The line names one person, so the clause dating it has
+ * to come from that person: "Waiting on Julian. You reached out 3 days ago"
+ * must be Julian's outreach, not the most recent of three people's.
+ *
+ * Null when there is no lead with momentum — a warm-intro lead has no history
+ * to report, which is what makes them a warm intro.
+ */
+export interface LeadDetail {
+  /** Latest outreach to the lead: email or logged interaction, whichever is later. */
+  last_outreach_at: string | null;
+  /** Their reply conversation's state; null when no real inbound backs the stage. */
+  reply: ReplyThreadState | null;
+}
+
+/** The seven fields the who-you-know pass computes; see CompanyBaseSummary. */
 export interface CompanyEnrichment {
   /** BYU alumni among current non-bench contacts — the app's warm-intro edge. */
   alum_count: number;
@@ -712,6 +821,8 @@ export interface CompanyEnrichment {
    * asserting a number the data does not support.
    */
   traction_detail: { count: number; at: string | null } | null;
+  /** `lead_contact_name`'s own history, dating the next-action line (CAR-253). */
+  lead_detail: LeadDetail | null;
   /**
    * What the conversations behind `traction` actually were (CAR-257). Null
    * unless `traction` is `call_done` or `call_scheduled` — no other stage
@@ -1228,6 +1339,7 @@ export async function getCompanies(
   const productAlumCountByCompany = new Map<number, number>();
   const recruiterCountByCompany = new Map<number, number>();
   const leadNameByCompany = new Map<number, string | null>();
+  const leadDetailByCompany = new Map<number, LeadDetail | null>();
   if (runEnrichment) {
     const uniqueContacts = new Map<number, { id: number; stage_override: string | null }>();
     for (const id of companyIds) {
@@ -1271,15 +1383,27 @@ export async function getCompanies(
       // because "2 Calls Done" next to a company where you know nobody is a
       // claim about a door that is already closed. Deliberate reversal, not a
       // regression — do not restore the fallback.
-      // Ties on rank break on RECENCY of the winning stage's own evidence —
-      // soonest for an upcoming call, latest for everything else (CAR-257).
-      // Before, ties fell to `people` map insertion order, which was survivable
-      // only while the winner did nothing but supply a name. It stopped being
-      // survivable once the pill describes the conversation too: an arbitrary
-      // winner would name Spencer while describing Jane's coffee chat. This
-      // tie-break is the same timestamp `tractionDetail.at` already reports, so
-      // the chip's "(1 month ago)", the lead's name and the conversation's kind
-      // now all refer to one conversation.
+      //
+      // The tie-break exists because the winner also NAMES the line, and now
+      // DESCRIBES it too. Ties used to fall to `people` map insertion order,
+      // which was survivable only while the winner did nothing but supply a
+      // name. Two criteria replace it, in this order:
+      //
+      //  1. An unanswered reply beats an answered one (CAR-253). Two current
+      //     contacts both at `replied` are the same rank, so the first one seen
+      //     used to win — and if that one's thread is already answered while
+      //     the other's is not, the card would read "You had an email thread
+      //     with Samuel" and bury the reply actually waiting on a response.
+      //  2. Failing that, the most recent evidence for the winning stage wins
+      //     (CAR-257) — soonest for an upcoming call, latest for everything
+      //     else. The pill describes a conversation now, so an arbitrary winner
+      //     would name Spencer while describing Jane's coffee chat. This is the
+      //     same timestamp `tractionDetail.at` already reports, so the chip's
+      //     "(1 month ago)", the lead's name and the conversation's kind all
+      //     refer to one conversation.
+      //
+      // Owing someone a reply outranks recency deliberately: "who is waiting on
+      // me" is a more actionable question than "what happened most recently".
       let best: { stage: ContactStage; person: PersonAgg } | null = null;
       for (const p of current) {
         const s = stages.get(p.id);
@@ -1289,6 +1413,16 @@ export async function getCompanies(
           continue;
         }
         if (s.rank < best.stage.rank) continue;
+
+        // Criterion 1: who still owes us nothing loses the tie.
+        const mineAwaiting = !!s.replyThread?.awaitingOurReply;
+        const bestAwaiting = !!best.stage.replyThread?.awaitingOurReply;
+        if (mineAwaiting !== bestAwaiting) {
+          if (mineAwaiting) best = { stage: s, person: p };
+          continue;
+        }
+
+        // Criterion 2: recency of the winning stage's own evidence.
         const mine = s.tallies[s.stage].at;
         const theirs = best.stage.tallies[best.stage.stage].at;
         // A contact with no dated evidence never displaces one that has some.
@@ -1335,8 +1469,16 @@ export async function getCompanies(
       // Lead name for the next-action line: the contact with real momentum, else
       // the best warm lead among current contacts (product alum → alum → recruiter → any).
       let lead: string | null = null;
+      let leadDetail: LeadDetail | null = null;
       if (best && best.stage.rank > stageRank("not_contacted")) {
         lead = best.person.name;
+        // Only the momentum lead carries history worth dating. A warm-intro
+        // lead has none by definition, and the fallback below picks them by
+        // affinity rather than by anything that happened.
+        leadDetail = {
+          last_outreach_at: best.stage.tallies.contacted.at,
+          reply: best.stage.replyThread,
+        };
       } else if (current.length > 0) {
         const warm =
           current.find(isProductAlum) ??
@@ -1346,6 +1488,7 @@ export async function getCompanies(
         lead = warm.name;
       }
       leadNameByCompany.set(id, lead);
+      leadDetailByCompany.set(id, leadDetail);
     }
   }
 
@@ -1400,6 +1543,7 @@ export async function getCompanies(
           ...scopes,
           traction: traction.get(c.id) ?? null,
           traction_detail: tractionDetail.get(c.id) ?? null,
+          lead_detail: leadDetailByCompany.get(c.id) ?? null,
           conversation: conversationByCompany.get(c.id) ?? null,
         };
       })

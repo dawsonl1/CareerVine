@@ -14,6 +14,8 @@ function input(partial: Partial<NextActionInput>): NextActionInput {
     productAlumCount: 0,
     recruiterCount: 0,
     leadName: null,
+    lastOutreachAt: null,
+    replyThread: null,
     conversationKind: null,
     conversationAt: null,
     ...partial,
@@ -97,6 +99,113 @@ describe("deriveNextAction — live threads vs deadlines", () => {
   });
 });
 
+/**
+ * "<name> replied, write back" used to fire on `traction === "replied"` alone,
+ * and that stage is sticky — once someone has ever written back it stays true
+ * forever. So the card kept issuing a standing instruction on threads whose
+ * last word was already ours (CAR-253).
+ *
+ * The rule is per-thread and anchored on their FIRST reply: anything we sent
+ * after it retires the prompt permanently.
+ */
+describe("deriveNextAction — a reply you already answered (CAR-253)", () => {
+  const unanswered = { awaitingOurReply: true, lastMessageAt: "2026-07-09T10:00:00Z" };
+  const answered = { awaitingOurReply: false, lastMessageAt: "2026-07-09T10:00:00Z" };
+
+  it("still says write back while the reply is unanswered", () => {
+    const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: unanswered }, NOW);
+    expect(a.text).toBe("Samuel replied, write back");
+    expect(a.rank).toBe(84);
+  });
+
+  it("switches to a past-tense line once we have written back, and dates it", () => {
+    const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: answered }, NOW);
+    expect(a.text).toBe("You had an email thread with Samuel (2 days ago)");
+    expect(a.text).not.toMatch(/write back/i);
+    expect(a.tone).toBe("muted");
+  });
+
+  it("stays past-tense after they reply AGAIN, because we already answered once", () => {
+    // Dawson's case verbatim: they wrote, we wrote back, they wrote again. The
+    // data layer reports awaitingOurReply false (it anchors on the FIRST reply),
+    // and the ladder must not re-issue the instruction on the newer message.
+    const theyRepliedAgain = { awaitingOurReply: false, lastMessageAt: "2026-07-10T10:00:00Z" };
+    const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: theyRepliedAgain }, NOW);
+    expect(a.text).toBe("You had an email thread with Samuel (yesterday)");
+  });
+
+  it("drops the answered thread down beside 'waiting on them', not up with live replies", () => {
+    const owed = act({ traction: "replied", replyThread: unanswered }, NOW).rank;
+    const done = act({ traction: "replied", replyThread: answered }, NOW).rank;
+    const waiting = act({ traction: "contacted" }, NOW).rank;
+    const cold = act({ currentCount: 2, alumCount: 1 }, NOW).rank;
+    expect(owed).toBeGreaterThan(done);
+    expect(done).toBeGreaterThan(waiting);
+    // Still momentum, so it beats an untouched warm intro.
+    expect(waiting).toBeGreaterThan(cold);
+  });
+
+  it("lets a mid-range deadline outrank an answered thread", () => {
+    const a = act({ traction: "replied", replyThread: answered, nextAppDate: "2026-07-21" }, NOW);
+    expect(a.text).toMatch(/^Apply in \d+ days/);
+  });
+
+  it("assumes a write-back is owed when nothing is known about the thread", () => {
+    // A stage_override of "replied" has no message behind it. Prompting for a
+    // response we may not owe costs a glance; staying quiet about one we do owe
+    // costs the reply.
+    const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: null }, NOW);
+    expect(a.text).toBe("Samuel replied, write back");
+  });
+
+  it("still speaks without a lead name or a usable date", () => {
+    expect(act({ traction: "replied", replyThread: { awaitingOurReply: false, lastMessageAt: null } }, NOW).text).toBe(
+      "You had an email thread",
+    );
+    expect(act({ traction: "replied", replyThread: answered }, NOW).text).toBe("You had an email thread (2 days ago)");
+  });
+});
+
+/**
+ * "Follow up if it's been a while" handed the reader the judgment and none of
+ * the evidence (CAR-253). The date was already in hand.
+ */
+describe("deriveNextAction — how long you have been waiting (CAR-253)", () => {
+  it("says how long ago you reached out", () => {
+    const a = act({ traction: "contacted", leadName: "Julian Ross", lastOutreachAt: "2026-07-08T10:00:00Z" }, NOW);
+    expect(a.text).toBe("Waiting on Julian. You reached out 3 days ago");
+  });
+
+  it("names today and yesterday rather than counting them", () => {
+    expect(act({ traction: "contacted", leadName: "Julian Ross", lastOutreachAt: "2026-07-11T09:00:00Z" }, NOW).text).toBe(
+      "Waiting on Julian. You reached out today",
+    );
+    expect(act({ traction: "contacted", leadName: "Julian Ross", lastOutreachAt: "2026-07-10T09:00:00Z" }, NOW).text).toBe(
+      "Waiting on Julian. You reached out yesterday",
+    );
+  });
+
+  it("dates the no-lead variant too", () => {
+    expect(act({ traction: "contacted", lastOutreachAt: "2026-07-08T10:00:00Z" }, NOW).text).toBe(
+      "No reply yet. You reached out 3 days ago",
+    );
+  });
+
+  it("keeps the old copy when the touch carries no usable date", () => {
+    // An interaction logged without a date, or an email whose Date: header did
+    // not parse. Better vague than wrong.
+    expect(act({ traction: "contacted", leadName: "Julian Ross" }, NOW).text).toBe(
+      "Waiting on Julian. Follow up if it's been a while",
+    );
+    expect(act({ traction: "contacted" }, NOW).text).toBe("No reply yet. Follow up");
+  });
+
+  it("drops the clause rather than claiming you reached out in the future", () => {
+    const a = act({ traction: "contacted", leadName: "Julian Ross", lastOutreachAt: "2026-07-20T10:00:00Z" }, NOW);
+    expect(a.text).toBe("Waiting on Julian. Follow up if it's been a while");
+  });
+});
+
 describe("deriveNextAction — warm intros", () => {
   it("prefers an alum reach-out and names them", () => {
     const a = act({ currentCount: 3, alumCount: 1, leadName: "Mark Lee" }, NOW);
@@ -175,6 +284,7 @@ describe("nextActionForCompany adapter", () => {
       office_scopes: [],
       traction: "replied",
       traction_detail: { count: 1, at: "2026-07-18T00:00:00Z" },
+      lead_detail: { last_outreach_at: null, reply: { awaitingOurReply: true, lastMessageAt: "2026-07-18T00:00:00Z" } },
       conversation: null,
     } satisfies CompanySummary;
     const a = nextActionForCompany(c, NOW);
