@@ -39,7 +39,7 @@ function Bar({ onChange }: { onChange?: (f: CompanyFilters) => void } = {}) {
         setFilters(f);
         onChange?.(f);
       }}
-      tierOptions={[]}
+      locationGroups={[]} noLocationCount={0}
     />
   );
 }

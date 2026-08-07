@@ -17,13 +17,14 @@ function company(overrides: Partial<CompanySummary> & { name: string }): Company
     recruiter_count: 0,
     lead_contact_name: null,
     office_scopes: [],
+    offices: [],
+    roster: [],
     traction: null,
     traction_detail: null,
     lead_detail: null,
     target: {
       id: 1,
       priority_score: 50,
-      tier: null,
       program_name: null,
       app_window_text: null,
       next_app_date: null,
@@ -37,7 +38,6 @@ function target(overrides: Partial<NonNullable<CompanySummary['target']>> = {}) 
   return {
     id: 1,
     priority_score: 50,
-    tier: null,
     program_name: null,
     app_window_text: null,
     next_app_date: null,
