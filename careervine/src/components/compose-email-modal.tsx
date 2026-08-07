@@ -9,6 +9,8 @@ import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Button } from "@/components/ui/button";
 import { X, ChevronDown, ChevronUp, Send, Check, Reply, Clock, Sparkles, AlertTriangle } from "lucide-react";
 import { getEmailProvenance, markEmailVerified } from "@/lib/queries";
+// New code goes straight to the domain module; the queries barrel takes no additions.
+import { appendContactNote, updateContact } from "@/lib/data/contacts";
 import { AiWriteDropdown } from "@/components/ai-write-dropdown";
 import { AvailabilityPicker } from "@/components/availability-picker";
 import { IntroContextForm } from "@/components/intro-context-form";
@@ -174,6 +176,17 @@ function ComposeEmailModalBody() {
   // before `sending` re-renders the button disabled, so the state flag alone
   // can't stop a double-submit. The ref is read+set in the same tick (F42).
   const submittingRef = useRef(false);
+  /**
+   * Single-flight for the two intro-draft entry points (CAR-277). Both flip
+   * `introPhase` to "generating", which is what swaps the form out for the
+   * progress bar — but that is render state, and the second click of a double
+   * click lands before it has rendered.
+   *
+   * It matters more since the context save became a real write: an
+   * `appendContactNote` is an APPEND, so two clicks wrote the user's note onto
+   * the contact twice. It also spends the AI budget twice.
+   */
+  const introGeneratingRef = useRef(false);
 
   // Contact autocomplete
   const [, setContactQuery] = useState("");
@@ -986,24 +999,38 @@ function ComposeEmailModalBody() {
             <IntroContextForm
               contactName={prefillName || "this contact"}
               onGenerate={async (ctx) => {
+                if (introGeneratingRef.current) return;
+                introGeneratingRef.current = true;
                 setIntroPhase("generating");
                 introContextRef.current = { howMet: ctx.howMet, goal: ctx.goal };
                 try {
-                  // Save context to contact
+                  // Keep the context the user just typed on the contact, so
+                  // every later draft for them starts from it rather than
+                  // asking again (`src/lib/ai-helpers.ts` reads all three) and
+                  // the profile's About card can show how they met.
+                  //
+                  // These write through the data layer, not HTTP: until
+                  // CAR-277 they called `/api/contacts/[id]` and
+                  // `/api/contacts/[id]/note`, neither of which was ever
+                  // built, so every save 404'd into an empty catch and the
+                  // answers were dropped. `updateContact` is the contacts
+                  // write chokepoint (CONVENTIONS d) and is what the rest of
+                  // the client already uses.
                   if (contactId && (ctx.howMet || ctx.goal)) {
-                    // error-tolerated: stashing the context the user just
-                    // typed so it prefills next time. The draft it feeds is
-                    // generated from the same values in the request below,
-                    // so a failed save costs nothing in this session.
-                    apiSend(`/api/contacts/${contactId}`, jsonBody({
-                      met_through: ctx.howMet || undefined,
-                      intro_goal: ctx.goal || undefined,
-                    }, "PATCH")).catch(() => {});
+                    // error-tolerated: the user asked for a draft, not for
+                    // this save, and the draft below is generated from the
+                    // same values in its own request — so a failure costs
+                    // nothing they can see in this session. Logged rather
+                    // than swallowed, since the values are otherwise gone.
+                    updateContact(contactId, {
+                      ...(ctx.howMet ? { met_through: ctx.howMet } : {}),
+                      ...(ctx.goal ? { intro_goal: ctx.goal } : {}),
+                    }).catch((e) => console.error("Error saving intro context:", e));
                   }
                   if (contactId && ctx.notes) {
                     // error-tolerated: same reason as the context save above.
-                    apiSend(`/api/contacts/${contactId}/note`, jsonBody({ note: ctx.notes }))
-                      .catch(() => {});
+                    appendContactNote(contactId, ctx.notes)
+                      .catch((e) => console.error("Error saving intro note:", e));
                   }
 
                   const data = await apiFetch<AiIntroDraft>("/api/ai/draft-intro", jsonBody({
@@ -1015,9 +1042,13 @@ function ComposeEmailModalBody() {
                   applyIntroDraft(data);
                 } catch (err) {
                   applyIntroFailure(err);
+                } finally {
+                  introGeneratingRef.current = false;
                 }
               }}
               onSkip={async () => {
+                if (introGeneratingRef.current) return;
+                introGeneratingRef.current = true;
                 setIntroPhase("generating");
                 setIntroError(null);
                 setIntroAiFailure(null);
@@ -1027,6 +1058,8 @@ function ComposeEmailModalBody() {
                   );
                 } catch (err) {
                   applyIntroFailure(err);
+                } finally {
+                  introGeneratingRef.current = false;
                 }
               }}
               generating={introPhase === "generating"}

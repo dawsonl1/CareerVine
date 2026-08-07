@@ -26,7 +26,24 @@ interface DiscoveryCandidate {
   position: string | null;
 }
 
-export function DiscoveryCard({ companyId }: { companyId: number }) {
+export function DiscoveryCard({
+  companyId,
+  onAdded,
+}: {
+  companyId: number;
+  /**
+   * Re-read the page's roster after an add (CAR-277). Removing the candidate
+   * row is only half the move: the person now exists as a contact AT THIS
+   * COMPANY, and the roster beside this card is derived from a separate read
+   * that has no idea. Without this the newly added person is simply absent
+   * until a manual reload, which reads as the add having failed.
+   *
+   * Distinct from `invalidateCompanyScopes()` below, which is about OTHER
+   * company pages that are unmounted right now. This one is the page you are
+   * standing on.
+   */
+  onAdded: () => void;
+}) {
   const [candidates, setCandidates] = useState<DiscoveryCandidate[]>([]);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const { success: toastSuccess, error: toastError, info: toastInfo } = useToast();
@@ -73,6 +90,10 @@ export function DiscoveryCard({ companyId }: { companyId: number }) {
         // The add creates a contact AT THIS COMPANY, so every cached
         // roster that could show them is now wrong (CAR-268).
         invalidateCompanyScopes();
+        // Invalidation alone leaves THIS page showing a roster without them,
+        // since it is already mounted and reads no cache again on its own
+        // (CAR-277). The reload has to be asked for.
+        onAdded();
         toastSuccess(
           data?.enrich === "started"
             ? `${candidate.name} added, enriching profile…`

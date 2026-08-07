@@ -358,6 +358,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         onSetTier={handleSetTier}
         jobChangeIds={jobChangeIds}
         onOfficesChanged={load}
+        onDiscoveryAdded={load}
         onDeleteCompany={handleDeleteCompany}
       />
       </>
