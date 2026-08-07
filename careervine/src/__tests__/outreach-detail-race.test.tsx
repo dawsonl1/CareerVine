@@ -81,6 +81,7 @@ function summary(id: number, name: string): CompanySummary {
     offices: [],
     roster: [],
     traction: null,
+    traction_detail: null,
   };
 }
 

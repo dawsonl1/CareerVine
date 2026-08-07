@@ -71,6 +71,39 @@ export async function getMeetingsForContact(contactId: number) {
 }
 
 /**
+ * Fetch ONE meeting with its attendees, for a detail view.
+ *
+ * The row shape deliberately matches getMeetings() rather than
+ * getMeetingsForContact()'s projection, so a caller holding one of these can be
+ * handed straight to the conversation modal's edit mode, which reads
+ * `meeting_contacts` (CAR-249).
+ *
+ * must() + maybeSingle(), not error-tolerated: `null` here means the meeting is
+ * gone, and a failed query returning the same null would render an empty detail
+ * over a live meeting — an affirmative claim that it has no notes, no attendees
+ * and no action items.
+ *
+ * @param id - The meeting's ID
+ * @returns Promise<Meeting | null> - The meeting, or null when no such row exists
+ * @throws Error if query fails
+ */
+export async function getMeetingById(id: number) {
+  return must(
+    await db()
+      .from("meetings")
+      .select(`
+        *,
+        meeting_contacts(
+          *,
+          contacts(*)
+        )
+      `)
+      .eq("id", id)
+      .maybeSingle(),
+  );
+}
+
+/**
  * Create a new meeting
  *
  * @param meeting - Meeting data matching the meetings table schema (without id)

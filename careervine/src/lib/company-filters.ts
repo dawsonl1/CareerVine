@@ -4,10 +4,15 @@
  *
  * FACET CONTRACT (CAR-245). Every multi-value facet holds an array where **empty
  * means any** — the absence of a filter, never "match nothing". Values inside one
- * facet OR together; facets AND with each other. That is what makes the two
- * complementary pairs (`contacts` with/none, `alumni` with/without) need no special
- * case: selecting both sides ORs to everything, which is the same result as
- * selecting neither.
+ * facet OR together; facets AND with each other. That is what lets a facet's values
+ * exhaustively cover its dimension (`contacts` current/former/none, `alumni`
+ * with/without) with no special case: selecting every value ORs to everything, the
+ * same result as selecting none of them.
+ *
+ * The corollary, and the reason CAR-248 retired the standalone "works there now"
+ * chip: a criterion that belongs to a facet's dimension must be a VALUE in that
+ * facet, not a sibling control. Two controls over the same dimension read as
+ * overlapping — the user cannot see that one ORs and the other ANDs.
  *
  * Most facets read a field `getCompanies` already returns. The location facet
  * (CAR-251) is the exception and the reason that used to say "every": it reads
@@ -28,8 +33,19 @@ export const TARGET_STATUSES = [
 ] as const;
 export type TargetStatus = (typeof TARGET_STATUSES)[number];
 
-/** `with` = at least one current or former contact; `none` = neither. */
-export const CONTACTS_FILTERS = ["with", "none"] as const;
+/**
+ * Contact presence, as ONE facet rather than a dropdown plus a chip (CAR-248).
+ *
+ * `current` = someone works there now; `former` = someone used to; `none` =
+ * neither. The first two are not exclusive — a company with one of each matches
+ * both — which is what makes their union the old `with`, and all three together
+ * the same as selecting nothing.
+ *
+ * Bench contacts count toward none of them, so a bench-only company reads as
+ * `none`. That is `company_network_counts`' split (CAR-229), and it is also what
+ * the company card badges, so the filter and the card agree.
+ */
+export const CONTACTS_FILTERS = ["current", "former", "none"] as const;
 export type ContactsFilter = (typeof CONTACTS_FILTERS)[number];
 
 /**
@@ -39,6 +55,29 @@ export type ContactsFilter = (typeof CONTACTS_FILTERS)[number];
  */
 export const ALUMNI_FILTERS = ["with", "without"] as const;
 export type AlumniFilter = (typeof ALUMNI_FILTERS)[number];
+
+/**
+ * Whether the company is one the user targets (CAR-252).
+ *
+ * The page loads `scope: "in_play"` — targets UNION companies with a current
+ * non-bench contact — so the list genuinely holds both kinds, and `untargeted` is
+ * the "who do I know that I haven't targeted yet" view that nothing else reaches.
+ * `target` follows `CompanySummary.target`, which `deriveCompanyTarget` leaves null
+ * both when no target_companies row exists and when every scope row is
+ * soft-untargeted, so "Not a target" agrees with the company card either way.
+ *
+ * ON THE OVERLAP WITH THE STATUS CHIPS, which the header above makes a live
+ * concern: `target_companies.status` is CHECK-pinned to the five TARGET_STATUSES,
+ * so selecting every status chip already yields exactly `target`. That is NOT the
+ * CAR-248 defect. There the two controls combined DIFFERENTLY (one ANDed, one
+ * ORed) with nothing on screen to say which; here both OR within themselves and
+ * AND across, so "Target company" + "Applied" behaves as it reads. And the value
+ * that motivates the facet, `untargeted`, is unreachable from the chips at all —
+ * `target` is its mandatory partner, because a facet only satisfies "select
+ * everything = select nothing" when its values cover the dimension.
+ */
+export const TARGETING_FILTERS = ["target", "untargeted"] as const;
+export type TargetingFilter = (typeof TARGETING_FILTERS)[number];
 
 export interface CompanyFilters {
   /** Free-text query — matched against name and program name. */
@@ -52,15 +91,12 @@ export interface CompanyFilters {
    * `s:<state>` or `none` — see `company-location-filter.ts`.
    */
   locations: string[];
-  /** Contact-presence sides to include; empty (or both) = any. */
+  /** Contact-presence values to include; empty (or all three) = any. */
   contacts: ContactsFilter[];
   /** Alumni-presence sides to include; empty (or both) = any. */
   alumni: AlumniFilter[];
-  /**
-   * Only companies where a contact or prospect works there NOW. Distinct from
-   * `contacts: ["with"]`, which also keeps a company whose only person has left.
-   */
-  currentOnly: boolean;
+  /** Target-vs-not sides to include; empty (or both) = any. */
+  targeting: TargetingFilter[];
   /** Only companies with an alum of the user's school in a product role. */
   productAlum: boolean;
 }
@@ -72,7 +108,7 @@ export const EMPTY_COMPANY_FILTERS: CompanyFilters = {
   locations: [],
   contacts: [],
   alumni: [],
-  currentOnly: false,
+  targeting: [],
   productAlum: false,
 };
 
@@ -80,6 +116,7 @@ const VALID_STATUSES = new Set<string>(TARGET_STATUSES);
 const VALID_STAGES = new Set<string>(STAGE_ORDER);
 const VALID_CONTACTS = new Set<string>(CONTACTS_FILTERS);
 const VALID_ALUMNI = new Set<string>(ALUMNI_FILTERS);
+const VALID_TARGETING = new Set<string>(TARGETING_FILTERS);
 
 export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
   return (
@@ -89,9 +126,19 @@ export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
     f.locations.length > 0 ||
     f.contacts.length > 0 ||
     f.alumni.length > 0 ||
-    f.currentOnly ||
+    f.targeting.length > 0 ||
     f.productAlum
   );
+}
+
+/** Does a company satisfy one contact-presence value? */
+function matchesContacts(c: CompanySummary, side: ContactsFilter): boolean {
+  // current_count is non-bench contacts (active + prospect) holding a CURRENT
+  // role at the company — exactly "someone is there now". former_count is the
+  // same people minus a current role, so the two never double-count a contact.
+  if (side === "current") return c.current_count > 0;
+  if (side === "former") return c.former_count > 0;
+  return c.current_count + c.former_count === 0;
 }
 
 /** AND-combine the free-text query with every active facet. */
@@ -110,17 +157,15 @@ export function filterCompanies(rows: CompanySummary[], f: CompanyFilters): Comp
     if (statuses.size > 0 && (!c.target || !statuses.has(c.target.status))) return false;
     if (traction.size > 0 && (c.traction === null || !traction.has(c.traction))) return false;
     if (!matchesLocation(c, location)) return false;
-    if (f.contacts.length > 0) {
-      const withContacts = c.current_count + c.former_count > 0;
-      if (!f.contacts.some((side) => (side === "with" ? withContacts : !withContacts))) return false;
-    }
+    if (f.contacts.length > 0 && !f.contacts.some((side) => matchesContacts(c, side))) return false;
     if (f.alumni.length > 0) {
       const withAlumni = c.alum_count > 0;
       if (!f.alumni.some((side) => (side === "with" ? withAlumni : !withAlumni))) return false;
     }
-    // current_count is non-bench contacts (active + prospect) holding a CURRENT role
-    // at the company — exactly "someone is there now".
-    if (f.currentOnly && c.current_count === 0) return false;
+    if (f.targeting.length > 0) {
+      const isTarget = c.target != null;
+      if (!f.targeting.some((side) => (side === "target" ? isTarget : !isTarget))) return false;
+    }
     if (f.productAlum && c.product_alum_count === 0) return false;
     return true;
   });
@@ -159,12 +204,21 @@ export function statusChipCounts(
 
 // ── URL param round-trip ────────────────────────────────────────────────
 // Scheme: ?q=stripe&status=applied,interviewing&traction=replied,call_done
-//          &loc=c:412&loc=s:Utah&contacts=none&alumni=with&current=1&product_alum=1
+//          &loc=c:412&loc=s:Utah&contacts=none&alumni=with&targeting=untargeted
+//          &product_alum=1
 //
 // Param names stay SINGULAR, so every link shared before the facets went
 // multi-value still parses: one value lands as a one-element array, and the
 // retired `contacts=any` fails validation and falls through to the empty array,
 // which is exactly what it meant.
+//
+// Two more retired spellings are MIGRATED rather than dropped, because unlike
+// `any` they carried a real filter (CAR-248) — see `migrateLegacyContacts`.
+//
+// The retired `tier` param (CAR-251) is NOT migrated, and that is the deliberate
+// difference from those two: `Big Tech` was never a place, so there is no
+// location value it could become. It falls through to no location filter, which
+// is the honest reading of a link whose facet no longer exists.
 //
 // Enum facets are comma-joined (the scheme `status` already used). `loc` is
 // REPEATED instead, and never split, for the same reason its `tier` predecessor
@@ -187,6 +241,28 @@ function parseList<T extends string>(params: URLSearchParams, key: string, valid
   return [...new Set(values)];
 }
 
+/**
+ * Fold the pre-CAR-248 contact params into the three-value facet, so a link
+ * shared while the row had a dropdown AND a "works there now" chip still
+ * filters the way its author meant.
+ *
+ * - `contacts=with` was "current or former", which is now both values.
+ * - `current=1` was a separate AND-ing toggle, so it NARROWS what the dropdown
+ *   parsed to. A legacy link can only be in two states — `current=1` alone, or
+ *   `current=1&contacts=with` — and both map exactly onto `["current"]`.
+ * - `current=1&contacts=none` was self-contradictory and rendered an empty list.
+ *   It has no equivalent here, and resolving it toward `none` is the choice that
+ *   shows the user something rather than nothing.
+ */
+function migrateLegacyContacts(params: URLSearchParams, parsed: ContactsFilter[]): ContactsFilter[] {
+  const raw = params.getAll("contacts").flatMap((s) => s.split(",")).map((s) => s.trim());
+  const contacts = raw.includes("with")
+    ? CONTACTS_FILTERS.filter((v) => v !== "none" || parsed.includes("none"))
+    : parsed;
+  if (params.get("current") !== "1") return contacts;
+  return contacts.length === 0 || contacts.includes("current") ? ["current"] : contacts;
+}
+
 export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
   // Location values carry ids and free-text state names, so there is no value
   // list to validate against — only blanks are dropped.
@@ -199,9 +275,15 @@ export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
     statuses: parseList<TargetStatus>(params, "status", VALID_STATUSES),
     traction: parseList<OutreachStage>(params, "traction", VALID_STAGES),
     locations: [...new Set(locations)],
-    contacts: parseList<ContactsFilter>(params, "contacts", VALID_CONTACTS),
+    contacts: migrateLegacyContacts(
+      params,
+      parseList<ContactsFilter>(params, "contacts", VALID_CONTACTS),
+    ),
     alumni: parseList<AlumniFilter>(params, "alumni", VALID_ALUMNI),
-    currentOnly: params.get("current") === "1",
+    // New in CAR-252, so there is no legacy spelling to fold in: every link shared
+    // before it carries no `targeting` param and parses to [], which is exactly the
+    // absence of the filter.
+    targeting: parseList<TargetingFilter>(params, "targeting", VALID_TARGETING),
     productAlum: params.get("product_alum") === "1",
   };
 }
@@ -230,7 +312,11 @@ export function serializeCompanyFilters(f: CompanyFilters, base: URLSearchParams
   setRepeated("loc", f.locations);
   setList("contacts", f.contacts);
   setList("alumni", f.alumni);
-  setOrDelete("current", f.currentOnly ? "1" : null);
+  setList("targeting", f.targeting);
+  // Retired in CAR-248. Deleted rather than merely not written: `parse` has
+  // already folded it into `contacts`, so leaving it on the URL would apply it a
+  // second time on the next read and re-narrow a filter the user just widened.
+  out.delete("current");
   setOrDelete("product_alum", f.productAlum ? "1" : null);
   return out;
 }

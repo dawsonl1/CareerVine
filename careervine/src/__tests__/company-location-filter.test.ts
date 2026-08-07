@@ -49,6 +49,7 @@ function company(overrides: Partial<CompanySummary> = {}): CompanySummary {
     offices: [],
     roster: [],
     traction: null,
+    traction_detail: null,
     ...overrides,
   };
 }

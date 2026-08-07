@@ -7,6 +7,7 @@ import {
   parseCompanyFilters,
   serializeCompanyFilters,
   statusChipCounts,
+  TARGET_STATUSES,
   type CompanyFilters,
 } from "@/lib/company-filters";
 import type { CompanySummary, TargetInfo } from "@/lib/company-queries";
@@ -42,6 +43,7 @@ function company(overrides: CompanyOverrides): CompanySummary {
     offices: [],
     roster: [],
     traction: null,
+    traction_detail: null,
     ...rest,
     target:
       target == null
@@ -203,22 +205,37 @@ describe("filterCompanies", () => {
   });
 
   describe("contacts facet", () => {
-    const withCurrent = company({ current_count: 2 });
-    const withFormer = company({ former_count: 1 });
-    const benchOnly = company({ bench_count: 3 });
-    const empty = company({});
-    const rows = [withCurrent, withFormer, benchOnly, empty];
+    const currentOnly = company({ name: "Stripe", current_count: 2 });
+    const formerOnly = company({ name: "Adobe", former_count: 1 });
+    const both = company({ name: "Lucid", current_count: 1, former_count: 3 });
+    const benchOnly = company({ name: "Figma", bench_count: 3 });
+    const empty = company({ name: "Acme" });
+    const rows = [currentOnly, formerOnly, both, benchOnly, empty];
 
-    it('"with" requires current or former contacts (bench does not count)', () => {
-      expect(filterCompanies(rows, filters({ contacts: ["with"] }))).toEqual([withCurrent, withFormer]);
+    it('"current" keeps companies where someone works there now', () => {
+      expect(filterCompanies(rows, filters({ contacts: ["current"] }))).toEqual([currentOnly, both]);
     });
 
-    it('"none" keeps only companies without current/former contacts', () => {
+    it('"former" keeps companies where someone used to, even alongside a current contact', () => {
+      // `both` matching BOTH sides is deliberate: the two values describe people,
+      // not companies, and a company can have one of each.
+      expect(filterCompanies(rows, filters({ contacts: ["former"] }))).toEqual([formerOnly, both]);
+    });
+
+    it('"none" keeps only companies without current/former contacts (bench does not count)', () => {
       expect(filterCompanies(rows, filters({ contacts: ["none"] }))).toEqual([benchOnly, empty]);
     });
 
-    it("selecting both sides is the same as selecting neither", () => {
-      expect(filterCompanies(rows, filters({ contacts: ["with", "none"] }))).toEqual(rows);
+    it('"current" + "former" is the retired "with contacts"', () => {
+      expect(filterCompanies(rows, filters({ contacts: ["current", "former"] }))).toEqual([
+        currentOnly,
+        formerOnly,
+        both,
+      ]);
+    });
+
+    it("selecting all three values is the same as selecting none", () => {
+      expect(filterCompanies(rows, filters({ contacts: ["current", "former", "none"] }))).toEqual(rows);
     });
   });
 
@@ -240,17 +257,53 @@ describe("filterCompanies", () => {
     });
   });
 
-  describe("current-employment facet", () => {
-    it("keeps only companies where someone works there now", () => {
-      const current = company({ name: "Stripe", current_count: 1 });
-      // The distinction the facet exists for: "With contacts" keeps this row,
-      // because you do know someone — they just left.
-      const formerOnly = company({ name: "Adobe", former_count: 4 });
-      const benchOnly = company({ name: "Figma", bench_count: 2 });
-      const rows = [current, formerOnly, benchOnly];
+  describe("targeting facet", () => {
+    const target = company({ name: "Stripe", target: { status: "applied" } });
+    const untargeted = company({ name: "Adobe", target: null, current_count: 2 });
+    const rows = [target, untargeted];
 
-      expect(filterCompanies(rows, filters({ currentOnly: true }))).toEqual([current]);
-      expect(filterCompanies(rows, filters({ contacts: ["with"] }))).toEqual([current, formerOnly]);
+    it('"target" keeps only companies the user targets', () => {
+      expect(filterCompanies(rows, filters({ targeting: ["target"] }))).toEqual([target]);
+    });
+
+    it('"untargeted" keeps only the companies no status chip can reach', () => {
+      // The point of the facet: every status chip ANDs on c.target.status, so this
+      // set is unreachable from the chip row (CAR-252).
+      expect(filterCompanies(rows, filters({ targeting: ["untargeted"] }))).toEqual([untargeted]);
+    });
+
+    it("selecting both sides is the same as selecting neither", () => {
+      expect(filterCompanies(rows, filters({ targeting: ["target", "untargeted"] }))).toEqual(rows);
+    });
+
+    it('"target" matches what selecting every status chip matches', () => {
+      // The overlap this facet knowingly carries: status is CHECK-pinned to the five
+      // TARGET_STATUSES, so the two selections are the same set. Pinned so a new
+      // status value cannot silently make them diverge.
+      const varied = [
+        company({ target: { status: "researching" } }),
+        company({ target: { status: "outreach_active" } }),
+        company({ target: { status: "applied" } }),
+        company({ target: { status: "interviewing" } }),
+        company({ target: { status: "closed" } }),
+        company({ target: null }),
+      ];
+      expect(filterCompanies(varied, filters({ targeting: ["target"] }))).toEqual(
+        filterCompanies(varied, filters({ statuses: [...TARGET_STATUSES] })),
+      );
+    });
+
+    it("ANDs with the status chips rather than widening them", () => {
+      const applied = company({ name: "Stripe", target: { status: "applied" } });
+      const closed = company({ name: "Lucid", target: { status: "closed" } });
+      const rows = [applied, closed, company({ name: "Adobe", target: null })];
+      expect(
+        filterCompanies(rows, filters({ targeting: ["target"], statuses: ["applied"] })),
+      ).toEqual([applied]);
+      // The contradictory pair: a status chip already implies a target.
+      expect(
+        filterCompanies(rows, filters({ targeting: ["untargeted"], statuses: ["applied"] })),
+      ).toEqual([]);
     });
   });
 
@@ -269,7 +322,7 @@ describe("filterCompanies", () => {
     const wrongName = company({ name: "Adobe", current_count: 1, target: { status: "applied" } });
     const rows = [match, wrongStatus, wrongName];
     expect(
-      filterCompanies(rows, filters({ q: "stripe", statuses: ["applied"], contacts: ["with"] })),
+      filterCompanies(rows, filters({ q: "stripe", statuses: ["applied"], contacts: ["current"] })),
     ).toEqual([match]);
   });
 
@@ -294,8 +347,10 @@ describe("hasActiveCompanyFilters", () => {
     expect(hasActiveCompanyFilters(filters({ traction: ["replied"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ locations: ["s:Utah"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ contacts: ["none"] }))).toBe(true);
+    expect(hasActiveCompanyFilters(filters({ contacts: ["current"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ alumni: ["with"] }))).toBe(true);
-    expect(hasActiveCompanyFilters(filters({ currentOnly: true }))).toBe(true);
+    expect(hasActiveCompanyFilters(filters({ targeting: ["target"] }))).toBe(true);
+    expect(hasActiveCompanyFilters(filters({ targeting: ["untargeted"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ productAlum: true }))).toBe(true);
   });
 });
@@ -362,16 +417,16 @@ describe("URL param round-trip", () => {
   it("parses a fully-populated query string", () => {
     const params = new URLSearchParams(
       "q=stripe&status=applied,interviewing&traction=replied,call_done&loc=c:412&loc=s:Utah" +
-        "&contacts=none&alumni=with&current=1&product_alum=1",
+        "&contacts=current,former&alumni=with&targeting=untargeted&product_alum=1",
     );
     expect(parseCompanyFilters(params)).toEqual({
       q: "stripe",
       statuses: ["applied", "interviewing"],
       traction: ["replied", "call_done"],
       locations: ["c:412", "s:Utah"],
-      contacts: ["none"],
+      contacts: ["current", "former"],
       alumni: ["with"],
-      currentOnly: true,
+      targeting: ["untargeted"],
       productAlum: true,
     });
   });
@@ -380,9 +435,10 @@ describe("URL param round-trip", () => {
     expect(parseCompanyFilters(new URLSearchParams())).toEqual(EMPTY_COMPANY_FILTERS);
   });
 
-  it("drops unknown status/traction/contacts/alumni values instead of throwing", () => {
+  it("drops unknown status/traction/contacts/alumni/targeting values instead of throwing", () => {
     const params = new URLSearchParams(
-      "status=applied,bogus, ,interviewing&traction=warp&contacts=maybe&alumni=sometimes",
+      "status=applied,bogus, ,interviewing&traction=warp&contacts=maybe&alumni=sometimes" +
+        "&targeting=someday",
     );
     expect(parseCompanyFilters(params)).toEqual(filters({ statuses: ["applied", "interviewing"] }));
   });
@@ -405,17 +461,21 @@ describe("URL param round-trip", () => {
     expect(out.has("traction")).toBe(false);
     expect(out.has("loc")).toBe(false);
     expect(out.has("alumni")).toBe(false);
+    expect(out.has("targeting")).toBe(false);
     expect(out.has("current")).toBe(false);
     expect(out.has("product_alum")).toBe(false);
   });
 
   it("preserves unrelated params and clears stale filter params", () => {
-    const base = new URLSearchParams("view=targets&sort=priority&q=old&loc=s:Utah&current=1");
+    const base = new URLSearchParams(
+      "view=targets&sort=priority&q=old&loc=s:Utah&targeting=target&current=1",
+    );
     const out = serializeCompanyFilters(filters({ q: "new" }), base);
     expect(out.get("view")).toBe("targets");
     expect(out.get("sort")).toBe("priority");
     expect(out.get("q")).toBe("new");
     expect(out.has("loc")).toBe(false);
+    expect(out.has("targeting")).toBe(false);
     expect(out.has("current")).toBe(false);
     // base is not mutated
     expect(base.get("q")).toBe("old");
@@ -440,9 +500,9 @@ describe("URL param round-trip", () => {
       statuses: ["outreach_active", "closed"],
       traction: ["call_done", "replied"],
       locations: ["c:412", "s:Utah"],
-      contacts: ["with"],
+      contacts: ["former", "none"],
       alumni: ["without"],
-      currentOnly: true,
+      targeting: ["untargeted"],
       productAlum: true,
     });
     expect(parseCompanyFilters(serializeCompanyFilters(f, new URLSearchParams()))).toEqual(f);
@@ -459,9 +519,9 @@ describe("URL param round-trip", () => {
 
   describe("links shared before the facets went multi-value", () => {
     it("reads a single-value traction/loc/contacts URL", () => {
-      const params = new URLSearchParams("traction=replied&loc=s:Utah&contacts=with");
+      const params = new URLSearchParams("traction=replied&loc=s:Utah&contacts=none");
       expect(parseCompanyFilters(params)).toEqual(
-        filters({ traction: ["replied"], locations: ["s:Utah"], contacts: ["with"] }),
+        filters({ traction: ["replied"], locations: ["s:Utah"], contacts: ["none"] }),
       );
     });
 
@@ -478,6 +538,58 @@ describe("URL param round-trip", () => {
       // (Big Tech was never a place), so it must read as no location filter
       // rather than as a value that matches nothing and empties the list.
       expect(parseCompanyFilters(new URLSearchParams("tier=Big+Tech")).locations).toEqual([]);
+    });
+
+    it("reads a link shared before the targeting facet existed as no targeting filter", () => {
+      // The facet is additive: an old link has no `targeting` param, and the empty
+      // array it parses to IS the absence of the filter, so nothing narrows.
+      expect(parseCompanyFilters(new URLSearchParams("status=applied")).targeting).toEqual([]);
+    });
+  });
+
+  describe("links shared before contacts absorbed the works-there-now toggle", () => {
+    it('reads the retired contacts=with as current + former', () => {
+      expect(parseCompanyFilters(new URLSearchParams("contacts=with")).contacts).toEqual([
+        "current",
+        "former",
+      ]);
+    });
+
+    it('reads contacts=with,none as every value, which is what it matched', () => {
+      expect(parseCompanyFilters(new URLSearchParams("contacts=with,none")).contacts).toEqual([
+        "current",
+        "former",
+        "none",
+      ]);
+    });
+
+    it("reads the retired current=1 toggle as the current value", () => {
+      expect(parseCompanyFilters(new URLSearchParams("current=1")).contacts).toEqual(["current"]);
+    });
+
+    it("narrows rather than widens when current=1 met the old contacts=with", () => {
+      // The toggle ANDed, so the pair meant "current", not "current or former".
+      expect(parseCompanyFilters(new URLSearchParams("contacts=with&current=1")).contacts).toEqual([
+        "current",
+      ]);
+    });
+
+    it("resolves the contradictory current=1 + contacts=none toward the dropdown", () => {
+      // That pair matched nothing at all; there is no equivalent here, and `none`
+      // at least shows the user a list.
+      expect(parseCompanyFilters(new URLSearchParams("contacts=none&current=1")).contacts).toEqual([
+        "none",
+      ]);
+    });
+
+    it("drops the retired current param on the next serialize so it cannot reapply", () => {
+      // Round-tripping a legacy link must not keep re-narrowing: `current=1` is
+      // folded into `contacts` on read, so it has to leave the URL on write.
+      const legacy = new URLSearchParams("contacts=with&current=1");
+      const out = serializeCompanyFilters(parseCompanyFilters(legacy), legacy);
+      expect(out.has("current")).toBe(false);
+      expect(out.get("contacts")).toBe("current");
+      expect(parseCompanyFilters(out).contacts).toEqual(["current"]);
     });
   });
 });

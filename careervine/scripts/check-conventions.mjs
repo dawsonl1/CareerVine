@@ -1496,10 +1496,11 @@ const DOUBLE_SUBMIT_BASELINE = {
   "src/app/contacts/[id]/page.tsx": ["handleDelete"],
   "src/app/contacts/page.tsx": ["handleActivate", "handleSetTier", "onClick~aqoh"],
   "src/app/contacts/preview/page.tsx": ["handleSave"],
+  // The meeting-delete handler (was onClick~11fy) drained by CAR-249: it now
+  // claims a per-meeting-id slot in a ref before its first await.
   "src/app/meetings/page.tsx": [
     "handleMeetingAttachmentDelete",
     "handleMeetingAttachmentUpload",
-    "onClick~11fy",
     "onClick~17tt",
     "onClick~1ci0",
     "onClick~1ktz",
@@ -1546,10 +1547,11 @@ const DOUBLE_SUBMIT_BASELINE = {
     "onClick~y02s",
   ],
   "src/components/contacts/contact-edit-modal.tsx": ["onClick~99bx"],
+  // handleExpandEmail drained by CAR-249: its body moved into the useEmailBody
+  // hook, which carries the guard.
   "src/components/contacts/contact-emails-tab.tsx": [
     "cancelFollowUp",
     "confirmMessage",
-    "handleExpandEmail",
     "markReplied",
     "retryScheduledEmail",
   ],
@@ -1563,10 +1565,8 @@ const DOUBLE_SUBMIT_BASELINE = {
     "saveCadence",
     "saveEmail",
   ],
-  "src/components/contacts/contact-timeline-tab.tsx": [
-    "handleDeleteInteraction",
-    "handleSaveInteraction",
-  ],
+  // Both drained by CAR-249: the tab is now presentational, and the interaction
+  // edit/delete handlers moved to timeline-detail-modal.tsx with ref guards.
   "src/components/contacts/resolve-linkedin-modal.tsx": ["link"],
   "src/components/conversation-modal/past-meeting-fields.tsx": ["handleAudioFile"],
   "src/components/email/inbox/inbox-shell.tsx": [

@@ -153,9 +153,21 @@ export type EmailMessage = Database["public"]["Tables"]["email_messages"]["Row"]
 
 // ── Timeline types ──
 
+/**
+ * A completed action item as the contact timeline consumes it.
+ *
+ * `description`, `due_at` and `direction` carry no extra query cost:
+ * getCompletedActionItemsForContact already selects `*`. They exist because the
+ * timeline's detail view renders them (CAR-249), where the row itself shows only
+ * the title.
+ */
 export type CompletedActionEntry = {
   id: number;
   title: string;
+  description?: string | null;
+  due_at?: string | null;
+  /** `ActionDirection.WaitingOn` when the user was waiting on the contact. */
+  direction?: string | null;
   completed_at: string | null;
 };
 

@@ -94,15 +94,22 @@ search and stackable filters:
 - Search as you type across company names and program names. Results update
   instantly, no page reloads.
 - Narrow the list by target status (researching through closed), outreach traction,
-  office location, whether you already know someone inside, whether one of your
-  contacts works there right now, and whether anyone there went to your school.
+  office location, who you know inside, and whether anyone there went to your school.
+- The page shows every company you target plus every company you already know
+  someone at, so a target menu separates the two. "Not a target" is the shortlist
+  worth reading before you pick your next one: places you have a way in and have not
+  claimed yet.
 - The location menu groups cities under their state, so you can take all of Utah in
   one click or pick Lehi and Boston individually, and type to jump straight to a
   city. Companies with no office on file are their own option, so they stay
   reachable instead of disappearing.
-- The traction, location, contacts, and alumni menus each take several answers at
-  once, so "Lehi or Boston" and "Replied or Call done" are single filters rather
-  than two separate views.
+- Who you know inside is one menu, not two competing ones: pick "works there now",
+  "worked there before", "no contacts yet", or any combination. Companies where your
+  only connection has moved on are one click away, and so is the pair that means
+  "anyone at all".
+- The target, traction, location, contacts, and alumni menus each take several
+  answers at once, so "Lehi or Boston" and "Replied or Call done" are single filters
+  rather than two separate views.
 - Filters combine, so "applied companies in Utah where I have no contacts yet" is
   two clicks, and a live count shows how much of your list matches.
 - Filtering by location changes what each company card reports, not just which
@@ -116,6 +123,13 @@ search and stackable filters:
   left there, so the number you click is the number you get.
 - Every filtered view lives in the URL: share it, bookmark it, or click into a
   company and come back without losing your place.
+
+Each card also carries a traction badge that reads like a status report rather
+than a label: "3 Contacted (2 days ago)", "2 Calls Done (2 weeks ago)", "1 Call
+Scheduled (in 3 days)". You can see at a glance how much has happened at a
+company and whether it has gone cold, without opening it. Only people who
+currently work there count toward it, so a conversation with someone who has
+since moved on never makes a company look warmer than it is.
 
 ## A network that keeps itself fresh
 
@@ -179,3 +193,12 @@ someone holding several board seats no longer leads with an arbitrary one.
 Editing a contact holds their whole history, not a slice of it. Education is a list
 you can add to and remove from, the same as work experience, so a person with a
 bachelor's and an MBA keeps both. Saving used to leave only one of them.
+
+A contact's timeline is a way in, not just a summary. Every row opens: click a
+logged conversation and you get everything recorded on it, the attendees, the full
+notes, the private reminders you left yourself, its action items, the transcript and
+any files, with edit and delete right there instead of on another page. Interactions
+open to their full summary, an email opens to the message itself with a reply
+button, and a completed action can be reopened if it turns out not to be finished.
+Deleting a conversation keeps the action items that came out of it, and says so
+before you confirm rather than after.

@@ -70,6 +70,7 @@ function summary(id: number, name: string, currentCount: number): CompanySummary
     offices: [],
     roster: [],
     traction: null,
+    traction_detail: null,
   };
 }
 
