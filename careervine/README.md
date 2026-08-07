@@ -261,3 +261,10 @@ and moved the company forward. Any entry can now be struck from the record. It s
 where it is, in Gmail and on your calendar, and stops counting toward your
 suggestions, your company progress and your network stats. Show removed on the
 timeline brings the struck entries back into view, and puts any of them back.
+
+A thread you have answered stops asking for your attention. Writing back counts as
+having read it, so the unread badge and the bold row clear on their own, whether you
+replied from CareerVine or from Gmail on your phone. Opening a message you have
+already dealt with, purely to make the count go down, is no longer part of the job.
+Anything that arrives after your reply still shows up as unread, because that part
+you genuinely have not seen.

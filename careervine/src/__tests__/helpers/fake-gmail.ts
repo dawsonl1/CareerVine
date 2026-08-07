@@ -52,6 +52,8 @@ export interface FakeGmailOptions {
   sendAsAliases?: string[];
   /** Threads served by users.threads.get, keyed by thread id. */
   threads?: Record<string, { from: string; internalDate?: string }[]>;
+  /** Message ids whose messages.modify throws, for best-effort label paths. */
+  failModifyFor?: Set<string>;
 }
 
 export function createFakeGmail(options: FakeGmailOptions = {}) {
@@ -61,6 +63,8 @@ export function createFakeGmail(options: FakeGmailOptions = {}) {
     /** Every messages.get with the format it asked for, so a test can assert
      *  a cheap metadata pass was not silently upgraded to a full fetch. */
     getFormats: [] as { id: string; format: string }[],
+    /** Every messages.modify, in call order. */
+    modifyCalls: [] as { id: string; addLabelIds: string[]; removeLabelIds: string[] }[],
     inFlightListCalls: 0,
     maxInFlightListCalls: 0,
   };
@@ -134,6 +138,27 @@ export function createFakeGmail(options: FakeGmailOptions = {}) {
               payload: { headers, ...(parts ? { parts } : {}) },
             },
           };
+        },
+        /**
+         * Label edits. Records rather than mutating the message fixtures,
+         * because every caller so far asserts on WHICH messages were modified
+         * and with which labels — `markMessageAsRead` removing UNREAD from the
+         * message you opened, `reconcileThreadReadState` removing it from the
+         * ones a reply answered but NOT from one that arrived after it.
+         */
+        modify: async (args: {
+          id: string;
+          requestBody?: { addLabelIds?: string[]; removeLabelIds?: string[] };
+        }) => {
+          state.modifyCalls.push({
+            id: args.id,
+            addLabelIds: args.requestBody?.addLabelIds ?? [],
+            removeLabelIds: args.requestBody?.removeLabelIds ?? [],
+          });
+          if (options.failModifyFor?.has(args.id)) {
+            throw (options.makeError ?? (() => new Error(`injected modify failure for ${args.id}`)))();
+          }
+          return { data: {} };
         },
       },
       threads: {
