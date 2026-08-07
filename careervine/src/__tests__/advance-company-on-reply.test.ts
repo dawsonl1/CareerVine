@@ -63,8 +63,8 @@ function seed(overrides: Partial<Record<string, Record<string, unknown>[]>> = {}
       { contact_id: CONTACT, company_id: FORMER_CO, is_current: false, contacts: { user_id: USER } },
     ],
     target_companies: [
-      { id: 10, user_id: USER, company_id: CURRENT_CO, status: "researching", active_cycle: 1 },
-      { id: 11, user_id: USER, company_id: FORMER_CO, status: "researching", active_cycle: 1 },
+      { id: 10, user_id: USER, company_id: CURRENT_CO, status: "researching", active_cycle: 1, is_deleted: false },
+      { id: 11, user_id: USER, company_id: FORMER_CO, status: "researching", active_cycle: 1, is_deleted: false },
     ],
     ...overrides,
   });
@@ -118,7 +118,7 @@ describe("syncEmailsForContact — a reply advances the company (CAR-243)", () =
   it("never drags a company backwards from a later stage", async () => {
     seed({
       target_companies: [
-        { id: 10, user_id: USER, company_id: CURRENT_CO, status: "applied", active_cycle: 1 },
+        { id: 10, user_id: USER, company_id: CURRENT_CO, status: "applied", active_cycle: 1, is_deleted: false },
       ],
     });
     fake = replyPage();
@@ -186,7 +186,7 @@ describe("syncEmailsForContact — a reply advances the company (CAR-243)", () =
           { contact_id: CONTACT, company_id: CURRENT_CO, is_current: true, contacts: { user_id: USER } },
         ],
         target_companies: [
-          { id: 10, user_id: USER, company_id: CURRENT_CO, status: "researching", active_cycle: 1 },
+          { id: 10, user_id: USER, company_id: CURRENT_CO, status: "researching", active_cycle: 1, is_deleted: false },
         ],
       },
       { failOn: (table, op) => (table === "contact_companies" && op === "select" ? "boom" : null) },

@@ -13,7 +13,7 @@
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
-import type { TablesInsert } from "@/lib/database.types";
+import type { TablesInsert, TablesUpdate } from "@/lib/database.types";
 import { ensureCompanyTargets, setCompanyQueriesClient } from "@/lib/company-queries";
 import { setDataClient, type QueryClient } from "@/lib/data/client";
 import { getUserSchool } from "@/lib/data/users";
@@ -36,6 +36,9 @@ import {
   attachPhoneToContact,
   removeContactTagsByName,
 } from "@/lib/data/contacts";
+// Aliased: this module exports its own logInteraction, and the shared write is
+// the row-level primitive underneath editInteraction rather than a peer of it.
+import { getInteractionForUser, updateInteraction as updateInteractionRow } from "@/lib/data/interactions";
 import {
   buildLastTouchMap as buildLastTouchMapShared,
   getDueFollowUps,
@@ -45,6 +48,7 @@ import {
   snoozeContact,
 } from "@/lib/data/follow-ups";
 import {
+  deletedCompanyIds,
   setCompanyStage,
   updateTargetResearch,
   loadCompanyPipeline,
@@ -67,7 +71,11 @@ import {
   rescheduleFollowUpSequenceCascade,
   type RescheduledFollowUpStep,
 } from "@/lib/data/emails";
-import { ScheduledEmailStatus } from "@/lib/constants";
+import {
+  ScheduledEmailStatus,
+  SYSTEM_INTERACTION_TYPE_EMAIL,
+  normalizeConversationTypeDetail,
+} from "@/lib/constants";
 import { sanitizeForPostgrest } from "@/lib/import-helpers";
 import { resolveUserTimeZone } from "@/lib/user-timezone";
 import { currentUserIdOrNull } from "@/mcp/user-context";
@@ -689,6 +697,108 @@ export async function logInteraction(
   return { interactionId: (data as { id: number }).id, activated };
 }
 
+/** The stored interaction, as an edit reads it before deciding what to write. */
+export interface InteractionCore {
+  id: number;
+  contact_id: number;
+  interaction_date: string;
+  interaction_type: string;
+  interaction_type_detail: string | null;
+  summary: string | null;
+  is_excluded: boolean;
+  email_message_id: number | null;
+}
+
+/**
+ * Throw unless the interaction belongs to the operating user, returning the
+ * row it proved. The scoping itself lives in the shared domain module, so web
+ * and MCP read this row the same way (CAR-151).
+ */
+export async function assertInteractionOwned(interactionId: number): Promise<InteractionCore> {
+  const data = await getInteractionForUser(interactionId, uid());
+  if (!data) throw new Error(`No interaction with id ${interactionId}`);
+  // The contacts embed exists to scope the query, not to be returned.
+  const { contacts: _contacts, ...row } = data as unknown as InteractionCore & { contacts: unknown };
+  return row;
+}
+
+/** Fields `update_interaction` may write (CAR-275). Absent means unchanged. */
+export interface InteractionPatch {
+  contactId?: number;
+  type?: string;
+  /** Only meaningful when the EFFECTIVE type is 'other'; normalized below. */
+  detail?: string | null;
+  date?: string;
+  summary?: string | null;
+  excluded?: boolean;
+}
+
+/**
+ * Edit a logged interaction (CAR-275).
+ *
+ * The ownership read and the write it authorizes are one function on purpose.
+ * The update keys on nothing but the primary key, so what makes it safe is
+ * that this same invocation just proved the row is the caller's; splitting the
+ * two would put the proof and the write at different call sites and leave the
+ * scoping gate nothing to check.
+ */
+export async function editInteraction(
+  interactionId: number,
+  patch: InteractionPatch,
+): Promise<{ previous: InteractionCore; activated: boolean }> {
+  const previous = await assertInteractionOwned(interactionId);
+
+  // Asserted rather than trusted: writing an unowned contact_id would move the
+  // row out of this user's graph entirely, which no filter downstream catches.
+  if (patch.contactId !== undefined) await assertContactOwned(patch.contactId);
+
+  // A row the send path wrote mirrors a real sent message: its type, date and
+  // contact are facts about that email, not a classification of it. At CAR-242
+  // every interaction in production carried `email`, so this is the row an
+  // agent is MOST likely to reach for, not an edge case.
+  const systemWritten =
+    previous.interaction_type === SYSTEM_INTERACTION_TYPE_EMAIL || previous.email_message_id != null;
+  const rewritesTheRecord =
+    patch.type !== undefined ||
+    patch.detail !== undefined ||
+    patch.date !== undefined ||
+    patch.contactId !== undefined;
+  if (systemWritten && rewritesTheRecord) {
+    throw new Error(
+      `Interaction ${interactionId} was written by the email send path, so its type, date and contact describe a real sent message and cannot be edited. Its summary can still be changed, and excluded: true drops it from every calculation while leaving it in the record.`,
+    );
+  }
+
+  const updates: TablesUpdate<"interactions"> = {};
+  if (patch.contactId !== undefined) updates.contact_id = patch.contactId;
+  if (patch.date !== undefined) updates.interaction_date = patch.date;
+  if (patch.summary !== undefined) updates.summary = patch.summary;
+  if (patch.excluded !== undefined) updates.is_excluded = patch.excluded;
+
+  // The detail CHECK rejects free text left over from a type the caller
+  // switched away from, so recompute the pair against the EFFECTIVE type
+  // whenever either half is touched. Switching 'other' -> 'coffee' without
+  // mentioning detail therefore CLEARS the stale detail instead of 23514-ing.
+  if (patch.type !== undefined || patch.detail !== undefined) {
+    const nextType = patch.type ?? previous.interaction_type;
+    const nextDetail = patch.detail !== undefined ? patch.detail : previous.interaction_type_detail;
+    if (patch.type !== undefined) updates.interaction_type = nextType;
+    updates.interaction_type_detail = normalizeConversationTypeDetail(nextType, nextDetail);
+  }
+
+  await updateInteractionRow(interactionId, updates);
+
+  // Moving a real touch onto a prospect forms a relationship, exactly as
+  // logging one does (plan 24 tier policy). A move to the contact the row
+  // already sits on is not a move.
+  const activated =
+    patch.contactId !== undefined && patch.contactId !== previous.contact_id
+      ? await activateContactIfDormant(patch.contactId)
+      : false;
+
+  return { previous, activated };
+}
+
 // ── Action items ───────────────────────────────────────────────────────
 
 export async function createActionItem(input: {
@@ -1274,13 +1384,28 @@ export async function getViewerSchool(userId: string): Promise<string | null> {
   return getUserSchool(userId);
 }
 
-export async function getDossierBundle(contactId: number, depth: "recent" | "full"): Promise<DossierBundle> {
+export async function getDossierBundle(
+  contactId: number,
+  depth: "recent" | "full",
+  /** CAR-275: surface interactions the user struck. Off by default — this
+   * bundle grounds generated outreach, and a struck row must not feed it. */
+  includeRemoved = false,
+): Promise<DossierBundle> {
   const limit = depth === "full" ? 1000 : 10;
 
   const contact = await getContactFull(contactId);
   const emailAddresses = ((contact as { contact_emails?: Array<{ email: string | null }> }).contact_emails ?? [])
     .map((e) => e.email)
     .filter(Boolean) as string[];
+
+  // The exclusion filter is always PRESENT on both interaction legs; what
+  // `include_removed` changes is the set of values it admits. Making the flag
+  // pick a value rather than decide whether to filter at all keeps the guard
+  // visible in the chain, and keeps the default (`is_excluded IN (false)`)
+  // identical to the `= false` it replaces. Only interactions are widened:
+  // meetings, emails and action items still filter unconditionally, because
+  // this flag is scoped to the one record type update_interaction can restore.
+  const visibleExclusion = includeRemoved ? [true, false] : [false];
 
   const [
     interactionsRes,
@@ -1296,16 +1421,16 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
   ] = await Promise.all([
     db()
       .from("interactions")
-      .select("id, interaction_date, interaction_type, interaction_type_detail, summary")
+      .select("id, interaction_date, interaction_type, interaction_type_detail, summary, is_excluded")
       .eq("contact_id", contactId)
-      .eq("is_excluded", false)
+      .in("is_excluded", visibleExclusion)
       .order("interaction_date", { ascending: false })
       .limit(limit),
     db()
       .from("interactions")
       .select("id", { count: "exact", head: true })
       .eq("contact_id", contactId)
-      .eq("is_excluded", false),
+      .in("is_excluded", visibleExclusion),
     // private_notes and user_id are deliberately NOT selected — this bundle
     // feeds the email-grounding dossier the model reads before drafting, and
     // private reminders must not bleed into generated outreach.
@@ -1521,27 +1646,40 @@ export async function cacheCalendarEvent(input: {
 
 /** Resolve a company by id or name (name search is user-graph agnostic; ambiguity throws). */
 export async function resolveCompanyId(ref: { company_id?: number; name?: string }): Promise<number> {
+  // `companies` is global and carries no per-user state, so every resolution
+  // below searches a table that cannot know the caller deleted something. This
+  // is what turns the user's tombstones back into a scoping predicate for the
+  // MCP surface, which runs service-role where RLS would not (CAR-271).
+  const deleted = await deletedCompanyIds(uid());
   if (ref.company_id != null) {
     const { data } = await db().from("companies").select("id").eq("id", ref.company_id).maybeSingle();
     if (!data) throw new Error(`No company with id ${ref.company_id}`);
+    // Same message as a company that does not exist. The company row is global
+    // and still very much there, but for this user it is gone, and saying so any
+    // other way would leak that another tenant has it.
+    if (deleted.has(ref.company_id)) throw new Error(`No company with id ${ref.company_id}`);
     return ref.company_id;
   }
   const name = ref.name?.trim();
   if (!name) throw new Error("Provide company_id or name");
-  const { data: exact } = await db()
+  const notDeleted = (rows: Array<{ id: number; name: string }> | null | undefined) =>
+    (rows ?? []).filter((c) => !deleted.has(c.id));
+  const { data: exactRaw } = await db()
     .from("companies")
     .select("id, name")
     .ilike("name", escapeIlike(name))
     .limit(10);
-  if (exact?.length === 1) return (exact[0] as { id: number }).id;
-  if ((exact?.length ?? 0) > 1) throw companyAmbiguity(name, exact as Array<{ id: number; name: string }>);
-  const { data: fuzzy } = await db()
+  const exact = notDeleted(exactRaw as Array<{ id: number; name: string }> | null);
+  if (exact.length === 1) return exact[0].id;
+  if (exact.length > 1) throw companyAmbiguity(name, exact);
+  const { data: fuzzyRaw } = await db()
     .from("companies")
     .select("id, name")
     .ilike("name", `%${escapeIlike(name)}%`)
     .limit(10);
-  if (fuzzy?.length === 1) return (fuzzy[0] as { id: number }).id;
-  if ((fuzzy?.length ?? 0) > 1) throw companyAmbiguity(name, fuzzy as Array<{ id: number; name: string }>);
+  const fuzzy = notDeleted(fuzzyRaw as Array<{ id: number; name: string }> | null);
+  if (fuzzy.length === 1) return fuzzy[0].id;
+  if (fuzzy.length > 1) throw companyAmbiguity(name, fuzzy);
   throw new Error(`No company matches "${name}"`);
 }
 
@@ -1556,11 +1694,20 @@ export async function getOrCreateTargetCompany(
 ): Promise<number> {
   let lookup = db()
     .from("target_companies")
-    .select("id")
+    .select("id, is_deleted")
     .eq("user_id", uid())
     .eq("company_id", companyId);
   lookup = locationId == null ? lookup.is("location_id", null) : lookup.eq("location_id", locationId);
   const { data } = await lookup.maybeSingle();
+  // The tombstone IS a target row, so the lookup finds it and would hand back an
+  // id that every caller then writes intel and stage changes onto (CAR-271).
+  // Every tool path reaches here through resolveCompanyId, which already
+  // refuses; this is the second lock, on the function that would otherwise be
+  // the one to quietly resurrect a deleted company. Read from the projection, so
+  // it costs no extra query.
+  if ((data as { is_deleted?: boolean } | null)?.is_deleted) {
+    throw new Error(`No company with id ${companyId}`);
+  }
   if (data) return (data as { id: number }).id;
   const { data: created, error } = await db()
     .from("target_companies")
@@ -1587,6 +1734,9 @@ export async function addTargetCompanyNote(targetCompanyId: number, note: string
     .select("id")
     .eq("id", targetCompanyId)
     .eq("user_id", uid())
+    // No intel onto a company the user deleted (CAR-271). Folded into the
+    // ownership predicate so the existing not-found error covers both cases.
+    .eq("is_deleted", false)
     .maybeSingle();
   if (targetErr) throw targetErr;
   if (!target) throw new Error(`No target company with id ${targetCompanyId}`);

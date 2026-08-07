@@ -43,6 +43,12 @@ export const dossierSchema = {
     .enum(["recent", "full"])
     .optional()
     .describe("recent (default) = last 10 interactions/emails/meetings with totals; full = everything"),
+  include_removed: z
+    .boolean()
+    .optional()
+    .describe(
+      "Include interactions the user removed from their calculations, each marked removed:true. Default false. This is for auditing or restoring one with update_interaction — never quote a removed interaction in an email, since removing it is the user saying it should not count.",
+    ),
 };
 
 export const addContactSchema = {
@@ -185,9 +191,9 @@ export function registerContactTools(server: McpServer): void {
       inputSchema: dossierSchema,
       annotations: { readOnlyHint: true },
     },
-    handler(async ({ contact_id, name, depth }) => {
+    handler(async ({ contact_id, name, depth, include_removed }) => {
       const contact = await resolveContact({ contact_id, name });
-      const bundle = await getDossierBundle(contact.id, depth ?? "recent");
+      const bundle = await getDossierBundle(contact.id, depth ?? "recent", include_removed ?? false);
       const stages = await getContactStages(uid(), [
         { id: contact.id, stage_override: contact.stage_override },
       ]);

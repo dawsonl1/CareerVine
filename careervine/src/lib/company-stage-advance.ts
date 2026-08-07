@@ -89,6 +89,11 @@ export async function advanceCompaniesForContacts(
     .eq("user_id", userId)
     .eq("status", ADVANCE_FROM)
     .in("company_id", companyIds)
+    // A reply from someone at a company the user deleted must not quietly
+    // advance its stage. Nothing would render the move, but the row would drift
+    // out of Researching, so restoring the company later (or reading it in SQL)
+    // would show progress that never happened (CAR-271).
+    .eq("is_deleted", false)
     // At most one target row per (user, company, office scope).
     .order("id")
     .limit(MAX_ROWS);

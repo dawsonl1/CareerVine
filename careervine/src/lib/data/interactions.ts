@@ -71,6 +71,32 @@ export async function createInteraction(
   return data;
 }
 
+/**
+ * One interaction, scoped to its owner (CAR-275).
+ *
+ * `interactions` has no `user_id` column, so ownership rides the contacts join.
+ * Under the request-scoped client that join is belt-and-braces over RLS; under
+ * the MCP service client, which bypasses RLS, it is the ONLY thing between this
+ * query and another tenant's row. Returns null when the id is not the user's,
+ * which callers turn into a refusal rather than a silent write.
+ */
+export async function getInteractionForUser(id: number, userId: string) {
+  const { data, error } = await db()
+    .from("interactions")
+    // exclusion-exempt: record view, not a derived value. An edit has to reach
+    // a row the user already struck, or `excluded: false` could never put one
+    // back. Nothing downstream counts what this returns.
+    .select(
+      "id, contact_id, interaction_date, interaction_type, interaction_type_detail, summary, is_excluded, email_message_id, contacts!inner(user_id)",
+    )
+    .eq("id", id)
+    .eq("contacts.user_id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
 export async function updateInteraction(
   id: number,
   updates: Database["public"]["Tables"]["interactions"]["Update"]

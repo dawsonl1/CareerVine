@@ -43,6 +43,7 @@ import { ResearchingProgramsEditor } from "@/components/companies/pipeline/resea
 import { AppliedApplicationsEditor } from "@/components/companies/pipeline/applied-applications";
 import { InterviewingRoundsEditor } from "@/components/companies/pipeline/interviewing-rounds";
 import { ManageOfficesPanel } from "@/components/companies/pipeline/manage-offices-panel";
+import { LoadErrorState } from "@/components/ui/load-error-state";
 import { formatProgramSummaryLine } from "@/lib/researching-program-summary";
 import { formatApplicationSummaryLine } from "@/lib/applied-application-summary";
 import { formatApplicationDateDisplay } from "@/lib/application-date-value";
@@ -1336,6 +1337,8 @@ export function PipelineLayout({
   linkedinUrl,
   offices,
   state,
+  pipelineFailed,
+  onRetryPipeline,
   actions,
   saveStatus,
   scope,
@@ -1346,6 +1349,7 @@ export function PipelineLayout({
   onSetTier,
   jobChangeIds,
   onOfficesChanged,
+  onDeleteCompany,
 }: {
   userId: string;
   companyId: number;
@@ -1354,7 +1358,10 @@ export function PipelineLayout({
   totalContacts: number;
   linkedinUrl: string | null;
   offices: CompanyOffice[];
-  state: PipelineState;
+  /** Null while the pipeline is still loading; the roster renders without it. */
+  state: PipelineState | null;
+  pipelineFailed: boolean;
+  onRetryPipeline: () => void;
   actions: PipelineActions;
   saveStatus: PipelineSaveStatus;
   scope: string;
@@ -1367,13 +1374,19 @@ export function PipelineLayout({
   /** Bench contacts with an unactioned job-change event (plan 29 Q5 hint). */
   jobChangeIds: Set<number>;
   onOfficesChanged: () => void;
+  /** Delete the whole company profile (CAR-271). Owns its own confirm dialog. */
+  onDeleteCompany: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [manageOffices, setManageOffices] = useState(false);
 
-  const { companyTargeted, officeTargeted } = state;
-  const scopeState = getScopeState(state, scope);
-  const cycleForm = getActiveCycleState(state, scope);
+  // The pipeline loads independently of the roster (CAR-268), so `state` is
+  // null until it lands. Only the RecruitingPanel below reads these three; the
+  // roster column never does, which is what lets it paint first.
+  const companyTargeted = state?.companyTargeted ?? false;
+  const officeTargeted = useMemo(() => state?.officeTargeted ?? {}, [state]);
+  const scopeState = state ? getScopeState(state, scope) : null;
+  const cycleForm = state ? getActiveCycleState(state, scope) : null;
 
   const scopeOptions = useMemo(() => {
     const opts = [{ value: "all", label: `All · ${tabs.all.contactCount} contacts` }];
@@ -1429,7 +1442,9 @@ export function PipelineLayout({
     ? companyTargeted
     : (officeTargeted[scope] ?? officeBlock?.isTargeted ?? false);
 
-  const recruitingBlock: LocationBlock | null = isCompanyScope
+  const recruitingBlock: LocationBlock | null = !cycleForm
+    ? null
+    : isCompanyScope
     ? tabs.companyWide ??
       (companyTargeted
         ? {
@@ -1494,13 +1509,26 @@ export function PipelineLayout({
               className="[&_button]:h-10 [&_button]:text-sm"
             />
           </FieldRow>
-          <button
-            type="button"
-            onClick={() => setManageOffices((v) => !v)}
-            className="mt-1.5 text-xs text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline"
-          >
-            {manageOffices ? "Close office management" : "Manage offices"}
-          </button>
+          <div className="mt-1.5 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setManageOffices((v) => !v)}
+              className="text-xs text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline"
+            >
+              {manageOffices ? "Close office management" : "Manage offices"}
+            </button>
+            {/* Deliberately quiet, and deliberately last. It is the only
+                unrecoverable action on this page, so it should be findable
+                rather than prominent — nothing here should invite a stray
+                click. The confirm dialog carries the weight. */}
+            <button
+              type="button"
+              onClick={onDeleteCompany}
+              className="text-xs text-on-surface-variant hover:text-error underline-offset-2 hover:underline cursor-pointer"
+            >
+              Delete company
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1564,6 +1592,24 @@ export function PipelineLayout({
         </section>
         </div>
 
+        {!state || !scopeState || !cycleForm ? (
+          // The pipeline reads on its own clock (CAR-268). A placeholder here
+          // is the price of the roster not waiting for it, and it is sized to
+          // the panel so the column does not jump when the real one lands.
+          <section
+            aria-busy={!pipelineFailed}
+            className="min-w-0 rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-4 min-h-[420px] flex items-center justify-center"
+          >
+            {pipelineFailed ? (
+              <LoadErrorState
+                message="Couldn't load this company's pipeline."
+                onRetry={onRetryPipeline}
+              />
+            ) : (
+              <p className="text-sm text-on-surface-variant">Loading pipeline…</p>
+            )}
+          </section>
+        ) : (
         <RecruitingPanel
           userId={userId}
           scopeLabel={scopeLabel}
@@ -1584,6 +1630,7 @@ export function PipelineLayout({
           onStartNextCycle={() => actions.startNextCycle(scope)}
           onDeleteCycle={(cycle) => actions.deleteCycle(scope, cycle)}
         />
+        )}
       </div>
     </div>
   );

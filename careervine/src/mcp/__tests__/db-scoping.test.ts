@@ -80,6 +80,19 @@ const USER = "user-1";
 // ── Shared fixtures ────────────────────────────────────────────────────
 
 const CONTACT_CORE = { id: 5, name: "Jane", network_status: "prospect", stage_override: null };
+// The embedded `contacts` rides along because assertInteractionOwned scopes
+// through it — `interactions` has no user_id of its own.
+const INTERACTION_CORE = {
+  id: 41,
+  contact_id: 5,
+  interaction_date: "2026-07-01T00:00:00.000Z",
+  interaction_type: "coffee",
+  interaction_type_detail: null,
+  summary: "caught up",
+  is_excluded: false,
+  email_message_id: null,
+  contacts: { user_id: USER },
+};
 const CONTACT_FULL = {
   id: 9,
   user_id: USER,
@@ -318,6 +331,28 @@ const DB_TABLE: Record<string, Entry> = {
     drive: () => db.logInteraction(5, "coffee", null, "2026-07-01", "caught up"),
     route: (q) => (q.table === "contacts" && q.resolution === "maybeSingle" ? CONTACT_CORE : undefined),
   },
+  assertInteractionOwned: {
+    kind: "scoped",
+    drive: () => db.assertInteractionOwned(41),
+    route: (q) => (q.table === "interactions" && q.resolution === "maybeSingle" ? INTERACTION_CORE : undefined),
+  },
+  editInteraction: {
+    kind: "ownership",
+    // Driven with a MOVE (contactId 7 differs from the fixture's 5) so the
+    // reassignment leg — the destination ownership assert and the graduation
+    // update on contacts — is exercised rather than skipped.
+    drive: () => db.editInteraction(41, { contactId: 7, type: "coffee", summary: "trimmed" }),
+    route: (q) => {
+      if (q.table === "interactions" && q.resolution === "maybeSingle") return INTERACTION_CORE;
+      // Answers with id 7, the contact the drive actually asserts. Returning
+      // CONTACT_CORE's 5 here would make the fixture claim ownership of one
+      // contact while the patch writes contact_id 7, which the gate rejects —
+      // correctly, since that is precisely the unproven write it exists to catch.
+      if (q.table === "contacts" && q.resolution === "maybeSingle") return { ...CONTACT_CORE, id: 7 };
+      if (q.table === "interactions" && q.op === "update") return { id: 41 };
+      return undefined;
+    },
+  },
   createActionItem: {
     kind: "ownership",
     drive: () => db.createActionItem({ title: "Send deck", contactIds: [5] }),
@@ -542,6 +577,11 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     addPipelineNote: { kind: "scoped" },
     setCompanyStage: { kind: "mcp-covered", coveredBy: "setCompanyStageForCompany", touches: "pipeline_cycles" },
     updateTargetResearch: { kind: "mcp-covered", coveredBy: "updateCompanyResearch", touches: "target_companies" },
+    // CAR-271. Reads the caller's own company tombstones, scoped by an explicit
+    // .eq("user_id", userId) — which is the ONLY tenant boundary here, since MCP
+    // drives this under the service client. resolveCompanyId consumes it to stop
+    // a deleted company resolving by name or by a caller-supplied id.
+    deletedCompanyIds: { kind: "scoped" },
     loadCompanyPipeline: { kind: "mcp-covered", coveredBy: "getCompanyPipeline", touches: "target_companies" },
     appendApplication: { kind: "mcp-covered", coveredBy: "logApplication", touches: "rpc:save_pipeline_cycle" },
     appendInterviewRound: { kind: "mcp-covered", coveredBy: "logInterviewRound", touches: "rpc:save_pipeline_cycle" },
@@ -617,8 +657,18 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
   "@/lib/data/interactions": {
     getInteractions: { kind: "web-only" },
     getAllInteractions: { kind: "web-only" },
+    // CAR-275: the ownership read behind every interaction edit. Scoped
+    // through contacts!inner(user_id), since interactions carry no user_id.
+    getInteractionForUser: {
+      kind: "mcp-covered",
+      coveredBy: "assertInteractionOwned",
+      touches: "interactions",
+    },
     createInteraction: { kind: "web-only" },
-    updateInteraction: { kind: "web-only" },
+    // CAR-275: the row-level write under editInteraction, which asserts
+    // ownership through contacts!inner in the same invocation before keying
+    // this update on the id that assert proved.
+    updateInteraction: { kind: "mcp-covered", coveredBy: "editInteraction", touches: "interactions" },
     deleteInteraction: { kind: "web-only" },
   },
   "@/lib/data/meetings": {

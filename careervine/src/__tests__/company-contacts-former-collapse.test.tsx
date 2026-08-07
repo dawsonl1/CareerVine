@@ -91,6 +91,8 @@ function renderRoster(all: LocationBlock) {
       linkedinUrl={null}
       offices={[]}
       state={STATE}
+      pipelineFailed={false}
+      onRetryPipeline={() => {}}
       actions={ACTIONS}
       saveStatus="idle"
       scope="all"
@@ -100,6 +102,7 @@ function renderRoster(all: LocationBlock) {
       onSetTier={vi.fn()}
       jobChangeIds={new Set()}
       onOfficesChanged={vi.fn()}
+      onDeleteCompany={vi.fn()}
     />,
   );
 }

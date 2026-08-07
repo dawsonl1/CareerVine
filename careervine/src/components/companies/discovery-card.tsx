@@ -6,6 +6,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 import { ExternalLink, UserPlus, X } from "lucide-react";
 import { apiFetch, isApiRequestError } from "@/lib/api-client";
+import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 
 /**
  * Company page "New PM hires" card (plan 41 §5.1): candidates the weekly
@@ -69,6 +70,9 @@ export function DiscoveryCard({ companyId }: { companyId: number }) {
       );
       removeRow(candidate.id);
       if (action === "add") {
+        // The add creates a contact AT THIS COMPANY, so every cached
+        // roster that could show them is now wrong (CAR-268).
+        invalidateCompanyScopes();
         toastSuccess(
           data?.enrich === "started"
             ? `${candidate.name} added, enriching profile…`

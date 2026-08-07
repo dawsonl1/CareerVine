@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, use } from "react";
+import { useCallback, useEffect, useRef, useState, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
@@ -9,16 +9,21 @@ import { useCompose } from "@/components/compose-email-context";
 import { PipelineLayout } from "@/components/companies/pipeline/pipeline-layout";
 import { usePipelineAutosave } from "@/hooks/use-pipeline-autosave";
 import { useLatestRequest } from "@/hooks/use-latest-request";
-import { fetchCompanyScopes, type LocationTabsData } from "@/lib/company-scopes";
+import { useCachedList } from "@/hooks/use-cached-list";
+import { fetchCompanyScopes } from "@/lib/company-scopes";
 import { loadPipeline, type LoadedPipeline } from "@/lib/pipeline-queries";
+import { COMPANY_SCOPES_TTL_MS, companyScopesKey } from "@/lib/company-detail-cache";
 import {
+  deleteCompanyForUser,
   demoteContactToBench,
   promoteContactToProspect,
-  type CompanyDetail,
   type CompanyPerson,
 } from "@/lib/company-queries";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 import { activateContact, getFreshJobChangeContactIds } from "@/lib/queries";
 import { invalidateCompaniesList } from "@/lib/companies-list-cache";
+import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 import { hasInAppBackHistory } from "@/lib/nav-history";
 import type { ContactTier } from "@/components/companies/pipeline/pipeline-layout";
 import { useOnboarding } from "@/components/onboarding/onboarding-context";
@@ -42,62 +47,113 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
   const router = useRouter();
   const searchParams = useSearchParams();
   const { error: toastError, success: toastSuccess } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
+  // Synchronous, and separate from any render state: two clicks land in the same
+  // tick and the second must never reach the write (CONVENTIONS f).
+  const deletingRef = useRef(false);
   const { openCompose, gmailConnected } = useCompose();
   const { state: onboardingState } = useOnboarding();
   const onboardingOutreach = onboardingState === "outreach";
 
-  const [company, setCompany] = useState<CompanyDetail["company"] | null>(null);
-  const [tabs, setTabs] = useState<LocationTabsData | null>(null);
-  const [offices, setOffices] = useState<CompanyDetail["offices"]>([]);
-  const [totalContacts, setTotalContacts] = useState(0);
-  const [target, setTarget] = useState<CompanyDetail["target"]>(null);
-  const [loaded, setLoaded] = useState<LoadedPipeline | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
   // Bench contacts with an unactioned job-change event (plan 29 Q5 hint)
   const [jobChangeIds, setJobChangeIds] = useState<Set<number>>(new Set());
 
-  // `load` is re-invoked after every tier move, so two of them can be in flight
-  // at once and the slower one lands last, reverting the roster to its
-  // pre-mutation state and clearing the spinner early. `tabs`/`target`/`loaded`
-  // also feed usePipelineAutosave, so a stale commit is not only a display
-  // problem (CAR-190 review).
-  const loadRequest = useLatestRequest();
+  // ── The roster: cached, so returning from a contact is instant (CAR-268) ──
+  //
+  // Only this half is cached. It is the expensive read (getContactStages fans
+  // out to eight legs) and the page never mutates it. The pipeline below is
+  // deliberately NOT cached — see `company-detail-cache.ts` for why restoring
+  // autosave-backed state from a snapshot loses edits.
+  const cacheKey =
+    user && !Number.isNaN(companyId) ? companyScopesKey(user.id, companyId) : null;
 
-  const load = useCallback(async () => {
+  const {
+    data: scopes,
+    loading: scopesLoading,
+    failed: scopesFailed,
+    reload: reloadScopes,
+  } = useCachedList<Awaited<ReturnType<typeof fetchCompanyScopes>> | null>({
+    key: cacheKey,
+    // Inline rather than a memoized callback: `useCachedList` keeps the fetcher
+    // in a ref, so an unstable reference cannot loop, and everything this reads
+    // is already encoded in `key`.
+    fetcher: async () =>
+      user && !Number.isNaN(companyId) ? fetchCompanyScopes(user.id, companyId) : null,
+    ttlMs: COMPANY_SCOPES_TTL_MS,
+    fallback: null,
+  });
+
+  const company = scopes?.company ?? null;
+  const tabs = scopes?.tabs ?? null;
+  const offices = scopes?.offices ?? [];
+  const totalContacts = scopes?.totalContacts ?? 0;
+  const target = scopes?.target ?? null;
+  // A failed scopes read is what "no such company" looked like before the
+  // split, and it still is: the two throws were never distinguished.
+  const notFound = scopesFailed;
+
+  // ── The pipeline: always refetched, never cached ──────────────────────────
+  //
+  // `usePipelineAutosave` seeds a reducer from this and writes back on a
+  // debounce, so a cached copy is a copy that predates the user's own unflushed
+  // edits. Refetching it is cheap (one company's rows across six small tables)
+  // and it no longer gates the roster, which is what makes that affordable.
+  const [loaded, setLoaded] = useState<LoadedPipeline | null>(null);
+  const [pipelineFailed, setPipelineFailed] = useState(false);
+  // Two of these can overlap: a tier move reloads while the first is in flight.
+  const pipelineRequest = useLatestRequest();
+
+  const loadPipelineState = useCallback(() => {
     if (!user || Number.isNaN(companyId)) return;
-    const token = loadRequest.begin();
-    setLoading(true);
-    try {
-      const [scopes, pipeline] = await Promise.all([
-        fetchCompanyScopes(user.id, companyId),
-        loadPipeline(user.id, companyId),
-      ]);
-      if (!loadRequest.isLatest(token)) return;
-      setCompany(scopes.company);
-      setTabs(scopes.tabs);
-      setOffices(scopes.offices);
-      setTotalContacts(scopes.totalContacts);
-      setTarget(scopes.target);
-      setLoaded(pipeline);
-      // Best-effort job-change hint data — never blocks the page
-      getFreshJobChangeContactIds(scopes.tabs.all.bench.map((p) => p.contact_id))
-        .then((ids) => {
-          if (loadRequest.isLatest(token)) setJobChangeIds(ids);
-        })
-        .catch(() => {});
-    } catch {
-      if (!loadRequest.isLatest(token)) return;
-      setNotFound(true);
-    } finally {
-      if (loadRequest.isLatest(token)) setLoading(false);
-    }
-  }, [user, companyId, loadRequest]);
+    const token = pipelineRequest.begin();
+    // The failure flag is cleared on SUCCESS rather than up front: a
+    // synchronous setState in the effect body cascades a render, and
+    // `react-hooks/set-state-in-effect` rejects it.
+    loadPipeline(user.id, companyId)
+      .then((p) => {
+        if (!pipelineRequest.isLatest(token)) return;
+        setLoaded(p);
+        setPipelineFailed(false);
+      })
+      .catch((e) => {
+        if (!pipelineRequest.isLatest(token)) return;
+        console.error("Error loading pipeline:", e);
+        // `loaded` is left alone, matching the roster's no-clear rule: a failed
+        // refresh keeps a pipeline that is still valid on screen.
+        setPipelineFailed(true);
+      });
+  }, [user, companyId, pipelineRequest]);
 
   useEffect(() => {
-    // load() catches its own failures into the not-found state
-    void load();
-  }, [load]);
+    loadPipelineState();
+  }, [loadPipelineState]);
+
+  /** Re-read both halves after a write this page performed. */
+  const load = useCallback(async () => {
+    // `reload` bypasses the cache AND rewrites it, so the entry cannot serve
+    // the state the write just contradicted.
+    reloadScopes();
+    loadPipelineState();
+  }, [reloadScopes, loadPipelineState]);
+
+  // Best-effort job-change hint — never blocks the page, so it stays outside
+  // the cached payload and re-runs on a cache hit. One small read against a
+  // roster that is already on screen.
+  const benchKey = tabs ? tabs.all.bench.map((p) => p.contact_id).join(",") : "";
+  useEffect(() => {
+    if (!benchKey) return;
+    let live = true;
+    getFreshJobChangeContactIds(benchKey.split(",").map(Number))
+      .then((ids) => {
+        if (live) setJobChangeIds(ids);
+      })
+      // error-tolerated: a hint badge nobody asked for; nothing on screen
+      // depends on it and the roster is already rendered.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [benchKey]);
 
   const { state, saveStatus, actions } = usePipelineAutosave({
     userId: user?.id ?? null,
@@ -159,7 +215,12 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
       // A tier move changes the current/former/bench split, and with it the
       // company's contact counts, traction, and lead name on the list card.
       // The list is unmounted here, so it is invalidated at the write (CAR-256).
-      if (user) invalidateCompaniesList(user.id);
+      if (user) {
+        invalidateCompaniesList(user.id);
+        // A tier move changes network_status, which moves this person's bucket
+        // on EVERY company they hold a role at, not just this one (CAR-268).
+        invalidateCompanyScopes();
+      }
       toastSuccess(
         tier === "active"
           ? `${person.name} added to your network`
@@ -173,6 +234,56 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
     }
   };
 
+  /**
+   * Delete this company profile (CAR-271).
+   *
+   * The copy is specific about the two things a user cannot check for
+   * themselves: that their contacts survive, and that a bundle resync will not
+   * quietly bring the company back. "Permanently" is literal — there is no
+   * restore surface, and re-adding the company by name is the only way back.
+   */
+  const handleDeleteCompany = async () => {
+    // `user` is narrowed by an early return further down, which runs on render
+    // rather than in this closure, so the handler proves it itself.
+    if (deletingRef.current || !company || !user) return;
+    // Claimed BEFORE the confirm, not after it. The dialog is itself an await,
+    // so a ref taken on the far side of it lets a double click open two dialogs
+    // — which is the same bug in a costume, since both then resolve.
+    deletingRef.current = true;
+    try {
+      if (
+        !(await confirm({
+          title: `Delete ${company.name}`,
+          message:
+            `${company.name} will be removed from your companies for good, and syncing a data bundle or importing a contact who works there will not bring it back. ` +
+            "Contacts who work there are kept, and you can still find them in your network.",
+          confirmLabel: "Delete company",
+          destructive: true,
+        }))
+      ) {
+        return;
+      }
+      const deleted = await withToastOnError(
+        () => deleteCompanyForUser(user.id, companyId),
+        toastError,
+        "Couldn't delete this company. Please try again.",
+      );
+      if (!deleted) return;
+
+      // The list is unmounted right now, so it cannot hear a ui-event:
+      // invalidate at the write site or the company sits in the 5-minute cache
+      // (CAR-256).
+      invalidateCompaniesList(user.id);
+      toastSuccess(`${company.name} deleted`);
+      // push, not back(): back() would land on a companies list restored from
+      // history that still contains this company, and the entry for this page
+      // would still be in the forward stack.
+      router.push("/companies");
+    } finally {
+      deletingRef.current = false;
+    }
+  };
+
   if (!user) return null;
 
   const body = () => {
@@ -181,7 +292,10 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         <p className="py-16 text-center text-sm text-on-surface-variant">Company not found.</p>
       );
     }
-    if (loading || !company || !tabs || !state) {
+    // Gated on the ROSTER only (CAR-268). The pipeline arrives on its own and
+    // carries its own skeleton, so a cached roster paints immediately instead
+    // of waiting on a read it does not depend on.
+    if (scopesLoading || !company || !tabs) {
       return <p className="py-16 text-center text-sm text-on-surface-variant">Loading…</p>;
     }
     return (
@@ -232,6 +346,8 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         linkedinUrl={company.linkedin_url}
         offices={offices}
         state={state}
+        pipelineFailed={pipelineFailed}
+        onRetryPipeline={loadPipelineState}
         actions={actions}
         saveStatus={saveStatus}
         scope={scope}
@@ -242,6 +358,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         onSetTier={handleSetTier}
         jobChangeIds={jobChangeIds}
         onOfficesChanged={load}
+        onDeleteCompany={handleDeleteCompany}
       />
       </>
     );
@@ -270,6 +387,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         </button>
         {body()}
       </main>
+      {confirmDialog}
     </div>
   );
 }

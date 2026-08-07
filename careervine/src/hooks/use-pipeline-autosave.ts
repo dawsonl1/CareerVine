@@ -42,6 +42,7 @@ import {
   syncScopeStatus,
 } from "@/lib/pipeline-queries";
 import { invalidateCompaniesList } from "@/lib/companies-list-cache";
+import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 
 const SAVE_DEBOUNCE_MS = 800;
 
@@ -205,7 +206,12 @@ export function usePipelineAutosave({
         // the companies list badges and filters on. The list is unmounted while
         // the user is here, so it cannot listen for this — the cache has to be
         // dropped at the write (CAR-256).
-        if (userId) invalidateCompaniesList(userId);
+        if (userId) {
+          invalidateCompaniesList(userId);
+          // syncScopeStatus above writes target_companies.status, which the
+          // company page's cached scopes carry too (CAR-268).
+          invalidateCompanyScopes();
+        }
       } catch (error) {
         console.error("Pipeline save failed", error);
         setSaveStatus("error");
@@ -247,7 +253,10 @@ export function usePipelineAutosave({
           // Targeting, cycle switches and cycle deletion all move
           // target_companies rows the companies list reads. Same reasoning as
           // in flush(): invalidate at the write, not from a mounted listener.
-          if (userId) invalidateCompaniesList(userId);
+          if (userId) {
+            invalidateCompaniesList(userId);
+            invalidateCompanyScopes();
+          }
         } catch (error) {
           console.error("Pipeline save failed", error);
           setSaveStatus("error");
