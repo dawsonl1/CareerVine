@@ -142,6 +142,29 @@ export interface StageTally {
   at: string | null;
 }
 
+/**
+ * Where a contact's reply conversation actually stands (CAR-253).
+ *
+ * Stage `replied` is sticky — it stays true forever once someone has written
+ * back once — so it cannot answer "is there anything for me to do here?". This
+ * can: it is computed PER THREAD, because whether we owe a response is a fact
+ * about a conversation, not about a person.
+ */
+export interface ReplyThreadState {
+  /**
+   * True while no message of ours is dated after their FIRST reply on some
+   * thread. Deliberately "first", not "latest": once we have answered, a later
+   * reply from them does not restore the write-back prompt — the exchange is
+   * live and the card should stop issuing instructions about it.
+   *
+   * ANY unanswered thread sets this. Two conversations with one still owed a
+   * response is still a conversation owed a response.
+   */
+  awaitingOurReply: boolean;
+  /** Latest message on those threads, either direction — what "(2 days ago)" counts from. */
+  lastMessageAt: string | null;
+}
+
 export interface ContactStage {
   stage: OutreachStage;
   rank: number;
@@ -151,6 +174,13 @@ export interface ContactStage {
    * one without a null check; unreached stages are `{ count: 0, at: null }`.
    */
   tallies: Record<OutreachStage, StageTally>;
+  /**
+   * Null unless a real inbound reply backs the stage. A `stage_override` of
+   * "replied" therefore lands here as null rather than as a claim about a
+   * thread that does not exist, and callers fall back to copy that asserts
+   * nothing about who wrote last.
+   */
+  replyThread: ReplyThreadState | null;
 }
 
 /** A zeroed tally set — every stage present, nothing claimed. */
@@ -205,11 +235,18 @@ export async function getContactStages(
       // page is indistinguishable from "this contact has no email signal", and
       // deriveStage would then compute an earlier stage from partial evidence,
       // putting an already-contacted person back into outreach queues.
+      //
+      // thread_id + email_message_id (CAR-253): "have we written back?" is a
+      // question about a CONVERSATION, so the aggregation buckets by thread.
+      // The junction id is only the bucket key for a message whose thread_id is
+      // null, which keeps such a message from merging with unrelated ones.
       paginateAll(async (from, to) =>
         must(
           await db()
             .from("email_message_contacts")
-            .select("contact_id, email_messages!inner(user_id, direction, date, from_address, is_simulated)")
+            .select(
+              "contact_id, email_message_id, email_messages!inner(user_id, direction, date, from_address, is_simulated, thread_id)",
+            )
             .eq("email_messages.user_id", userId)
             .eq("email_messages.is_simulated", false)
             // CAR-260: struck by the user, so it must not derive a stage.
@@ -397,9 +434,32 @@ export async function getContactStages(
   const firstOutboundAt = new Map<number, string>(); // earliest DATED outbound
   const lastOutboundAt = new Map<number, string>(); // latest DATED outbound (chip recency)
   const inboundAt = new Map<number, string[]>();
-  for (const link of emails as Array<{ contact_id: number; email_messages: { direction: string | null; date: string | null; from_address: string | null } | null }>) {
+  /**
+   * The same dated messages, bucketed per contact per thread (CAR-253), which
+   * is the only grouping that can answer "did we write back on that thread".
+   * Undated messages are skipped here for the same reason the reply gate above
+   * ignores them: nothing can be ordered against a date we do not have.
+   */
+  type ThreadBucket = { lastOutAt: string | null; theirReplyAts: string[]; lastMessageAt: string | null };
+  const threadsByContact = new Map<number, Map<string, ThreadBucket>>();
+  const threadBucket = (contactId: number, key: string): ThreadBucket => {
+    const byThread = threadsByContact.get(contactId) ?? new Map<string, ThreadBucket>();
+    threadsByContact.set(contactId, byThread);
+    const bucket = byThread.get(key) ?? { lastOutAt: null, theirReplyAts: [], lastMessageAt: null };
+    byThread.set(key, bucket);
+    return bucket;
+  };
+  for (const link of emails as Array<{
+    contact_id: number;
+    email_message_id: number | null;
+    email_messages: { direction: string | null; date: string | null; from_address: string | null; thread_id: string | null } | null;
+  }>) {
     const m = link.email_messages;
     if (m == null) continue;
+    // A message with no thread_id gets a bucket of its own rather than sharing
+    // one with every other thread-less message: merging them would let an
+    // unrelated later send read as a reply to this conversation.
+    const threadKey = m.thread_id ?? `msg:${link.email_message_id}`;
     if (m.direction === "outbound") {
       // Outbound credits every linked contact — they all received the outreach.
       //
@@ -415,6 +475,9 @@ export async function getContactStages(
         if (!prevFirst || m.date < prevFirst) firstOutboundAt.set(link.contact_id, m.date);
         const prevLast = lastOutboundAt.get(link.contact_id);
         if (!prevLast || m.date > prevLast) lastOutboundAt.set(link.contact_id, m.date);
+        const bucket = threadBucket(link.contact_id, threadKey);
+        bucket.lastOutAt = laterOf(bucket.lastOutAt, m.date);
+        bucket.lastMessageAt = laterOf(bucket.lastMessageAt, m.date);
       }
     } else if (m.direction === "inbound") {
       // Inbound counts as a REPLY only for the contact who sent it (their
@@ -428,6 +491,9 @@ export async function getContactStages(
         const list = inboundAt.get(link.contact_id) ?? [];
         list.push(m.date);
         inboundAt.set(link.contact_id, list);
+        const bucket = threadBucket(link.contact_id, threadKey);
+        bucket.theirReplyAts.push(m.date);
+        bucket.lastMessageAt = laterOf(bucket.lastMessageAt, m.date);
       }
     }
   }
@@ -542,6 +608,30 @@ export async function getContactStages(
       }
     }
 
+    // Where those replies leave us, per thread (CAR-253). The qualification
+    // repeats the rule above rather than reusing `replies`, because the answer
+    // is per-conversation: a reply that predates our outreach is not a reply on
+    // ANY thread, and a thread holding only such messages must not contribute a
+    // "you owe them a response".
+    let replyThread: ReplyThreadState | null = null;
+    if (replies.length > 0) {
+      let awaitingOurReply = false;
+      let lastMessageAt: string | null = null;
+      for (const bucket of threadsByContact.get(contact.id)?.values() ?? []) {
+        const theirs = firstOutbound
+          ? bucket.theirReplyAts.filter((d) => d >= firstOutbound)
+          : bucket.theirReplyAts;
+        if (theirs.length === 0) continue;
+        const firstReplyAt = theirs.reduce((a, b) => (a < b ? a : b));
+        // Compared against their FIRST reply, so answering once retires the
+        // prompt for good: their replying again afterwards is a live exchange,
+        // not an outstanding task.
+        if (!bucket.lastOutAt || bucket.lastOutAt <= firstReplyAt) awaitingOurReply = true;
+        lastMessageAt = laterOf(lastMessageAt, bucket.lastMessageAt);
+      }
+      replyThread = { awaitingOurReply, lastMessageAt };
+    }
+
     const referrals = referralCount.get(contact.id) ?? 0;
     const interactedHere = interacted.has(contact.id);
     const signals: StageSignals = {
@@ -576,7 +666,7 @@ export async function getContactStages(
     if (pastCalls > 0) tallies.call_done = { count: pastCalls, at: latestCall };
     if (referrals > 0) tallies.referral = { count: referrals, at: lastReferralAt.get(contact.id) ?? null };
 
-    result.set(contact.id, { stage, rank: stageRank(stage), tallies });
+    result.set(contact.id, { stage, rank: stageRank(stage), tallies, replyThread });
   }
   return result;
 }
@@ -586,7 +676,6 @@ export async function getContactStages(
 export interface TargetInfo {
   id: number;
   priority_score: number | null;
-  tier: string | null;
   program_name: string | null;
   app_window_text: string | null;
   next_app_date: string | null;
@@ -597,6 +686,57 @@ export interface OfficeScopeSummary {
   location_id: number;
   label: string;
   status: string;
+}
+
+/**
+ * One office from the `company_locations` registry (CAR-251).
+ *
+ * Distinct from `OfficeScopeSummary` above, which is a `target_companies` row
+ * the user has explicitly targeted. This is "the company has an office here",
+ * whether or not the user is pursuing it, and it is what the location filter
+ * matches on — that difference is why a user with no targets at all still gets
+ * a working filter.
+ */
+export interface CompanyOfficeSummary {
+  location_id: number;
+  city: string | null;
+  state: string | null;
+  country: string;
+  /** Display label, e.g. "Lehi, Utah". */
+  label: string;
+}
+
+/**
+ * One (contact, office) pair in a company's workforce, for location-scoped
+ * card counts (CAR-251).
+ *
+ * WHY THIS IS A ROSTER AND NOT A COUNT MAP. The cheap shape was per-office
+ * counts that the client sums over the selected offices. That over-counts: on
+ * the reference account 493 contacts hold roles at two or more DIFFERENT
+ * offices of the same company (16 with both roles current), and summing counts
+ * each of them once per office. Unioning contact ids is the only way to get
+ * "how many people are at the places I selected" right for a multi-select.
+ *
+ * Entries with a null `location_id` are the reason the card can state its own
+ * blind spot. Only 53% of current roles carry a location, so a strictly-scoped
+ * count would silently read "1 person" where nine contacts exist; the card
+ * shows the remainder ("· 8 location unknown") rather than dropping them.
+ *
+ * The flags are denormalized on purpose: they are computed once by the
+ * enrichment pass, and recomputing them per filter change would mean shipping
+ * the alumni lookup to the client.
+ */
+export interface CompanyRosterEntry {
+  contact_id: number;
+  /** Office this role sits at; null when no office was ever recorded. */
+  location_id: number | null;
+  /** Role is explicitly remote, which is not the same as "office unknown". */
+  remote: boolean;
+  is_current: boolean;
+  bench: boolean;
+  alum: boolean;
+  product_alum: boolean;
+  recruiter: boolean;
 }
 
 /**
@@ -623,7 +763,25 @@ export interface CompanyBaseSummary {
   office_scopes: OfficeScopeSummary[];
 }
 
-/** The six fields the who-you-know pass computes; see CompanyBaseSummary. */
+/**
+ * The lead contact's OWN history, for the next-action line (CAR-253).
+ *
+ * Separate from `traction_detail`, which is summed across everyone at the
+ * company for the chip. The line names one person, so the clause dating it has
+ * to come from that person: "Waiting on Julian. You reached out 3 days ago"
+ * must be Julian's outreach, not the most recent of three people's.
+ *
+ * Null when there is no lead with momentum — a warm-intro lead has no history
+ * to report, which is what makes them a warm intro.
+ */
+export interface LeadDetail {
+  /** Latest outreach to the lead: email or logged interaction, whichever is later. */
+  last_outreach_at: string | null;
+  /** Their reply conversation's state; null when no real inbound backs the stage. */
+  reply: ReplyThreadState | null;
+}
+
+/** The seven fields the who-you-know pass computes; see CompanyBaseSummary. */
 export interface CompanyEnrichment {
   /** BYU alumni among current non-bench contacts — the app's warm-intro edge. */
   alum_count: number;
@@ -640,6 +798,21 @@ export interface CompanyEnrichment {
   /** Max derived stage across CURRENT non-bench contacts (pursuing/in_play views). */
   traction: OutreachStage | null;
   /**
+   * Every office in the registry for this company, targeted or not (CAR-251).
+   * The location filter matches on these, so it works for a user with no
+   * targets and no data bundle.
+   *
+   * Enrichment-side, like the five above and for the same reason: an
+   * unenriched caller must not receive `[]` here, because "this company has no
+   * offices" and "nobody asked for its offices" are different claims and only
+   * one of them is true. The MCP list_companies path (`scope: "all"`) and the
+   * outreach queue (`enrich: false`) never filter by location, and
+   * company-enrich-option.test.ts pins that they do not pay for this read.
+   */
+  offices: CompanyOfficeSummary[];
+  /** Per-(contact, office) rows backing location-scoped card counts (CAR-251). */
+  roster: CompanyRosterEntry[];
+  /**
    * How much of `traction` there is and when it last happened, for the list
    * chip: "2 Calls Done (2 weeks ago)" (CAR-246). Null whenever `traction` is.
    *
@@ -649,6 +822,8 @@ export interface CompanyEnrichment {
    * asserting a number the data does not support.
    */
   traction_detail: { count: number; at: string | null } | null;
+  /** `lead_contact_name`'s own history, dating the next-action line (CAR-253). */
+  lead_detail: LeadDetail | null;
 }
 
 /**
@@ -666,7 +841,6 @@ export interface CompanyTargetScopeRow {
   location_id: number | null;
   is_targeted: boolean;
   priority_score: number | null;
-  tier: string | null;
   program_name: string | null;
   app_window_text: string | null;
   next_app_date: string | null;
@@ -678,7 +852,7 @@ export interface CompanyTargetScopeRow {
  * Collapse a company's scope rows into what the dashboard card shows.
  *
  * The status chip follows the company-wide row when it's targeted, else
- * the highest-priority targeted office. Tier / program / window hint are
+ * the highest-priority targeted office. Program / window hint are
  * employer attributes (§18.12 Q5 Option C), so they come from the
  * company-wide row even when it's a soft-untargeted container. The app
  * date is the nearest across targeted scopes (deadlines drive action);
@@ -722,7 +896,6 @@ export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
     target: {
       id: primary.id,
       status: primary.status,
-      tier: companyWide?.tier ?? primary.tier ?? null,
       program_name: companyWide?.program_name ?? primary.program_name ?? null,
       app_window_text: companyWide?.app_window_text ?? primary.app_window_text ?? null,
       next_app_date: appDates[0] ?? null,
@@ -800,6 +973,9 @@ interface EmploymentAggRow {
   company_id: number;
   contact_id: number;
   is_current: boolean;
+  /** Office this role sits at; null when the scrape never recorded one (CAR-251). */
+  location_id: number | null;
+  workplace_type: string | null;
   contacts: {
     name: string;
     network_status: string;
@@ -892,7 +1068,7 @@ async function fetchEmploymentRowsForCompanies(
       await db()
         .from("contact_companies")
         .select(
-          "company_id, contact_id, is_current, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
+          "company_id, contact_id, is_current, location_id, workplace_type, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
         )
         .eq("contacts.user_id", userId)
         .in("company_id", chunk)
@@ -963,8 +1139,8 @@ export async function getCompanies(
   // so that shape is preserved verbatim; only `enrich: false` drops the keys.
   const runEnrichment = enrich && scope !== "all";
 
-  // All scope rows, including soft-untargeted containers: tier/program
-  // live on the company-wide row even when only offices are targeted.
+  // All scope rows, including soft-untargeted containers: the program name
+  // lives on the company-wide row even when only offices are targeted.
   //
   // Paginated (CAR-223): one row per company AND per targeted office, so the
   // count multiplies well past the company count, and a truncated read here
@@ -986,7 +1162,7 @@ export async function getCompanies(
         await db()
           .from("target_companies")
           .select(
-            "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
+            "id, company_id, location_id, is_targeted, priority_score, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
           )
           .eq("user_id", userId)
           .order("id")
@@ -1069,8 +1245,38 @@ export async function getCompanies(
   // reference account, for MCP's list_companies(targets_only: false). Skipping
   // it cannot change that scope's output, because nothing downstream can
   // observe the difference.
-  const [employment, companyRows] = await Promise.all([
+  const [employment, officeRows, companyRows] = await Promise.all([
     runEnrichment ? fetchEmploymentRowsForCompanies(userId, companyIds) : Promise.resolve([]),
+    // The office registry for the shown companies (CAR-251) — what the location
+    // filter matches on. Rides this wave because it is keyed on `companyIds`
+    // and reads nothing the other two produce.
+    //
+    // chunkedPaginated, not chunked: company_locations fans out (a company can
+    // have dozens of offices) so one id chunk can exceed PostgREST's 1000-row
+    // cap. Unpaginated it would silently drop offices, and a dropped office is
+    // a company that vanishes from its own city's filter.
+    //
+    // Gated on runEnrichment for the same reason the employment read is: the
+    // only consumer is the location filter on the companies page, which is
+    // always enriched. Ungated, this added a third table to the MCP and
+    // outreach query shapes that CAR-229 deliberately trimmed.
+    runEnrichment
+      ? chunkedPaginated<{
+        company_id: number;
+        location_id: number;
+        locations: { city: string | null; state: string | null; country: string } | null;
+      }>(companyIds, async (chunk, from, to) =>
+        must(
+          await db()
+            .from("company_locations")
+            .select("id, company_id, location_id, locations(city, state, country)")
+            .in("company_id", chunk)
+            .order("company_id")
+            .order("id")
+            .range(from, to),
+        ),
+      )
+      : Promise.resolve([]),
     chunked(companyIds, async (chunk) => {
       let q = db()
         .from("companies")
@@ -1102,6 +1308,14 @@ export async function getCompanies(
     currentProspect: Set<number>;
     /** Non-bench people at this company, deduped by contact id (current wins). */
     people: Map<number, PersonAgg>;
+    /**
+     * One entry per distinct (contact, office) pair, keyed `contactId:locationId`
+     * (CAR-251). Deduped here rather than at render time because a contact can
+     * hold several roles at the same office, and `is_current` ORs across them
+     * the same way `people` collapses — a boomeranger at one office is current
+     * there, not both current and former.
+     */
+    pairs: Map<string, { contact_id: number; location_id: number | null; remote: boolean; is_current: boolean }>;
   }
   const aggByCompany = new Map<number, Agg>();
   for (const row of employment) {
@@ -1113,8 +1327,24 @@ export async function getCompanies(
         bench: new Set(),
         currentProspect: new Set(),
         people: new Map(),
+        pairs: new Map(),
       };
       aggByCompany.set(row.company_id, agg);
+    }
+    // Location membership is tracked for BENCH contacts too, so a scoped card
+    // can still show "2 benched" at the filtered office rather than implying
+    // the bench is empty there.
+    {
+      const key = `${row.contact_id}:${row.location_id ?? ""}`;
+      const existing = agg.pairs.get(key);
+      if (existing) existing.is_current ||= row.is_current;
+      else
+        agg.pairs.set(key, {
+          contact_id: row.contact_id,
+          location_id: row.location_id,
+          remote: row.workplace_type === "remote",
+          is_current: row.is_current,
+        });
     }
     const contact = row.contacts;
     if (contact.network_status === "bench") {
@@ -1153,6 +1383,8 @@ export async function getCompanies(
   const productAlumCountByCompany = new Map<number, number>();
   const recruiterCountByCompany = new Map<number, number>();
   const leadNameByCompany = new Map<number, string | null>();
+  const rosterByCompany = new Map<number, CompanyRosterEntry[]>();
+  const leadDetailByCompany = new Map<number, LeadDetail | null>();
   if (runEnrichment) {
     const uniqueContacts = new Map<number, { id: number; stage_override: string | null }>();
     for (const id of companyIds) {
@@ -1177,6 +1409,31 @@ export async function getCompanies(
       productAlumCountByCompany.set(id, current.filter(isProductAlum).length);
       recruiterCountByCompany.set(id, current.filter((p) => p.persona === "recruiter").length);
 
+      // The location-scoped roster (CAR-251). Flags are read off `people`, which
+      // holds only NON-BENCH contacts — so a bench contact's entry carries
+      // bench:true and false flags, matching the unscoped card, where alum and
+      // recruiter counts are likewise computed over current non-bench people.
+      const agg = aggByCompany.get(id);
+      if (agg) {
+        const byContact = agg.people;
+        rosterByCompany.set(
+          id,
+          [...agg.pairs.values()].map((pair) => {
+            const person = byContact.get(pair.contact_id);
+            return {
+              contact_id: pair.contact_id,
+              location_id: pair.location_id,
+              remote: pair.remote,
+              is_current: pair.is_current,
+              bench: agg.bench.has(pair.contact_id),
+              alum: person ? isAlum(person) : false,
+              product_alum: person ? isProductAlum(person) : false,
+              recruiter: person?.persona === "recruiter",
+            };
+          }),
+        );
+      }
+
       // Max derived stage, and the contact driving it.
       //
       // CURRENT employees only, because traction is a claim about the company
@@ -1196,10 +1453,24 @@ export async function getCompanies(
       // because "2 Calls Done" next to a company where you know nobody is a
       // claim about a door that is already closed. Deliberate reversal, not a
       // regression — do not restore the fallback.
+      //
+      // The tie-break exists because the winner also NAMES the line (CAR-253).
+      // Two current contacts both at `replied` are the same rank, so the first
+      // one seen used to win — and if that one's thread is already answered
+      // while the other's is not, the card would read "You had an email thread
+      // with Samuel" and bury the reply actually waiting on a response. Whoever
+      // still owes us nothing loses the tie.
       let best: { stage: ContactStage; person: PersonAgg } | null = null;
       for (const p of current) {
         const s = stages.get(p.id);
-        if (s && (!best || s.rank > best.stage.rank)) best = { stage: s, person: p };
+        if (!s) continue;
+        const wins =
+          !best ||
+          s.rank > best.stage.rank ||
+          (s.rank === best.stage.rank &&
+            !!s.replyThread?.awaitingOurReply &&
+            !best.stage.replyThread?.awaitingOurReply);
+        if (wins) best = { stage: s, person: p };
       }
       if (best) {
         traction.set(id, best.stage.stage);
@@ -1223,8 +1494,16 @@ export async function getCompanies(
       // Lead name for the next-action line: the contact with real momentum, else
       // the best warm lead among current contacts (product alum → alum → recruiter → any).
       let lead: string | null = null;
+      let leadDetail: LeadDetail | null = null;
       if (best && best.stage.rank > stageRank("not_contacted")) {
         lead = best.person.name;
+        // Only the momentum lead carries history worth dating. A warm-intro
+        // lead has none by definition, and the fallback below picks them by
+        // affinity rather than by anything that happened.
+        leadDetail = {
+          last_outreach_at: best.stage.tallies.contacted.at,
+          reply: best.stage.replyThread,
+        };
       } else if (current.length > 0) {
         const warm =
           current.find(isProductAlum) ??
@@ -1234,6 +1513,7 @@ export async function getCompanies(
         lead = warm.name;
       }
       leadNameByCompany.set(id, lead);
+      leadDetailByCompany.set(id, leadDetail);
     }
   }
 
@@ -1243,6 +1523,26 @@ export async function getCompanies(
    * unenriched one simply omits the five keys. Sharing the expressions is what
    * stops the two shapes from drifting on a base field.
    */
+  // Office registry per company, label-sorted so the card and the filter show a
+  // stable order (CAR-251). A row whose location join came back null is dropped
+  // rather than rendered as "Location 42": it cannot be matched by any filter
+  // value, so surfacing it would only produce an unselectable chip.
+  const officesByCompany = new Map<number, CompanyOfficeSummary[]>();
+  for (const row of officeRows) {
+    const loc = row.locations;
+    if (!loc) continue;
+    const list = officesByCompany.get(row.company_id) ?? [];
+    list.push({
+      location_id: row.location_id,
+      city: loc.city,
+      state: loc.state,
+      country: loc.country,
+      label: locationLabel(loc) ?? loc.country,
+    });
+    officesByCompany.set(row.company_id, list);
+  }
+  for (const list of officesByCompany.values()) list.sort((a, b) => a.label.localeCompare(b.label));
+
   const parts = (c: { id: number; name: string; logo_url: string | null; linkedin_url: string | null }) => {
     const derived = targetByCompany.get(c.id);
     // Counts come from the RPC, not from the in-memory sets: the employment
@@ -1287,7 +1587,10 @@ export async function getCompanies(
           lead_contact_name: leadNameByCompany.get(c.id) ?? null,
           ...scopes,
           traction: traction.get(c.id) ?? null,
+          offices: officesByCompany.get(c.id) ?? [],
+          roster: rosterByCompany.get(c.id) ?? [],
           traction_detail: tractionDetail.get(c.id) ?? null,
+          lead_detail: leadDetailByCompany.get(c.id) ?? null,
         };
       })
     : null;
@@ -1486,7 +1789,7 @@ export async function getCompanyDetail(
       .eq("company_id", companyId),
     db()
       .from("target_companies")
-      .select("id, priority_score, tier, program_name, app_window_text, next_app_date, status")
+      .select("id, priority_score, program_name, app_window_text, next_app_date, status")
       .eq("user_id", userId)
       .eq("company_id", companyId)
       .is("location_id", null)
@@ -2054,7 +2357,7 @@ export async function removeTargetCompany(targetId: number) {
 
 export async function updateTargetCompany(
   targetId: number,
-  patch: Partial<Pick<TargetInfo, "priority_score" | "tier" | "program_name" | "app_window_text" | "next_app_date" | "status">>,
+  patch: Partial<Pick<TargetInfo, "priority_score" | "program_name" | "app_window_text" | "next_app_date" | "status">>,
 ) {
   const { error } = await db()
     .from("target_companies")

@@ -34,8 +34,11 @@ function company(over: Partial<CompanySummary> = {}): CompanySummary {
     lead_contact_name: "Kelson Reid",
     target: null,
     office_scopes: [],
+    offices: [],
+    roster: [],
     traction: "call_done",
     traction_detail: { count: 2, at: daysAgo(14) },
+    lead_detail: null,
     ...over,
   };
 }
@@ -122,7 +125,6 @@ describe("traction chip rendering (CAR-246)", () => {
           target: {
             id: 1,
             priority_score: null,
-            tier: null,
             program_name: null,
             app_window_text: null,
             next_app_date: soonLocal,
@@ -133,5 +135,53 @@ describe("traction chip rendering (CAR-246)", () => {
     );
 
     expect(screen.getByText(/Apply in 3 days/)).toBeTruthy();
+  });
+});
+
+/**
+ * The next-action pill, rendered (CAR-253). The ladder's own suite pins the
+ * copy; this pins that the card actually reaches it — the two lines are built
+ * from `lead_detail`, a field the card had no reason to read before.
+ */
+describe("next-action pill: reply-thread state and the waiting clock (CAR-253)", () => {
+  it("asks for a write-back only while the reply is unanswered", () => {
+    render(
+      <CompanyCard
+        company={company({
+          traction: "replied",
+          traction_detail: { count: 1, at: daysAgo(2) },
+          lead_detail: { last_outreach_at: daysAgo(5), reply: { awaitingOurReply: true, lastMessageAt: daysAgo(2) } },
+        })}
+      />,
+    );
+    expect(screen.getByText("Kelson replied, write back")).toBeTruthy();
+  });
+
+  it("reports a finished exchange in the past tense once we have answered", () => {
+    render(
+      <CompanyCard
+        company={company({
+          traction: "replied",
+          traction_detail: { count: 1, at: daysAgo(2) },
+          lead_detail: { last_outreach_at: daysAgo(5), reply: { awaitingOurReply: false, lastMessageAt: daysAgo(2) } },
+        })}
+      />,
+    );
+    expect(screen.getByText("You had an email thread with Kelson (2 days ago)")).toBeTruthy();
+    expect(screen.queryByText(/write back/)).toBeNull();
+  });
+
+  it("says how long you have been waiting instead of 'if it's been a while'", () => {
+    render(
+      <CompanyCard
+        company={company({
+          traction: "contacted",
+          traction_detail: { count: 1, at: daysAgo(3) },
+          lead_detail: { last_outreach_at: daysAgo(3), reply: null },
+        })}
+      />,
+    );
+    expect(screen.getByText("Waiting on Kelson. You reached out 3 days ago")).toBeTruthy();
+    expect(screen.queryByText(/been a while/)).toBeNull();
   });
 });

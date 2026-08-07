@@ -91,26 +91,36 @@ side, a living pipeline on the other.
 As your target list grows, the Companies page keeps it navigable with instant
 search and stackable filters:
 
-- Search as you type across company names, program names, and tier labels. Results
-  update instantly, no page reloads.
+- Search as you type across company names and program names. Results update
+  instantly, no page reloads.
 - Narrow the list by target status (researching through closed), outreach traction,
-  tier, who you know inside, and whether anyone there went to your school.
+  office location, who you know inside, and whether anyone there went to your school.
 - The page shows every company you target plus every company you already know
   someone at, so a target menu separates the two. "Not a target" is the shortlist
   worth reading before you pick your next one: places you have a way in and have not
   claimed yet.
+- The location menu groups cities under their state, so you can take all of Utah in
+  one click or pick Lehi and Boston individually, and type to jump straight to a
+  city. Companies with no office on file are their own option, so they stay
+  reachable instead of disappearing.
 - Who you know inside is one menu, not two competing ones: pick "works there now",
   "worked there before", "no contacts yet", or any combination. Companies where your
   only connection has moved on are one click away, and so is the pair that means
   "anyone at all".
-- The target, traction, tier, contacts, and alumni menus each take several answers
-  at once, so "Big Tech or Utah" and "Replied or Call done" are single filters rather
-  than two separate views.
-- Filters combine, so "applied companies in Big Tech where I have no contacts yet"
-  is two clicks, and a live count shows how much of your list matches.
-- The count on each status chip follows the rest of the bar. Filter to one tier and
+- The target, traction, location, contacts, and alumni menus each take several
+  answers at once, so "Lehi or Boston" and "Replied or Call done" are single filters
+  rather than two separate views.
+- Filters combine, so "applied companies in Utah where I have no contacts yet" is
+  two clicks, and a live count shows how much of your list matches.
+- Filtering by location changes what each company card reports, not just which
+  companies appear. Ask for Lehi and a card counts the people you know at the Lehi
+  office, and says how many of your contacts there have no office on file rather
+  than quietly leaving them out.
+- Clicking a company opens straight to that office when your filter points at
+  exactly one of its locations, and to the whole company when it points at more.
+- The count on each status chip follows the rest of the bar. Filter to one state and
   the chips tell you how many researching, applied, and interviewing companies are
-  left in that tier, so the number you click is the number you get.
+  left there, so the number you click is the number you get.
 - Every filtered view lives in the URL: share it, bookmark it, or click into a
   company and come back without losing your place.
 
@@ -120,6 +130,14 @@ Scheduled (in 3 days)". You can see at a glance how much has happened at a
 company and whether it has gone cold, without opening it. Only people who
 currently work there count toward it, so a conversation with someone who has
 since moved on never makes a company look warmer than it is.
+
+The next move on each card answers the same question with the same honesty.
+Waiting on someone reads "Waiting on Julian. You reached out 3 days ago", so the
+decision to nudge is yours to make from a number rather than a shrug. And
+"Samuel replied, write back" shows up only while you actually owe someone a
+response: answer the thread and it settles into "You had an email thread with
+Samuel (2 days ago)", which stays true even if Samuel writes again. A card should
+never ask you for something you have already done.
 
 ## A network that keeps itself fresh
 

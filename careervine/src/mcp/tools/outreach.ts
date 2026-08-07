@@ -31,7 +31,6 @@ function compactCompany(c: CompanySummary) {
     target: c.target
       ? {
           priority_score: c.target.priority_score,
-          tier: c.target.tier,
           program_name: c.target.program_name,
           next_app_date: c.target.next_app_date,
           status: c.target.status,

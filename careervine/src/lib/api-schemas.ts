@@ -336,7 +336,6 @@ export const targetCompaniesBulkImportSchema = z.object({
         linkedin_company_id: z.string().max(50).nullish(),
         universal_name: z.string().max(200).nullish(),
         priority_score: z.number().nullish(),
-        tier: z.string().max(200).nullish(),
         program_name: z.string().max(300).nullish(),
         app_window_text: z.string().max(2000).nullish(),
       }),

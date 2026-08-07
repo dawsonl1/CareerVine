@@ -1301,7 +1301,6 @@ export async function getOrCreateTargetCompany(
       company_id: companyId,
       location_id: locationId,
       priority_score: null,
-      tier: null,
       program_name: null,
       app_window_text: null,
       next_app_date: null,

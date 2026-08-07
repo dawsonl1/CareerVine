@@ -2,7 +2,7 @@
  * POST /api/target-companies/bulk-import — target-company list import
  * (plan 24 §2g). Loads the ~337-company APM sheet before people arrive.
  *
- * Re-runnable: research fields (priority_score, tier, program_name,
+ * Re-runnable: research fields (priority_score, program_name,
  * app_window_text) refresh from the sheet; hand-set fields
  * (next_app_date, status) are never touched on re-import.
  */
@@ -20,7 +20,6 @@ interface TargetCompanyInput {
   linkedin_company_id?: string | null;
   universal_name?: string | null;
   priority_score?: number | null;
-  tier?: string | null;
   program_name?: string | null;
   app_window_text?: string | null;
 }
@@ -62,7 +61,6 @@ export const POST = withApiHandler({
 
         const researchFields = {
           priority_score: input.priority_score ?? null,
-          tier: input.tier?.trim() || null,
           program_name: input.program_name?.trim() || null,
           app_window_text: input.app_window_text?.trim() || null,
         };

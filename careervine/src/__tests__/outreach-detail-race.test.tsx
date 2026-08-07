@@ -78,8 +78,11 @@ function summary(id: number, name: string): CompanySummary {
     lead_contact_name: null,
     target: { status: "open" } as CompanySummary["target"],
     office_scopes: [],
+    offices: [],
+    roster: [],
     traction: null,
     traction_detail: null,
+    lead_detail: null,
   };
 }
 
