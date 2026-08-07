@@ -28,6 +28,7 @@
  * `e2e/global-setup.ts` fails the run when the arming receipt is missing: the
  * guarantee is real, but it needed something to enforce that it was in force.
  */
+import crypto from "node:crypto";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { stackEnv } from "./e2e/helpers/stack-env";
@@ -35,6 +36,18 @@ import { e2eServerEnv } from "./e2e/helpers/env-allowlist";
 import { BASE_URL, E2E_PORT, STUB_LOG_PATH, STUB_ARMED_PATH } from "./e2e/helpers/ports";
 
 const stack = stackEnv();
+
+/**
+ * One nonce per run, the thing `global-setup.ts` makes the server prove it holds
+ * (CAR-273).
+ *
+ * `??=` and `process.env` rather than a plain const: this config file is
+ * re-evaluated in every worker process, and a fresh value there would not match
+ * the one the server was started with. Workers are children of the Playwright
+ * main process, so assigning it here makes them inherit the same value.
+ */
+process.env.E2E_ARMING_NONCE ??= crypto.randomUUID();
+const ARMING_NONCE = process.env.E2E_ARMING_NONCE;
 
 /**
  * The E2E server's environment, pinned rather than inherited.
@@ -143,6 +156,11 @@ export default defineConfig({
       // global-setup.ts, because an empty denial log and an absent stub layer
       // are otherwise the same observation.
       E2E_STUB_ARMED: STUB_ARMED_PATH,
+      // What makes that receipt mean "and it is the process SERVING the port"
+      // (CAR-273). The stub layer answers /__e2e__/arming with this value from
+      // memory; a server belonging to any other run answers with a different
+      // one, or does not answer at all.
+      E2E_ARMING_NONCE: ARMING_NONCE,
       // Arms the server-side third-party interception before Next loads any
       // route module. See e2e/server-stubs/register.mjs for why this is not
       // page.route().
