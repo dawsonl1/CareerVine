@@ -74,7 +74,7 @@ function makeReq() {
   return new NextRequest("https://www.careervine.app/api/target-companies/bulk-import", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ companies: [{ name: "Stripe", tier: "Big Tech", priority_score: 9 }] }),
+    body: JSON.stringify({ companies: [{ name: "Stripe", priority_score: 9 }] }),
   });
 }
 
@@ -110,12 +110,19 @@ describe("POST /api/target-companies/bulk-import — targeting is hand-set", () 
     };
     await POST(makeReq());
 
+    // `tier` was asserted here until CAR-264. CAR-251 dropped
+    // target_companies.tier and removed it from the route, the request schema
+    // and TargetInfo; this test landed from a branch cut before that, so both
+    // merged cleanly and main went red on the pair. The route not writing tier
+    // is now correct behavior, not a regression.
     expect(targetWrite()?.payload).toMatchObject({
-      tier: "Big Tech",
       priority_score: 9,
       program_name: null,
       app_window_text: null,
     });
+    // Stated as an absence too, so a reintroduced write to the dropped column
+    // fails here rather than at the database.
+    expect(targetWrite()?.payload).not.toHaveProperty("tier");
   });
 
   it("leaves status and next_app_date alone, as it always has", async () => {
