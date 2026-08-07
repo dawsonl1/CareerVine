@@ -27,7 +27,7 @@ export async function enrichedByDefault(): Promise<void> {
   // The /companies call, and the two MCP ones.
   const list: CompanySummary[] = await getCompanies(USER, { scope: "in_play", sort: "next", minContacts: 1 });
   const targets: CompanySummary[] = await getCompanies(USER, { scope: "targets" });
-  const all: CompanySummary[] = await getCompanies(USER, { scope: "all", search: "acme" });
+  // NOT scope:"all" — see the refusal below. It used to appear here.
   const explicit: CompanySummary[] = await getCompanies(USER, { scope: "targets", enrich: true });
 
   // The seven fields are real numbers/values on the enriched row, not optionals.
@@ -39,7 +39,7 @@ export async function enrichedByDefault(): Promise<void> {
   // Null for a company the ladder has nothing to say about (CAR-246).
   const rank: number = nextActionForCompany(list[0])?.rank ?? 0;
 
-  void [noOpts, emptyOpts, targets, all, explicit, alum, lead, rank];
+  void [noOpts, emptyOpts, targets, explicit, alum, lead, rank];
 }
 
 // ── The unenriched call ───────────────────────────────────────────────────
@@ -80,6 +80,26 @@ export async function refusals(): Promise<void> {
   void rows[0].traction_detail;
   // @ts-expect-error lead_detail is not on an unenriched summary
   void rows[0].lead_detail;
+
+  // 1b. Asking for the enrichment on a scope that never computes it (CAR-262).
+  //     `all` is unbounded — 7,433 companies in production — so the pass has
+  //     always been skipped for it, while the return type went on claiming the
+  //     five fields were real. They arrived as 0/null, and MCP list_companies
+  //     reported "no traction anywhere" for companies with live threads.
+  //     Now the only way to search all companies is the unenriched shape, where
+  //     those fields are structurally absent instead of confidently wrong.
+  // @ts-expect-error scope "all" cannot be enriched
+  void (await getCompanies(USER, { scope: "all", search: "acme" }));
+  // @ts-expect-error not even when enrich is spelled out
+  void (await getCompanies(USER, { scope: "all", enrich: true, sort: "name" }));
+  // ...and the unenriched form of the same call still compiles.
+  const allUnenriched: CompanyBaseSummary[] = await getCompanies(USER, {
+    scope: "all",
+    search: "acme",
+    enrich: false,
+    sort: "name",
+  });
+  void allUnenriched;
 
   // 2. Laundering an unenriched row into somewhere that reads those fields.
   // @ts-expect-error a CompanyBaseSummary is not a CompanySummary

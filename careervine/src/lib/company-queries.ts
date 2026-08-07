@@ -1076,8 +1076,24 @@ interface GetCompaniesCommonOptions {
   minContacts?: number;
 }
 
-/** The default call: the who-you-know pass runs and every field is a real value. */
+/**
+ * The default call: the who-you-know pass runs and every field is a real value.
+ *
+ * `scope` excludes "all" here (CAR-262). The pass has always been skipped for
+ * that scope, whose company set is unbounded — 7,433 companies in production —
+ * but the RETURN TYPE still claimed enriched, so the five fields came back as
+ * `0`/`null` while typed as real values. MCP `list_companies(targets_only:false)`
+ * read them straight out and told its caller every company had no traction and
+ * no alumni, indistinguishable from genuinely having none. An agent acting on
+ * that would happily re-email someone contacted last week.
+ *
+ * Excluding it here means an "all" search must pass `enrich: false` and receive
+ * `CompanyBaseSummary`, where those fields are structurally ABSENT rather than
+ * plausibly zero — the same contract `enrich: false` has always had. Use
+ * getCompanyDetail for real traction on one company.
+ */
 export interface GetCompaniesEnrichedOptions extends GetCompaniesCommonOptions {
+  scope?: Exclude<CompanyScope, "all">;
   sort?: CompanySort;
   /** Omit (or pass true) to run the enrichment pass. */
   enrich?: true;
@@ -1123,11 +1139,22 @@ export async function getCompanies(
         `Use enrich:true, or sort by priority / next_app_date / name.`,
     );
   }
-  // Whether the pass RUNS, which is not the same question as whether its five
-  // fields are emitted. `all` has always skipped the pass while still returning
-  // the fields as 0/null, and callers (MCP list_companies) read them that way,
-  // so that shape is preserved verbatim; only `enrich: false` drops the keys.
+  // Whether the pass runs, which used to be a DIFFERENT question from whether
+  // its five fields were emitted. `all` skipped the pass and still emitted them
+  // as 0/null, so an "unbounded, too expensive to compute" answer was
+  // indistinguishable from "measured, and it is zero" (CAR-262). The enriched
+  // overload no longer accepts `scope: "all"`, so the two questions are now the
+  // same one and the fields are absent exactly when they were not computed.
   const runEnrichment = enrich && scope !== "all";
+  if (enrich && scope === "all") {
+    // Unreachable from TypeScript (the overload excludes it) and kept for the
+    // callers types cannot see: the MCP tool layer builds these options from
+    // JSON. Fail loudly rather than emit a page of confident zeroes.
+    throw new Error(
+      'getCompanies: scope "all" cannot be enriched — its company set is unbounded. ' +
+        "Pass enrich:false with an explicit sort, or use getCompanyDetail for one company.",
+    );
+  }
 
   // All scope rows, including soft-untargeted containers: the program name
   // lives on the company-wide row even when only offices are targeted.

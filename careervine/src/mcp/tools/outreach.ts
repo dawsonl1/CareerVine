@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { addPipelineNote } from "@/lib/data/pipeline";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getCompanies, getCompanyDetail, type CompanySummary } from "@/lib/company-queries";
+import { getCompanies, getCompanyDetail, type CompanySummary, type CompanyBaseSummary } from "@/lib/company-queries";
 import { buildOutreachQueue, APP_DATE_BOOST_DAYS } from "@/lib/outreach-queue";
 import { STAGE_ORDER } from "@/lib/stage-derivation";
 import {
@@ -20,22 +20,60 @@ import {
 } from "../lib/db";
 import { handler, contactRefShape, companyRefShape } from "../lib/tool-utils";
 
-function compactCompany(c: CompanySummary) {
+/**
+ * " showing 51-75 of 300" — the phrase every paged tool here appends.
+ *
+ * Always states the window when there is more than one page, because a bare
+ * count with a silently truncated list is how an agent concludes it has seen
+ * everything (CAR-262).
+ */
+function pageNote(total: number, start: number, shown: number): string {
+  if (shown === 0) return total === 0 ? "" : ` — none on this page (offset ${start} of ${total})`;
+  if (shown === total && start === 0) return "";
+  return `; showing ${start + 1}-${start + shown}${start + shown < total ? ` (pass offset:${start + shown} for more)` : ""}`;
+}
+
+/**
+ * The company row every list tool returns.
+ *
+ * Split in two by whether the who-you-know pass ran (CAR-262). The base half is
+ * always real; the enriched half is present ONLY when it was actually computed,
+ * because emitting `traction: null` for a scope that never computed it told
+ * agents "nobody has been contacted here" about companies with live threads.
+ */
+function compactCompanyBase(c: CompanyBaseSummary) {
   return {
     company_id: c.id,
     name: c.name,
+    linkedin_url: c.linkedin_url,
     current_count: c.current_count,
     former_count: c.former_count,
     bench_count: c.bench_count,
-    traction: c.traction,
     target: c.target
       ? {
+          target_id: c.target.id,
           priority_score: c.target.priority_score,
           program_name: c.target.program_name,
           next_app_date: c.target.next_app_date,
+          app_window_text: c.target.app_window_text,
           status: c.target.status,
         }
       : null,
+  };
+}
+
+function compactCompany(c: CompanySummary) {
+  return {
+    ...compactCompanyBase(c),
+    // `traction` alone answers "how far did we get"; `traction_detail` answers
+    // "how many, and how long ago" — the difference between "call_done" and
+    // "2 calls done, 3 weeks ago", which is what decides whether to follow up.
+    traction: c.traction,
+    traction_detail: c.traction_detail,
+    alum_count: c.alum_count,
+    product_alum_count: c.product_alum_count,
+    recruiter_count: c.recruiter_count,
+    lead_contact_name: c.lead_contact_name,
   };
 }
 
@@ -81,19 +119,47 @@ export function registerOutreachTools(server: McpServer): void {
     {
       title: "List companies",
       description:
-        "Companies in the network with people counts, target status, priority, and traction (furthest outreach stage). Defaults to target companies only.",
+        "Companies in the network with people counts, target status, priority, and traction (furthest outreach stage). Defaults to target companies only. Traction and alumni counts are returned ONLY for targets_only:true — the all-companies scope is too large to compute them over, and those keys are omitted rather than sent as zero. Use get_company for real traction on one company.",
       inputSchema: {
-        targets_only: z.boolean().optional().describe("Default true; false = every company with contacts"),
+        targets_only: z.boolean().optional().describe("Default true; false = every company with contacts (omits traction/alumni fields)"),
         search: z.string().optional().describe("Filter by company name"),
         limit: z.number().int().min(1).max(200).optional().describe("Max results (default 50)"),
+        offset: z.number().int().min(0).optional().describe("Skip this many companies (for paging deeper)"),
       },
       annotations: { readOnlyHint: true },
     },
-    handler(async ({ targets_only, search, limit }) => {
-      const summaries = await getCompanies(uid(), { scope: (targets_only ?? true) ? "targets" : "all", search });
-      const page = summaries.slice(0, limit ?? 50);
+    handler(async ({ targets_only, search, limit, offset }) => {
+      const start = offset ?? 0;
+      const size = limit ?? 50;
+
+      // Two branches rather than one ternary scope, because the two calls now
+      // return DIFFERENT SHAPES (CAR-262) and that is the whole point: the "all"
+      // scope cannot afford the who-you-know pass, so its rows must not carry
+      // fields that would read as measured zeroes. TypeScript picks the matching
+      // overload per branch and `compactCompany` is unavailable on the base row.
+      if (targets_only === false) {
+        const summaries = await getCompanies(uid(), {
+          scope: "all",
+          search,
+          enrich: false,
+          sort: "name",
+        });
+        const page = summaries.slice(start, start + size);
+        return {
+          summary:
+            `${summaries.length} companies${pageNote(summaries.length, start, page.length)}. ` +
+            "Traction and alumni counts are NOT included for this scope (not computed, not zero) — " +
+            "call with targets_only:true, or get_company for one company.",
+          traction_included: false,
+          companies: page.map(compactCompanyBase),
+        };
+      }
+
+      const summaries = await getCompanies(uid(), { scope: "targets", search });
+      const page = summaries.slice(start, start + size);
       return {
-        summary: `${summaries.length} companies${page.length < summaries.length ? `; showing first ${page.length} (narrow with search or raise limit)` : ""}`,
+        summary: `${summaries.length} target companies${pageNote(summaries.length, start, page.length)}`,
+        traction_included: true,
         companies: page.map(compactCompany),
       };
     }),
@@ -104,11 +170,19 @@ export function registerOutreachTools(server: McpServer): void {
     {
       title: "Get company detail",
       description:
-        "Full company picture: who works there now / used to (with roles, emails, stages, alum flags), archived pipeline imports, offices, target status + application dates, and the recruiting-intel note log.",
-      inputSchema: companyRefShape,
+        "Full company picture: who works there now / used to (with roles, emails, stages, alum flags, adjacency score and why each person was kept), archived pipeline imports, offices with their location ids, target status + application dates, and the recruiting-intel note log. Rosters page with limit/offset, and `group` narrows to one of current/former/archived.",
+      inputSchema: {
+        ...companyRefShape,
+        group: z
+          .enum(["current", "former", "archived", "all"])
+          .optional()
+          .describe("Which roster to return (default all). Narrow before paging a large company."),
+        limit: z.number().int().min(1).max(200).optional().describe("Max people per roster (default 50)"),
+        offset: z.number().int().min(0).optional().describe("Skip this many people in each roster returned"),
+      },
       annotations: { readOnlyHint: true },
     },
-    handler(async ({ company_id, name }) => {
+    handler(async ({ company_id, name, group, limit, offset }) => {
       const id = await resolveCompanyId({ company_id, name });
       const detail = await getCompanyDetail(uid(), id);
       if (!detail) throw new Error(`No company with id ${id}`);
@@ -123,29 +197,70 @@ export function registerOutreachTools(server: McpServer): void {
         stage: p.stage,
         email: p.email,
         review_note: p.review_note,
+        linkedin_url: p.linkedin_url,
+        // Why the pipeline kept this person, and how close they sit to the
+        // target role. Both were computed and then dropped before CAR-262, which
+        // left an agent ranking a roster with no signal to rank it by.
+        selection_reason: p.selection_reason,
+        adjacency_score: p.adjacency_score,
+        last_interaction: p.last_interaction,
+        last_scraped_at: p.last_scraped_at,
+        // Where they work NOW, which for a `former` entry is the whole point:
+        // it is the difference between a dead lead and a warm one somewhere new.
+        current_position: p.current_position,
         roles: p.roles.map((r) => ({
           title: r.title,
           is_current: r.is_current,
+          start_month: r.start_month,
+          end_month: r.end_month,
           location: r.location_label,
+          location_id: r.location_id,
           workplace_type: r.workplace_type,
         })),
       });
 
-      const CURRENT_CAP = 50, FORMER_CAP = 50, BENCH_CAP = 25;
-      const truncated: string[] = [];
-      if (detail.current.length > CURRENT_CAP) truncated.push(`current (showing ${CURRENT_CAP} of ${detail.current.length})`);
-      if (detail.former.length > FORMER_CAP) truncated.push(`former (showing ${FORMER_CAP} of ${detail.former.length})`);
-      if (detail.bench.length > BENCH_CAP) truncated.push(`archived (showing ${BENCH_CAP} of ${detail.bench.length})`);
+      // Paged, not capped (CAR-262). The old hard caps of 50/50/25 had no offset,
+      // so person #51 at a large company was permanently unreachable through the
+      // MCP: the summary announced the truncation and offered no way past it.
+      const start = offset ?? 0;
+      const size = limit ?? 50;
+      const want = group ?? "all";
+      const slice = (rows: typeof detail.current) => rows.slice(start, start + size);
+      const rosters = {
+        current: want === "all" || want === "current" ? slice(detail.current) : [],
+        former: want === "all" || want === "former" ? slice(detail.former) : [],
+        archived: want === "all" || want === "archived" ? slice(detail.bench) : [],
+      };
+      const notes = [
+        want === "all" || want === "current" ? `current${pageNote(detail.current.length, start, rosters.current.length)}` : null,
+        want === "all" || want === "former" ? `former${pageNote(detail.former.length, start, rosters.former.length)}` : null,
+        want === "all" || want === "archived" ? `archived${pageNote(detail.bench.length, start, rosters.archived.length)}` : null,
+      ].filter(Boolean);
+
       return {
         summary:
           `${detail.company.name}: ${detail.current.length} current, ${detail.former.length} former, ${detail.bench.length} archived` +
-          (truncated.length ? `. Lists truncated: ${truncated.join(", ")}` : ""),
+          (want === "all" ? "" : ` (showing ${want} only)`) +
+          `. Rosters: ${notes.join("; ")}`,
         company: detail.company,
         target: detail.target,
-        offices: detail.offices.map((o) => o.label),
-        current: detail.current.slice(0, CURRENT_CAP).map(person),
-        former: detail.former.slice(0, FORMER_CAP).map(person),
-        archived_imports: detail.bench.slice(0, BENCH_CAP).map(person),
+        // Objects, not bare labels (CAR-262): `add_company_intel` takes a
+        // `location_id` parameter that no tool used to hand out, so tagging a
+        // note to an office was impossible through the MCP.
+        offices: detail.offices.map((o) => ({
+          location_id: o.location_id,
+          label: o.label,
+          city: o.city,
+          state: o.state,
+          country: o.country,
+          source: o.source,
+        })),
+        // Headcount per office, including the Remote and Unknown buckets. Already
+        // computed by getCompanyDetail and previously discarded whole.
+        office_facets: detail.facets,
+        current: rosters.current.map(person),
+        former: rosters.former.map(person),
+        archived_imports: rosters.archived.map(person),
         counts: {
           current: detail.current.length,
           former: detail.former.length,

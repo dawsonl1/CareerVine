@@ -244,16 +244,38 @@ describe("getCompanies enrich option (CAR-229)", () => {
     }
   });
 
-  it("does not change the `all` scope, which returns the fields as 0/null", async () => {
-    // Pre-existing behaviour, and MCP's list_companies(targets_only:false)
-    // reads `traction` off it. The enrich option is layered on top rather than
-    // folded into this, so the wire shape of that tool is untouched.
-    const summaries = await getCompanies(USER, { scope: "all", search: "Company" });
+  it("refuses to enrich the `all` scope instead of returning 0/null (CAR-262)", async () => {
+    // This test previously asserted the opposite: that `all` emitted the five
+    // fields as 0/null. That WAS the defect. The pass has never run for this
+    // scope (its company set is unbounded), so those values were never measured,
+    // and MCP's list_companies(targets_only:false) read `traction: null` off
+    // them and reported "no outreach anywhere" for companies with live threads.
+    //
+    // `as never` because the overload now makes this a compile error too; the
+    // runtime guard is for the MCP layer, which builds options from JSON and so
+    // is invisible to TypeScript.
+    await expect(
+      getCompanies(USER, { scope: "all", search: "Company" } as never),
+    ).rejects.toThrow(/cannot be enriched/);
+  });
+
+  it("returns the `all` scope unenriched, with those fields absent rather than zero", async () => {
+    const summaries = await getCompanies(USER, {
+      scope: "all",
+      search: "Company",
+      enrich: false,
+      sort: "name",
+    });
 
     expect(summaries.length).toBeGreaterThan(0);
-    expect(summaries[0].traction).toBeNull();
-    expect(summaries[0].alum_count).toBe(0);
-    expect("traction" in summaries[0]).toBe(true);
+    // Absent, not null: "we did not compute this" has to be distinguishable
+    // from "we computed it and it is nothing".
+    expect("traction" in summaries[0]).toBe(false);
+    expect("alum_count" in summaries[0]).toBe(false);
+    expect("lead_contact_name" in summaries[0]).toBe(false);
+    // The base fields are still real.
+    expect(summaries[0].name).toBeTruthy();
+    expect(typeof summaries[0].current_count).toBe("number");
   });
 
   it("does not read contact_companies on the `all` scope", async () => {
@@ -269,7 +291,7 @@ describe("getCompanies enrich option (CAR-229)", () => {
     // nothing about the read that produced it, so without pinning the table set
     // the sweep could be reintroduced and every other assertion would stay green.
     state.recorded.length = 0;
-    await getCompanies(USER, { scope: "all", search: "Company" });
+    await getCompanies(USER, { scope: "all", search: "Company", enrich: false, sort: "name" });
 
     expect(tablesRead().has("contact_companies")).toBe(false);
     expect(tablesRead()).toEqual(new Set(["target_companies", "rpc:company_network_counts", "companies"]));
