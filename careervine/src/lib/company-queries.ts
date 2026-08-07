@@ -965,9 +965,26 @@ export async function getCompanies(
       productAlumCountByCompany.set(id, current.filter(isProductAlum).length);
       recruiterCountByCompany.set(id, current.filter((p) => p.persona === "recruiter").length);
 
-      // Max derived stage across non-bench, and the contact driving it.
+      // Max derived stage, and the contact driving it.
+      //
+      // CURRENT employees only, because traction is a claim about the company
+      // you could still walk into — not about everyone who has ever worked
+      // there. Reading it over `people` let a contact who left a decade ago own
+      // a company's traction: BambooHR showed "Contacted · Waiting on Preston"
+      // off one 2016-era account executive while all ten current employees sat
+      // untouched. Worse than the wrong name, `contacted` outranks the
+      // warm-intro branch in nextActionForCompany, so the former employee
+      // SUPPRESSED the company's real next move (five untouched alumni in
+      // product). The three counts above already filter to `current`; this pass
+      // was the one that did not (CAR-244).
+      //
+      // The fallback keeps a company whose contacts have ALL moved on from
+      // going blank: `people` is already non-bench, so with no current contacts
+      // it is exactly the former ones. Accepted trade-off: a contact you are
+      // mid-thread with who changes jobs takes their traction with them.
+      const tractionPool = current.length > 0 ? current : people;
       let best: { stage: ContactStage; person: PersonAgg } | null = null;
-      for (const p of people) {
+      for (const p of tractionPool) {
         const s = stages.get(p.id);
         if (s && (!best || s.rank > best.stage.rank)) best = { stage: s, person: p };
       }

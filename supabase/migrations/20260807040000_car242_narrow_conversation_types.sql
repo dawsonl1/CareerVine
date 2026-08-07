@@ -158,3 +158,11 @@ ALTER TABLE interactions
     interaction_type_detail IS NULL
     OR (interaction_type = 'other' AND char_length(interaction_type_detail) BETWEEN 1 AND 80)
   );
+
+-- Restate the column comments the expand half set. Production applied that file
+-- while it still named the pre-renumber version of THIS one, so without this the
+-- persisted comment stays stale forever and shows up as schema drift.
+COMMENT ON COLUMN meetings.meeting_type_detail IS
+  'Free text the user typed after choosing meeting_type = ''other''. NULL for every other type (enforced by CHECK, CAR-242).';
+COMMENT ON COLUMN interactions.interaction_type_detail IS
+  'Free text the user typed after choosing interaction_type = ''other''. NULL for every other type (enforced by CHECK, CAR-242).';

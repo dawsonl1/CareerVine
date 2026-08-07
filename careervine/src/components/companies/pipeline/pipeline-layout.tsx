@@ -80,9 +80,20 @@ function stageIndex(stage: PipelineStage): number {
   return PIPELINE_STAGES.indexOf(stage);
 }
 
+/** Roster search: name or title/headline. `query` is already trimmed + lowercased. */
+function filterPeople(people: CompanyPerson[], query: string): CompanyPerson[] {
+  if (!query) return people;
+  return people.filter(
+    (p) =>
+      p.name.toLowerCase().includes(query) ||
+      (p.roles[0]?.title ?? p.headline ?? "").toLowerCase().includes(query),
+  );
+}
+
 /** "Coffee Chat · Jul 8" — latest logged touchpoint, shown in the outreach stage.
  * `last_interaction.type` already arrives as a display label (CAR-242), not a
- * raw column value. */
+ * raw column value, so do NOT add a `capitalize` class at the render sites: it
+ * would spell "Coffee chat" and force casing onto the user's own free text. */
 function lastInteractionSuffix(person: CompanyPerson): string | null {
   const li = person.last_interaction;
   if (!li) return null;
@@ -870,6 +881,121 @@ function ContactGroupHeading({ label, count }: { label: string; count: number })
   );
 }
 
+/**
+ * Tier-grouped contact rows. Network contacts and prospects stay in distinct
+ * groups because the teal avatar ring is what distinguishes them, and a ring
+ * only reads as a tier marker when the two tiers are not interleaved (matches
+ * /contacts). Rendered once for current employees and again inside the former
+ * group, so the two rosters read identically.
+ */
+function ContactGroups({
+  people,
+  isFormer,
+  showLocation,
+  gmailConnected,
+  onCompose,
+  highlightEmail,
+  onSetTier,
+}: {
+  people: CompanyPerson[];
+  /** Whole group is former employees — `current` and `former` are disjoint upstream. */
+  isFormer: boolean;
+  showLocation?: boolean;
+  gmailConnected: boolean;
+  onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+  highlightEmail?: boolean;
+  onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
+}) {
+  const network = people.filter((p) => p.network_status === "active");
+  const prospects = people.filter((p) => p.network_status !== "active");
+
+  return (
+    <div className="space-y-2">
+      {[
+        { label: "Your network", people: network },
+        { label: "Prospects", people: prospects },
+      ].map(
+        ({ label, people: group }) =>
+          group.length > 0 && (
+            <div key={label} className="space-y-2">
+              <ContactGroupHeading label={label} count={group.length} />
+              {group.map((p) => (
+                <ContactRow
+                  key={p.contact_id}
+                  person={p}
+                  isFormer={isFormer}
+                  showLocation={showLocation}
+                  gmailConnected={gmailConnected}
+                  onCompose={onCompose}
+                  highlightEmail={highlightEmail}
+                  onSetTier={onSetTier}
+                />
+              ))}
+            </div>
+          ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * Former employees, collapsed by default (CAR-241). People who left the company
+ * are still worth keeping — they are warm intros and boomerang candidates — but
+ * they are not who you reach out to about a role HERE, and on a well-scraped
+ * company they outnumber the people who are actually inside it.
+ *
+ * Label and shape match the same disclosure on /outreach so the two rosters
+ * teach one vocabulary.
+ */
+function FormerSection({
+  former,
+  open,
+  onToggle,
+  showLocation,
+  gmailConnected,
+  onCompose,
+  highlightEmail,
+  onSetTier,
+}: {
+  former: CompanyPerson[];
+  open: boolean;
+  onToggle: () => void;
+  showLocation?: boolean;
+  gmailConnected: boolean;
+  onCompose: (opts: { to: string; name: string; contactId: number }) => void;
+  highlightEmail?: boolean;
+  onSetTier: (person: CompanyPerson, tier: ContactTier) => void;
+}) {
+  if (former.length === 0) return null;
+
+  return (
+    <div className="mt-4 pt-3 border-t border-outline-variant/25">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant hover:text-on-surface py-1"
+      >
+        {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        Former employees ({former.length})
+      </button>
+      {open && (
+        <div className="mt-1.5">
+          <ContactGroups
+            people={former}
+            isFormer
+            showLocation={showLocation}
+            gmailConnected={gmailConnected}
+            onCompose={onCompose}
+            highlightEmail={highlightEmail}
+            onSetTier={onSetTier}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BenchSection({
   bench,
   jobChangeIds,
@@ -1197,35 +1323,34 @@ export function PipelineLayout({
   const peopleBlock = isCompanyScope ? tabs.all : officeBlock ?? tabs.all;
   const showLocationOnContacts = isCompanyScope;
 
-  const formerIds = useMemo(
-    () => new Set(peopleBlock.former.map((p) => p.contact_id)),
-    [peopleBlock],
-  );
-
   // Destructure before the memo so the compiler doesn't read the `.current`
   // data property as a ref access (which made it skip preserving this memo).
   const { current: currentPeople, former: formerPeople } = peopleBlock;
-  const filteredPeople = useMemo(() => {
-    const all = [...currentPeople, ...formerPeople];
-    const q = search.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        (p.roles[0]?.title ?? p.headline ?? "").toLowerCase().includes(q),
-    );
-  }, [currentPeople, formerPeople, search]);
+  const query = search.trim().toLowerCase();
+  const filteredCurrent = useMemo(
+    () => filterPeople(currentPeople, query),
+    [currentPeople, query],
+  );
+  const filteredFormer = useMemo(() => filterPeople(formerPeople, query), [formerPeople, query]);
+  // Everything the roster shows, collapsed or not — the header count and the
+  // recruiting panel both speak for the whole company, not for what happens to
+  // be expanded.
+  const filteredPeople = useMemo(
+    () => [...filteredCurrent, ...filteredFormer],
+    [filteredCurrent, filteredFormer],
+  );
 
-  // Tier separation — the avatar rings only read correctly when network
-  // contacts and prospects live in distinct groups (matches /contacts).
-  const networkPeople = useMemo(
-    () => filteredPeople.filter((p) => p.network_status === "active"),
-    [filteredPeople],
-  );
-  const prospectPeople = useMemo(
-    () => filteredPeople.filter((p) => p.network_status !== "active"),
-    [filteredPeople],
-  );
+  // Former employees are collapsed by default, but a search that matches only
+  // former employees must not come back empty — expand while a query is active,
+  // and fall back to collapsed when it clears. Adjusting state during render off
+  // a primitive comparison is React's prop-sync pattern (see RecruitingPanel).
+  const searching = query.length > 0;
+  const [formerOpen, setFormerOpen] = useState(false);
+  const [prevSearching, setPrevSearching] = useState(searching);
+  if (searching !== prevSearching) {
+    setPrevSearching(searching);
+    setFormerOpen(searching);
+  }
 
   const targeted = isCompanyScope
     ? companyTargeted
@@ -1333,35 +1458,35 @@ export function PipelineLayout({
           </div>
           {filteredPeople.length === 0 ? (
             <p className="text-sm text-on-surface-variant py-8 text-center">
-              {search.trim() ? "No contacts match." : "No contacts at this office yet."}
+              {searching ? "No contacts match." : "No contacts at this office yet."}
+            </p>
+          ) : filteredCurrent.length === 0 ? (
+            // Former employees only. Saying nothing here would read as an empty
+            // roster right above a collapsed group holding everyone.
+            <p className="text-sm text-on-surface-variant py-6 text-center">
+              {searching ? "No current employees match." : "Nobody here works at this company now."}
             </p>
           ) : (
-            <div className="space-y-2">
-              {[
-                { label: "Your network", people: networkPeople },
-                { label: "Prospects", people: prospectPeople },
-              ].map(
-                ({ label, people }) =>
-                  people.length > 0 && (
-                    <div key={label} className="space-y-2">
-                      <ContactGroupHeading label={label} count={people.length} />
-                      {people.map((p) => (
-                        <ContactRow
-                          key={p.contact_id}
-                          person={p}
-                          isFormer={formerIds.has(p.contact_id)}
-                          showLocation={showLocationOnContacts}
-                          gmailConnected={gmailConnected}
-                          onCompose={onCompose}
-                          highlightEmail={highlightEmail}
-                          onSetTier={onSetTier}
-                        />
-                      ))}
-                    </div>
-                  ),
-              )}
-            </div>
+            <ContactGroups
+              people={filteredCurrent}
+              isFormer={false}
+              showLocation={showLocationOnContacts}
+              gmailConnected={gmailConnected}
+              onCompose={onCompose}
+              highlightEmail={highlightEmail}
+              onSetTier={onSetTier}
+            />
           )}
+          <FormerSection
+            former={filteredFormer}
+            open={formerOpen}
+            onToggle={() => setFormerOpen((v) => !v)}
+            showLocation={showLocationOnContacts}
+            gmailConnected={gmailConnected}
+            onCompose={onCompose}
+            highlightEmail={highlightEmail}
+            onSetTier={onSetTier}
+          />
           <BenchSection bench={peopleBlock.bench} jobChangeIds={jobChangeIds} onSetTier={onSetTier} />
         </section>
         </div>

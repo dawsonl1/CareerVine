@@ -3,7 +3,7 @@
  *
  * These lock the two invariants the DB CHECKs enforce on the other side of the
  * wire (`meetings_meeting_type_check` and its `_detail_` sibling, added in
- * 20260807030000_car242_narrow_conversation_types.sql). The integration guard
+ * 20260807040000_car242_narrow_conversation_types.sql). The integration guard
  * check-constraints.itest.ts proves the CHECKs exist and match; this proves the
  * app never tries to write outside them in the first place.
  */

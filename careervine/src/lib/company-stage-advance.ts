@@ -14,6 +14,13 @@
  *     backwards, which would be worse than the staleness this fixes.
  *  2. Only "researching" advances. That is the single transition with an
  *     unambiguous meaning: outreach has started because someone answered.
+ *  3. CURRENT EMPLOYMENT ONLY (CAR-243). A reply is evidence about where the
+ *     person works NOW. Without the is_current filter this advanced every
+ *     company the contact had ever worked at: one reply from a contact with a
+ *     long resume moved Walmart, Goldman Sachs and four others to "Active
+ *     outreach" for companies they left years ago. A contact with no current
+ *     employment row advances nothing, which is the honest answer — falling
+ *     back to all employers is how the bug looked in the first place.
  *
  * Writes both the target row and the active cycle's `selected_stage`, because
  * the company page reads the cycle and the companies list reads the target. If
@@ -52,12 +59,14 @@ export async function advanceCompaniesForContacts(
   const ids = [...new Set(contactIds)].filter((id) => Number.isFinite(id));
   if (ids.length === 0) return { advanced: [] };
 
-  // Which companies do these contacts work at?
+  // Which companies do these contacts work at RIGHT NOW? is_current is
+  // load-bearing, not a refinement — see invariant 3 in the header.
   const { data: links, error: linkErr } = await client
     .from("contact_companies")
     .select("company_id, contacts!inner(user_id)")
     .in("contact_id", ids)
     .eq("contacts.user_id", userId)
+    .eq("is_current", true)
     // Deliberate bound, not pagination: `ids` comes from the replied threads of
     // one sync, and a contact has a handful of employers. Ordered so the window
     // is stable if it is ever reached.

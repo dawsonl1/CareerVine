@@ -3,7 +3,7 @@
 --
 -- Rule 42 sequencing. The pair of migrations behind CAR-242 cannot ship as one
 -- file: this half is purely additive, but its sibling
--- (20260807030000_car242_narrow_conversation_types.sql) adds CHECK constraints
+-- (20260807040000_car242_narrow_conversation_types.sql) adds CHECK constraints
 -- that REJECT values the currently-deployed code still writes (`phone`,
 -- `video`, `in-person`, `lunch`, `conference`). Applying the constraints before
 -- the new build is live would 23514 every meeting logged in that window.
@@ -25,7 +25,11 @@ ALTER TABLE interactions ALTER COLUMN interaction_type TYPE text;
 ALTER TABLE meetings     ADD COLUMN IF NOT EXISTS meeting_type_detail     text;
 ALTER TABLE interactions ADD COLUMN IF NOT EXISTS interaction_type_detail text;
 
+-- Version-agnostic on purpose: this file is ALREADY APPLIED to production, so
+-- naming the sibling migration's version here would drift the persisted comment
+-- the moment that sibling is renumbered (it was, to dodge a version collision
+-- with CAR-243). The contract half restates these verbatim so prod converges.
 COMMENT ON COLUMN meetings.meeting_type_detail IS
-  'Free text the user typed after choosing meeting_type = ''other''. NULL for every other type (CHECK added in 20260807030000).';
+  'Free text the user typed after choosing meeting_type = ''other''. NULL for every other type (enforced by CHECK, CAR-242).';
 COMMENT ON COLUMN interactions.interaction_type_detail IS
-  'Free text the user typed after choosing interaction_type = ''other''. NULL for every other type (CHECK added in 20260807030000).';
+  'Free text the user typed after choosing interaction_type = ''other''. NULL for every other type (enforced by CHECK, CAR-242).';
