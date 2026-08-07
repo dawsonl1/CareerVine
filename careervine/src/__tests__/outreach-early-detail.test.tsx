@@ -72,6 +72,7 @@ function summary(id: number, name: string, currentCount: number): CompanySummary
     traction: null,
     traction_detail: null,
     lead_detail: null,
+    conversation: null,
   };
 }
 

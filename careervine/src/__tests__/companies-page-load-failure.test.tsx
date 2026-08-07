@@ -47,6 +47,7 @@ function summary(id: number, name: string): CompanySummary {
     traction: null,
     traction_detail: null,
     lead_detail: null,
+    conversation: null,
   };
 }
 

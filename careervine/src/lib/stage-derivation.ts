@@ -11,6 +11,8 @@
  * a bounce is never presented as "no reply yet".
  */
 
+import { ConversationType } from "./constants";
+
 export type OutreachStage =
   | "not_contacted"
   | "contacted"
@@ -59,6 +61,60 @@ export const STAGE_CHIP_LABELS: Record<OutreachStage, { one: string; many: strin
   call_scheduled: { one: "Call Scheduled", many: "Calls Scheduled" },
   call_done: { one: "Call Done", many: "Calls Done" },
   referral: { one: "Referral", many: "Referrals" },
+};
+
+// ── What KIND of conversation a call stage is made of (CAR-257) ────────
+
+/**
+ * The conversation vocabulary as the two call stages need to read it.
+ *
+ * `call_done` / `call_scheduled` are named for the common case, but CAR-242 let
+ * a user log a career fair, a networking event or a text exchange as the same
+ * kind of record. Without this, Lucid Software's card advised "Follow up with
+ * Spencer after your call" off a meeting literally titled "LinkedIn chat".
+ *
+ * `coffee` collapses to `call` on purpose: CAR-242 made Coffee Chat the 1:1
+ * bucket REGARDLESS OF MEDIUM, so phone and video calls live there and nowhere
+ * else.
+ */
+export type ConversationKind = "call" | "career-fair" | "networking" | "text" | "other";
+
+const CONVERSATION_KIND_BY_TYPE: Record<string, ConversationKind> = {
+  [ConversationType.Coffee]: "call",
+  [ConversationType.CareerFair]: "career-fair",
+  [ConversationType.Networking]: "networking",
+  [ConversationType.Text]: "text",
+  [ConversationType.Other]: "other",
+};
+
+/**
+ * The kind behind a stored `meeting_type`, or NULL when there is no type to
+ * read — an absent value, or one predating CAR-242's vocabulary.
+ *
+ * Null rather than a `"call"` default, because the two are not the same claim
+ * and the difference decides a dedupe. A Google-synced calendar event carries
+ * no type at all, and a meeting mirroring that event is the ONLY leg that knows
+ * what the conversation was; if this returned `"call"` the calendar leg would
+ * overwrite the meeting's real kind (see `noteEvent` in company-queries).
+ * Callers resolve the default themselves, at the point where "we know nothing"
+ * really does mean "assume it was a call".
+ */
+export function conversationKind(type: string | null | undefined): ConversationKind | null {
+  if (!type) return null;
+  return CONVERSATION_KIND_BY_TYPE[type] ?? null;
+}
+
+/**
+ * The chip noun for a call stage whose conversations were not all calls
+ * (CAR-257): "1 Conversation (1 month ago)", "2 Conversations Scheduled".
+ *
+ * Deliberately a superset word rather than a per-type noun. A company can hold
+ * a career fair chat and a text exchange behind one chip, and "2 Conversations"
+ * is true of any mix — where naming either type would be false of the other.
+ */
+export const CONVERSATION_CHIP_LABELS: Record<"call_done" | "call_scheduled", { one: string; many: string }> = {
+  call_done: { one: "Conversation", many: "Conversations" },
+  call_scheduled: { one: "Conversation Scheduled", many: "Conversations Scheduled" },
 };
 
 export interface StageSignals {

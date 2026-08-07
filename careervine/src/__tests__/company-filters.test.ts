@@ -45,6 +45,7 @@ function company(overrides: CompanyOverrides): CompanySummary {
     traction: null,
     traction_detail: null,
     lead_detail: null,
+    conversation: null,
     ...rest,
     target:
       target == null

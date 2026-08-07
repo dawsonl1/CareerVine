@@ -28,8 +28,10 @@
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import {
   deriveOutreachStage,
+  conversationKind,
   stageRank,
   STAGE_ORDER,
+  type ConversationKind,
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
@@ -143,6 +145,22 @@ export interface StageTally {
 }
 
 /**
+ * What the conversations behind ONE call stage actually were (CAR-257).
+ *
+ * Two independent questions, because two surfaces ask different ones. The
+ * next-action pill speaks about a single conversation, so it needs `kind` —
+ * the nearest one, which is the one a follow-up would be about. The traction
+ * chip counts them all, so it needs `allCalls` before it may print the word
+ * "Call".
+ */
+export interface ConversationSummary {
+  /** Kind of the LATEST past conversation, or the SOONEST upcoming one. */
+  kind: ConversationKind;
+  /** False as soon as one conversation in the tally was not a call. */
+  allCalls: boolean;
+}
+
+/**
  * Where a contact's reply conversation actually stands (CAR-253).
  *
  * Stage `replied` is sticky — it stays true forever once someone has written
@@ -181,6 +199,13 @@ export interface ContactStage {
    * nothing about who wrote last.
    */
   replyThread: ReplyThreadState | null;
+  /**
+   * The conversation kinds behind `tallies.call_done` / `tallies.call_scheduled`
+   * (CAR-257). Null on either side when that side has no conversations —
+   * including for a pure `stage_override`, where the stage is asserted with no
+   * event behind it and there is genuinely nothing to describe.
+   */
+  conversations: { past: ConversationSummary | null; upcoming: ConversationSummary | null };
 }
 
 /** A zeroed tally set — every stage present, nothing claimed. */
@@ -397,7 +422,10 @@ export async function getContactStages(
               // meeting_id (CAR-246): same dedupe need as the calendar legs.
               // calendar_event_id (CAR-250) holds the GOOGLE event id when this
               // meeting mirrors a calendar event, which is how the two collapse.
-              .select("meeting_id, contact_id, meetings!inner(user_id, meeting_date, calendar_event_id)")
+              // meeting_type (CAR-257): the ONLY leg that knows whether the
+              // conversation was a call, a career fair or a text exchange —
+              // calendar_events carries no such column.
+              .select("meeting_id, contact_id, meetings!inner(user_id, meeting_date, calendar_event_id, meeting_type)")
               .eq("meetings.user_id", userId)
               .in("contact_id", chunk)
               .order("meeting_id")
@@ -544,21 +572,38 @@ export async function getContactStages(
    * stored as UTC (CAR-206), so the two disagree by the author's offset, and the
    * timestamptz is the one that can be compared against `now`. Same conversation
    * either way; this only decides which timestamp the chip reports.
+   *
+   * The KIND does NOT follow that overwrite (CAR-257). Only the meetings leg
+   * carries `meeting_type`, so the calendar legs pass `kind: null` and an
+   * already-recorded kind survives — otherwise syncing a career fair to Google
+   * Calendar would quietly turn it back into "your call".
    */
-  const callsByContact = new Map<number, Map<string, string>>();
-  const noteEvent = (contactId: number | null, key: string, startAt: string | null, status: string | null) => {
+  const callsByContact = new Map<number, Map<string, { at: string; kind: ConversationKind | null }>>();
+  const noteEvent = (
+    contactId: number | null,
+    key: string,
+    startAt: string | null,
+    status: string | null,
+    kind: ConversationKind | null,
+  ) => {
     if (contactId == null || !startAt || status === "cancelled") return;
-    const calls = callsByContact.get(contactId) ?? new Map<string, string>();
-    calls.set(key, startAt);
+    const calls = callsByContact.get(contactId) ?? new Map<string, { at: string; kind: ConversationKind | null }>();
+    calls.set(key, { at: startAt, kind: kind ?? calls.get(key)?.kind ?? null });
     callsByContact.set(contactId, calls);
   };
   for (const l of meetingLinks) {
     // meetings carry no status column, so any dated meeting counts.
     const googleId = l.meetings?.calendar_event_id ?? null;
-    noteEvent(l.contact_id, googleId ? `g:${googleId}` : `mtg:${l.meeting_id}`, l.meetings?.meeting_date ?? null, null);
+    noteEvent(
+      l.contact_id,
+      googleId ? `g:${googleId}` : `mtg:${l.meeting_id}`,
+      l.meetings?.meeting_date ?? null,
+      null,
+      conversationKind(l.meetings?.meeting_type ?? null),
+    );
   }
   for (const e of calEvents) {
-    noteEvent(e.contact_id, e.google_event_id ? `g:${e.google_event_id}` : `cal:${e.id}`, e.start_at, e.status);
+    noteEvent(e.contact_id, e.google_event_id ? `g:${e.google_event_id}` : `cal:${e.id}`, e.start_at, e.status, null);
   }
   for (const l of calLinks) {
     const googleId = l.calendar_events?.google_event_id ?? null;
@@ -567,6 +612,7 @@ export async function getContactStages(
       googleId ? `g:${googleId}` : `cal:${l.calendar_event_id}`,
       l.calendar_events?.start_at ?? null,
       l.calendar_events?.status ?? null,
+      null,
     );
   }
 
@@ -588,13 +634,32 @@ export async function getContactStages(
     let pastCalls = 0;
     let soonestCall: string | null = null;
     let latestCall: string | null = null;
-    for (const at of callsByContact.get(contact.id)?.values() ?? []) {
+    // The kind of the conversation each of those two timestamps belongs to, and
+    // whether every conversation on that side was a call (CAR-257). Tracked in
+    // the same pass so the pill's wording and the chip's noun can never describe
+    // a different conversation than the one whose date they print.
+    let latestPastKind: ConversationKind | null = null;
+    let soonestUpcomingKind: ConversationKind | null = null;
+    let allPastAreCalls = true;
+    let allUpcomingAreCalls = true;
+    for (const { at, kind } of callsByContact.get(contact.id)?.values() ?? []) {
+      // An untyped conversation is a call: a Google-synced event carries no
+      // type, and treating those as unknown would silence every real call.
+      const resolved: ConversationKind = kind ?? "call";
       if (at > nowIso) {
         upcomingCalls++;
-        soonestCall = earlierOf(soonestCall, at);
+        if (soonestCall == null || at < soonestCall) {
+          soonestCall = at;
+          soonestUpcomingKind = resolved;
+        }
+        if (resolved !== "call") allUpcomingAreCalls = false;
       } else {
         pastCalls++;
-        latestCall = laterOf(latestCall, at);
+        if (latestCall == null || at > latestCall) {
+          latestCall = at;
+          latestPastKind = resolved;
+        }
+        if (resolved !== "call") allPastAreCalls = false;
       }
     }
 
@@ -656,7 +721,16 @@ export async function getContactStages(
     if (pastCalls > 0) tallies.call_done = { count: pastCalls, at: latestCall };
     if (referrals > 0) tallies.referral = { count: referrals, at: lastReferralAt.get(contact.id) ?? null };
 
-    result.set(contact.id, { stage, rank: stageRank(stage), tallies, replyThread });
+    result.set(contact.id, {
+      stage,
+      rank: stageRank(stage),
+      tallies,
+      replyThread,
+      conversations: {
+        past: pastCalls > 0 ? { kind: latestPastKind ?? "call", allCalls: allPastAreCalls } : null,
+        upcoming: upcomingCalls > 0 ? { kind: soonestUpcomingKind ?? "call", allCalls: allUpcomingAreCalls } : null,
+      },
+    });
   }
   return result;
 }
@@ -814,6 +888,17 @@ export interface CompanyEnrichment {
   traction_detail: { count: number; at: string | null } | null;
   /** `lead_contact_name`'s own history, dating the next-action line (CAR-253). */
   lead_detail: LeadDetail | null;
+  /**
+   * What the conversations behind `traction` actually were (CAR-257). Null
+   * unless `traction` is `call_done` or `call_scheduled` — no other stage
+   * describes a conversation — and null too for a `stage_override` asserting a
+   * call stage with no event behind it.
+   *
+   * `kind` belongs to the conversation whose date `traction_detail.at` reports,
+   * with the person `lead_contact_name` names; `allCalls` covers every
+   * conversation in `traction_detail.count`.
+   */
+  conversation: ConversationSummary | null;
 }
 
 /**
@@ -1369,6 +1454,7 @@ export async function getCompanies(
   // alumni) over the shown set.
   const traction = new Map<number, OutreachStage>();
   const tractionDetail = new Map<number, { count: number; at: string | null }>();
+  const conversationByCompany = new Map<number, ConversationSummary>();
   const alumCountByCompany = new Map<number, number>();
   const productAlumCountByCompany = new Map<number, number>();
   const recruiterCountByCompany = new Map<number, number>();
@@ -1444,23 +1530,51 @@ export async function getCompanies(
       // claim about a door that is already closed. Deliberate reversal, not a
       // regression — do not restore the fallback.
       //
-      // The tie-break exists because the winner also NAMES the line (CAR-253).
-      // Two current contacts both at `replied` are the same rank, so the first
-      // one seen used to win — and if that one's thread is already answered
-      // while the other's is not, the card would read "You had an email thread
-      // with Samuel" and bury the reply actually waiting on a response. Whoever
-      // still owes us nothing loses the tie.
+      // The tie-break exists because the winner also NAMES the line, and now
+      // DESCRIBES it too. Ties used to fall to `people` map insertion order,
+      // which was survivable only while the winner did nothing but supply a
+      // name. Two criteria replace it, in this order:
+      //
+      //  1. An unanswered reply beats an answered one (CAR-253). Two current
+      //     contacts both at `replied` are the same rank, so the first one seen
+      //     used to win — and if that one's thread is already answered while
+      //     the other's is not, the card would read "You had an email thread
+      //     with Samuel" and bury the reply actually waiting on a response.
+      //  2. Failing that, the most recent evidence for the winning stage wins
+      //     (CAR-257) — soonest for an upcoming call, latest for everything
+      //     else. The pill describes a conversation now, so an arbitrary winner
+      //     would name Spencer while describing Jane's coffee chat. This is the
+      //     same timestamp `tractionDetail.at` already reports, so the chip's
+      //     "(1 month ago)", the lead's name and the conversation's kind all
+      //     refer to one conversation.
+      //
+      // Owing someone a reply outranks recency deliberately: "who is waiting on
+      // me" is a more actionable question than "what happened most recently".
       let best: { stage: ContactStage; person: PersonAgg } | null = null;
       for (const p of current) {
         const s = stages.get(p.id);
         if (!s) continue;
-        const wins =
-          !best ||
-          s.rank > best.stage.rank ||
-          (s.rank === best.stage.rank &&
-            !!s.replyThread?.awaitingOurReply &&
-            !best.stage.replyThread?.awaitingOurReply);
-        if (wins) best = { stage: s, person: p };
+        if (!best || s.rank > best.stage.rank) {
+          best = { stage: s, person: p };
+          continue;
+        }
+        if (s.rank < best.stage.rank) continue;
+
+        // Criterion 1: who still owes us nothing loses the tie.
+        const mineAwaiting = !!s.replyThread?.awaitingOurReply;
+        const bestAwaiting = !!best.stage.replyThread?.awaitingOurReply;
+        if (mineAwaiting !== bestAwaiting) {
+          if (mineAwaiting) best = { stage: s, person: p };
+          continue;
+        }
+
+        // Criterion 2: recency of the winning stage's own evidence.
+        const mine = s.tallies[s.stage].at;
+        const theirs = best.stage.tallies[best.stage.stage].at;
+        // A contact with no dated evidence never displaces one that has some.
+        if (!mine) continue;
+        const winner = s.stage === "call_scheduled" ? earlierOf(theirs, mine) : laterOf(theirs, mine);
+        if (winner === mine && mine !== theirs) best = { stage: s, person: p };
       }
       if (best) {
         traction.set(id, best.stage.stage);
@@ -1470,15 +1584,32 @@ export async function getCompanies(
         const winning = best.stage.stage;
         let count = 0;
         let at: string | null = null;
+        // The chip may only print the word "Call" when every conversation
+        // behind the count was one — one text chat in the mix demotes the whole
+        // chip to "Conversations" (CAR-257).
+        let allCalls = true;
         for (const p of current) {
-          const tally = stages.get(p.id)?.tallies[winning];
+          const s = stages.get(p.id);
+          const tally = s?.tallies[winning];
           if (!tally || tally.count === 0) continue;
           count += tally.count;
           // Upcoming calls count DOWN to the next one; everything else reports
           // the most recent thing that happened.
           at = winning === "call_scheduled" ? earlierOf(at, tally.at) : laterOf(at, tally.at);
+          const side = winning === "call_scheduled" ? s?.conversations.upcoming : s?.conversations.past;
+          if (side && !side.allCalls) allCalls = false;
         }
         tractionDetail.set(id, { count, at });
+
+        // Only the two call stages describe a conversation. The kind comes from
+        // the winner alone — it is the one the pill names a person for.
+        const winningSide =
+          winning === "call_done"
+            ? best.stage.conversations.past
+            : winning === "call_scheduled"
+              ? best.stage.conversations.upcoming
+              : null;
+        if (winningSide) conversationByCompany.set(id, { kind: winningSide.kind, allCalls });
       }
 
       // Lead name for the next-action line: the contact with real momentum, else
@@ -1581,6 +1712,7 @@ export async function getCompanies(
           roster: rosterByCompany.get(c.id) ?? [],
           traction_detail: tractionDetail.get(c.id) ?? null,
           lead_detail: leadDetailByCompany.get(c.id) ?? null,
+          conversation: conversationByCompany.get(c.id) ?? null,
         };
       })
     : null;

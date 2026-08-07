@@ -51,6 +51,7 @@ function company(overrides: Partial<CompanySummary> = {}): CompanySummary {
     traction: null,
     traction_detail: null,
     lead_detail: null,
+    conversation: null,
     ...overrides,
   };
 }
