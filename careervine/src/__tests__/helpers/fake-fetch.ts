@@ -66,6 +66,21 @@ export interface FakeRoute {
    * bare `try/catch` idiom could actually observe.
    */
   reject?: Error;
+  /**
+   * Hold the answer until this settles, so a test can land responses OUT OF
+   * ORDER (CAR-249). Required to exercise a `useLatestRequest` gate at all: the
+   * bug it guards is a slower request for an identity the user already
+   * navigated away from overwriting the newer one (CAR-145 / F19), and without
+   * a way to stall one route, every response resolves in issue order and the
+   * gate is never actually tested.
+   *
+   *   let release: () => void;
+   *   installFakeFetch({
+   *     "GET /a": { body: {...}, delay: new Promise<void>(r => { release = r }) },
+   *     "GET /b": { body: {...} },
+   *   });
+   */
+  delay?: Promise<void>;
 }
 
 /** Routes keyed by `"METHOD /url"`, e.g. `"DELETE /api/gmail/templates/3"`. */
@@ -145,6 +160,10 @@ export function installFakeFetch(routes: FakeRoutes): FakeFetch {
         `installFakeFetch: no route for "${record.key}". Declared: ${declared.length ? declared.join(", ") : "(none)"}`,
       );
     }
+
+    // Awaited AFTER recording the call, so `calls` reflects issue order even
+    // when the answers land in a different one.
+    if (route.delay) await route.delay;
 
     if (route.reject) throw route.reject;
 

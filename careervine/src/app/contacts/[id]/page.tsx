@@ -10,7 +10,7 @@ import { useCapabilities } from "@/hooks/use-capabilities";
 import { useLatestRequest } from "@/hooks/use-latest-request";
 import Navigation from "@/components/navigation";
 import { getContactById, getContacts, getMeetingsForContact, getActionItemsForContact, getCompletedActionItemsForContact, getInteractions, getAttachmentsForContact, getGmailConnection } from "@/lib/queries";
-import type { Contact, ContactMeeting, InteractionRow, GmailConnection, EmailMessage, ScheduledEmail } from "@/lib/types";
+import type { Contact, ContactMeeting, InteractionRow, GmailConnection, EmailMessage, ScheduledEmail, TimelineEntry } from "@/lib/types";
 import { ContactProfileCard } from "@/components/contacts/contact-profile-card";
 import { ContactAboutCard } from "@/components/contacts/contact-about-card";
 import { ContactExperienceCard } from "@/components/contacts/contact-experience-card";
@@ -19,6 +19,7 @@ import { ContactQuickActions } from "@/components/contacts/contact-quick-actions
 import { ContactEditModal } from "@/components/contacts/contact-edit-modal";
 import { ContactActionsTab } from "@/components/contacts/contact-actions-tab";
 import { ContactTimelineTab } from "@/components/contacts/contact-timeline-tab";
+import { TimelineDetailModal } from "@/components/contacts/timeline-detail-modal";
 import { ContactEmailsTab } from "@/components/contacts/contact-emails-tab";
 import { ContactAttachmentsTab } from "@/components/contacts/contact-attachments-tab";
 import { ContactPendingActionsBanner } from "@/components/contacts/contact-pending-actions-banner";
@@ -44,6 +45,10 @@ type ActionItem = {
 type CompletedAction = {
   id: number;
   title: string;
+  // description and direction cost nothing extra — getCompletedActionItemsForContact
+  // selects `*` — and the timeline's detail view renders both (CAR-249).
+  description: string | null;
+  direction?: string | null;
   due_at: string | null;
   is_completed: boolean;
   completed_at: string | null;
@@ -108,6 +113,15 @@ export default function ContactDetailPage() {
   // Increments on every completed loadRelatedData; feeds the tab boundary's key so
   // fresh data clears a stale error panel (CAR-184, see loadRelatedData).
   const [dataGeneration, setDataGeneration] = useState(0);
+
+  /**
+   * The timeline row whose detail modal is open (CAR-249). Held HERE rather than
+   * in the tab: the tab sits inside a `SectionBoundary` keyed on
+   * `dataGeneration`, which every completed background refresh bumps, so a modal
+   * owned down there is unmounted mid-interaction — the same defect CAR-204
+   * fixed for the delete confirmation.
+   */
+  const [detailEntry, setDetailEntry] = useState<TimelineEntry | null>(null);
 
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
   const [contactEmails, setContactEmails] = useState<EmailMessage[]>([]);
@@ -526,12 +540,6 @@ export default function ContactDetailPage() {
                 )}
                 {activeTab === "timeline" && (
                   <ContactTimelineTab
-                    onConfirmDeleteInteraction={() => confirm({
-                      message: "Delete this interaction?",
-                      confirmLabel: "Delete",
-                      destructive: true,
-                    })}
-                    contactId={contactId}
                     meetings={meetings}
                     interactions={interactions}
                     emails={contactEmails}
@@ -539,7 +547,7 @@ export default function ContactDetailPage() {
                     loading={loadingData}
                     emailsLoadFailed={emailsLoadFailed}
                     onReloadEmails={loadContactEmails}
-                    onInteractionsChange={setInteractions}
+                    onEntryClick={setDetailEntry}
                   />
                 )}
                 {activeTab === "emails" && (
@@ -607,6 +615,28 @@ export default function ContactDetailPage() {
           onClose={() => setEditing(false)}
           onContactUpdate={loadContact}
           onContactDelete={handleDelete}
+        />
+
+        {/* Timeline detail. Deliberately OUTSIDE the SectionBoundary above:
+            its key carries dataGeneration, so a modal rendered in there is
+            unmounted by any background refresh that lands while the user is
+            reading or editing (CAR-204's shape, CAR-249). */}
+        <TimelineDetailModal
+          entry={detailEntry}
+          contactName={contact.name}
+          canReadMailbox={can("mailbox:read")}
+          gmailConnected={gmailConnected}
+          onClose={() => setDetailEntry(null)}
+          onChanged={() => {
+            void loadRelatedData();
+            void loadContactEmails();
+          }}
+          onConfirmDelete={({ message, title }) => confirm({
+            message,
+            title,
+            confirmLabel: "Delete",
+            destructive: true,
+          })}
         />
       </div>
       {confirmDialog}

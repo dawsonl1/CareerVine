@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { UI_EVENTS, emitUiEvent, unreadDeltaFor } from "@/lib/ui-events";
-import { useLatestRequest } from "@/hooks/use-latest-request";
-import DOMPurify from "dompurify";
+import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
+import { useEmailBody } from "@/hooks/use-email-body";
+import { EmailMessageBody } from "@/components/email/email-message-body";
 import { useCompose } from "@/components/compose-email-context";
 import { useToast } from "@/components/ui/toast";
 import { FollowUpModal } from "@/components/follow-up-modal";
-import type { EmailMessage, EmailMessageFull, EmailFollowUp, ScheduledEmail } from "@/lib/types";
+import type { EmailMessage, EmailFollowUp, ScheduledEmail } from "@/lib/types";
 import { buildThreads } from "@/lib/gmail-helpers";
 import { apiFetch, apiSend, jsonBody } from "@/lib/api-client";
 import { withToastOnError } from "@/lib/with-toast-on-error";
@@ -53,13 +53,18 @@ export function ContactEmailsTab({
 }: ContactEmailsTabProps) {
   const { openCompose } = useCompose();
   const { error: toastError, success: toastSuccess } = useToast();
-  // Drops a slower email-body fetch when the user expands another message first.
-  const expandReq = useLatestRequest();
+  // Owns the body fetch, the free-tier snippet fallback, the mark-read mirror
+  // and the stale-response guard (CAR-249). Shared with the timeline detail modal.
+  const {
+    content: expandedEmailContent,
+    loading: loadingEmailContent,
+    failed: emailContentFailed,
+    load: loadEmailBody,
+    clear: clearEmailBody,
+  } = useEmailBody({ canReadMailbox, markRead: true, onMarkedRead: onReloadEmails });
 
   const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
-  const [expandedEmailContent, setExpandedEmailContent] = useState<EmailMessageFull | null>(null);
-  const [loadingEmailContent, setLoadingEmailContent] = useState(false);
 
   const [threadFollowUps, setThreadFollowUps] = useState<Record<string, EmailFollowUp[]>>({});
   const [followUpModal, setFollowUpModal] = useState<{
@@ -121,62 +126,14 @@ export function ContactEmailsTab({
   const handleExpandEmail = async (gmailMessageId: string) => {
     if (expandedEmailId === gmailMessageId) {
       setExpandedEmailId(null);
-      setExpandedEmailContent(null);
+      clearEmailBody();
       return;
     }
     setExpandedEmailId(gmailMessageId);
-    setExpandedEmailContent(null);
-    // Claim the latest-expand token: a slower body fetch from a previously
-    // expanded message must not overwrite this row's content (CAR-145 / F19).
-    const token = expandReq.begin();
 
     const msg = emails.find((e) => e.gmail_message_id === gmailMessageId);
-
-    // Free tier (no live mailbox read): show the cached snippet, never call the
-    // gated live-body route (it would 403) and never mark-read (no live mailbox).
-    if (!canReadMailbox) {
-      if (msg) {
-        setExpandedEmailContent({
-          subject: msg.subject || "",
-          from: msg.direction === "outbound" ? "You" : (msg.from_address || "Unknown"),
-          to: (msg.to_addresses || []).join(", "),
-          date: msg.date || "",
-          bodyHtml: null,
-          bodyText: msg.snippet || "No preview available for this message.",
-          messageId: msg.gmail_message_id,
-          gmailMessageId: msg.gmail_message_id,
-          threadId: msg.thread_id || "",
-        });
-      }
-      return;
-    }
-
-    setLoadingEmailContent(true);
-    if (msg && !msg.is_read) {
-      const delta = unreadDeltaFor(msg);
-      emitUiEvent(UI_EVENTS.unreadChanged, { delta });
-      // error-tolerated: marking read is a mirror of Gmail's own state, not
-      // something the user asked for. The next sync re-derives it, and a toast
-      // here would interrupt a read with news about bookkeeping.
-      await apiSend(`/api/gmail/emails/${gmailMessageId}/read`, { method: "POST" }).catch(() => {});
-      // Confirm badge count and reload parent email list so read state is reflected
-      emitUiEvent(UI_EVENTS.unreadChanged, { refetch: true });
-      onReloadEmails();
-    }
-
-    try {
-      const data = await apiFetch<{ success?: boolean; message?: EmailMessageFull }>(
-        `/api/gmail/emails/${gmailMessageId}`,
-      );
-      if (!expandReq.isLatest(token)) return;
-      if (data.success && data.message) {
-        setExpandedEmailContent(data.message);
-      }
-    } catch {
-      if (expandReq.isLatest(token)) toastError("Failed to load email content");
-    } finally {
-      if (expandReq.isLatest(token)) setLoadingEmailContent(false);
-    }
+    if (!msg) return;
+    await loadEmailBody(msg);
   };
 
   const loadFollowUpsForThread = async (threadId: string) => {
@@ -380,7 +337,7 @@ export function ContactEmailsTab({
                     const newThreadId = isThreadExpanded ? null : thread.threadId;
                     setExpandedThreadId(newThreadId);
                     setExpandedEmailId(null);
-                    setExpandedEmailContent(null);
+                    clearEmailBody();
                     if (newThreadId && gmailConnected) {
                       void loadFollowUpsForThread(newThreadId);
                     }
@@ -454,77 +411,56 @@ export function ContactEmailsTab({
 
                           {isMsgExpanded && (
                             <div className="ml-5 mr-1 mb-1 p-3 rounded-lg bg-surface-container-low border border-outline-variant/50">
-                              {loadingEmailContent ? (
-                                <div className="flex items-center gap-2.5 text-muted-foreground text-sm py-4">
-                                  <div className="animate-spin rounded-full h-4 w-4 border border-primary border-t-transparent" />
-                                  Loading email…
-                                </div>
-                              ) : expandedEmailContent ? (
-                                <div>
-                                  <div className="text-sm text-muted-foreground space-y-0.5 mb-4">
-                                    <p><span className="font-medium">From:</span> {expandedEmailContent.from}</p>
-                                    <p><span className="font-medium">To:</span> {expandedEmailContent.to}</p>
-                                    <p><span className="font-medium">Date:</span> {expandedEmailContent.date ? new Date(expandedEmailContent.date).toLocaleString() : ""}</p>
-                                  </div>
-                                  {expandedEmailContent.bodyHtml ? (
-                                    <div
-                                      className="text-sm prose prose-sm max-w-none [&_*]:!text-foreground [&_a]:!text-primary overflow-auto max-h-80"
-                                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(expandedEmailContent.bodyHtml) }}
-                                    />
-                                  ) : (
-                                    <pre className="text-sm text-foreground whitespace-pre-wrap overflow-auto max-h-80">
-                                      {expandedEmailContent.bodyText || "No content available"}
-                                    </pre>
-                                  )}
-                                  {gmailConnected && (
-                                    <div className="mt-4 pt-4 border-t border-outline-variant/50 flex items-center gap-5">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
-                                        onClick={() => {
-                                          const replyTo = msg.direction === "outbound"
-                                            ? (msg.to_addresses?.[0] || "")
-                                            : (msg.from_address || "");
-                                          const subj = expandedEmailContent.subject || "";
-                                          const reSubj = subj.replace(/^(Re:\s*)+/i, "");
-                                          openCompose({
-                                            to: replyTo,
-                                            name: contactName,
-                                            subject: `Re: ${reSubj}`,
-                                            threadId: expandedEmailContent.threadId,
-                                            inReplyTo: expandedEmailContent.messageId,
-                                            references: expandedEmailContent.messageId,
-                                            quotedHtml: expandedEmailContent.bodyHtml || expandedEmailContent.bodyText || "",
-                                          });
-                                        }}
-                                      >
-                                        <Reply className="h-4 w-4" />
-                                        Reply
-                                      </button>
-                                      {msg.direction === "outbound" && msg.date && (Date.now() - new Date(msg.date).getTime()) < 14 * 86400_000 && (
-                                        <button
-                                          type="button"
-                                          className="inline-flex items-center gap-2 text-sm font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
-                                          onClick={() => {
-                                            setFollowUpModal({
-                                              recipientEmail: msg.to_addresses?.[0] || "",
-                                              contactName,
-                                              originalSubject: expandedEmailContent.subject || thread.subject,
-                                              originalSentAt: msg.date!,
-                                              originalGmailMessageId: msg.gmail_message_id,
-                                              threadId: thread.threadId,
-                                            });
-                                          }}
-                                        >
-                                          <Clock className="h-4 w-4" />
-                                          Schedule follow-up
-                                        </button>
-                                      )}
-                                    </div>
+                              <EmailMessageBody
+                                content={expandedEmailContent}
+                                loading={loadingEmailContent}
+                                failed={emailContentFailed}
+                              />
+                              {expandedEmailContent && !loadingEmailContent && gmailConnected && (
+                                <div className="mt-4 pt-4 border-t border-outline-variant/50 flex items-center gap-5">
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors"
+                                    onClick={() => {
+                                      const replyTo = msg.direction === "outbound"
+                                        ? (msg.to_addresses?.[0] || "")
+                                        : (msg.from_address || "");
+                                      const subj = expandedEmailContent.subject || "";
+                                      const reSubj = subj.replace(/^(Re:\s*)+/i, "");
+                                      openCompose({
+                                        to: replyTo,
+                                        name: contactName,
+                                        subject: `Re: ${reSubj}`,
+                                        threadId: expandedEmailContent.threadId,
+                                        inReplyTo: expandedEmailContent.messageId,
+                                        references: expandedEmailContent.messageId,
+                                        quotedHtml: expandedEmailContent.bodyHtml || expandedEmailContent.bodyText || "",
+                                      });
+                                    }}
+                                  >
+                                    <Reply className="h-4 w-4" />
+                                    Reply
+                                  </button>
+                                  {msg.direction === "outbound" && msg.date && (Date.now() - new Date(msg.date).getTime()) < 14 * 86400_000 && (
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-2 text-sm font-medium text-tertiary hover:text-tertiary/80 cursor-pointer transition-colors"
+                                      onClick={() => {
+                                        setFollowUpModal({
+                                          recipientEmail: msg.to_addresses?.[0] || "",
+                                          contactName,
+                                          originalSubject: expandedEmailContent.subject || thread.subject,
+                                          originalSentAt: msg.date!,
+                                          originalGmailMessageId: msg.gmail_message_id,
+                                          threadId: thread.threadId,
+                                        });
+                                      }}
+                                    >
+                                      <Clock className="h-4 w-4" />
+                                      Schedule follow-up
+                                    </button>
                                   )}
                                 </div>
-                              ) : (
-                                <p className="text-sm text-muted-foreground">Failed to load email content.</p>
                               )}
                             </div>
                           )}

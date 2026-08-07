@@ -95,13 +95,17 @@ search and stackable filters:
   update instantly, no page reloads.
 - Narrow the list by target status (researching through closed), outreach traction,
   tier, who you know inside, and whether anyone there went to your school.
+- The page shows every company you target plus every company you already know
+  someone at, so a target menu separates the two. "Not a target" is the shortlist
+  worth reading before you pick your next one: places you have a way in and have not
+  claimed yet.
 - Who you know inside is one menu, not two competing ones: pick "works there now",
   "worked there before", "no contacts yet", or any combination. Companies where your
   only connection has moved on are one click away, and so is the pair that means
   "anyone at all".
-- The traction, tier, contacts, and alumni menus each take several answers at once,
-  so "Big Tech or Utah" and "Replied or Call done" are single filters rather than
-  two separate views.
+- The target, traction, tier, contacts, and alumni menus each take several answers
+  at once, so "Big Tech or Utah" and "Replied or Call done" are single filters rather
+  than two separate views.
 - Filters combine, so "applied companies in Big Tech where I have no contacts yet"
   is two clicks, and a live count shows how much of your list matches.
 - The count on each status chip follows the rest of the bar. Filter to one tier and
@@ -187,3 +191,12 @@ someone holding several board seats no longer leads with an arbitrary one.
 Editing a contact holds their whole history, not a slice of it. Education is a list
 you can add to and remove from, the same as work experience, so a person with a
 bachelor's and an MBA keeps both. Saving used to leave only one of them.
+
+A contact's timeline is a way in, not just a summary. Every row opens: click a
+logged conversation and you get everything recorded on it, the attendees, the full
+notes, the private reminders you left yourself, its action items, the transcript and
+any files, with edit and delete right there instead of on another page. Interactions
+open to their full summary, an email opens to the message itself with a reply
+button, and a completed action can be reopened if it turns out not to be finished.
+Deleting a conversation keeps the action items that came out of it, and says so
+before you confirm rather than after.

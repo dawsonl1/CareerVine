@@ -517,6 +517,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
   "@/lib/data/meetings": {
     getMeetings: { kind: "web-only" },
     getMeetingsForContact: { kind: "web-only" },
+    // CAR-249: get-one read behind the contact timeline's detail modal.
+    getMeetingById: { kind: "web-only" },
     createMeeting: { kind: "web-only" },
     updateMeeting: { kind: "web-only" },
     deleteMeeting: { kind: "web-only" },
