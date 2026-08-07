@@ -51,7 +51,7 @@ without it the new index would be exactly as inert as the old one.
 
 ## Changes
 
-**Migration** `20260807053000_car261_contact_companies_real_unique_key.sql` — collapse
+**Migration** `20260808020000_car261_contact_companies_real_unique_key.sql` — collapse
 duplicates keeping the lowest id, drop the dead index, create the real one, assert zero
 groups survive. Safe on two verified facts: nothing foreign-keys to
 `contact_companies.id`, and within every duplicate group `location_id`,
