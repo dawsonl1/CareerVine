@@ -47,18 +47,21 @@ function target(overrides: Partial<NonNullable<CompanySummary['target']>> = {}) 
 }
 
 describe('buildOutreachQueue', () => {
-  it('includes only target companies with contactable people', () => {
+  it('includes only target companies with someone working there now', () => {
     const { queue, skippedCount } = buildOutreachQueue(
       [
         company({ name: 'HasPeople' }),
         company({ name: 'BenchOnly', current_count: 0, former_count: 0, bench_count: 12 }),
         company({ name: 'Nobody', current_count: 0, former_count: 0 }),
+        company({ name: 'AllLeft', current_count: 0, former_count: 8 }),
         company({ name: 'NotTarget', target: null }),
       ],
       TODAY,
     );
     expect(queue.map((c) => c.name)).toEqual(['HasPeople']);
-    expect(skippedCount).toBe(2); // BenchOnly + Nobody (NotTarget was never a target)
+    // BenchOnly + Nobody + AllLeft. NotTarget was never a target, so it is not
+    // "skipped" — it was never a candidate.
+    expect(skippedCount).toBe(3);
   });
 
   it('excludes closed targets entirely (not counted as skipped)', () => {
@@ -73,12 +76,30 @@ describe('buildOutreachQueue', () => {
     expect(skippedCount).toBe(0);
   });
 
-  it('former-only companies still qualify (past employees are contactable)', () => {
-    const { queue } = buildOutreachQueue(
-      [company({ name: 'FormerOnly', current_count: 0, former_count: 3 })],
+  /**
+   * CAR-259 inverts the assertion this test used to make. A company nobody works
+   * at anymore has no job to email anyone about, so it stops generating a screen
+   * in the walkthrough. Measured before the change: 53 of Dawson's 182 queued
+   * companies had zero current employees, Qualtrics leading with 20 contacts and
+   * not one still there.
+   */
+  it('skips a company whose entire roster has left, however many former employees', () => {
+    const { queue, skippedCount } = buildOutreachQueue(
+      [company({ name: 'FormerOnly', current_count: 0, former_count: 20 })],
       TODAY,
     );
-    expect(queue).toHaveLength(1);
+    expect(queue).toEqual([]);
+    // Counted as skipped, not silently dropped: the /outreach footer and the
+    // MCP summary both report it so the company does not just vanish.
+    expect(skippedCount).toBe(1);
+  });
+
+  it('keeps a company with current employees even when formers outnumber them', () => {
+    const { queue } = buildOutreachQueue(
+      [company({ name: 'Mixed', current_count: 1, former_count: 40 })],
+      TODAY,
+    );
+    expect(queue.map((c) => c.name)).toEqual(['Mixed']);
   });
 
   it('orders by priority desc, nulls last, name as tiebreak', () => {

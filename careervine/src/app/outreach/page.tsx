@@ -373,7 +373,7 @@ function OutreachFlow() {
 
             {skippedCount > 0 && (
               <p className="text-xs text-on-surface-variant mt-8 text-center">
-                {skippedCount} more target {skippedCount === 1 ? "company has" : "companies have"} only bench people or nobody:{" "}
+                {skippedCount} more target {skippedCount === 1 ? "company has" : "companies have"} nobody working there now:{" "}
                 <Link href="/companies" className="underline underline-offset-2 hover:text-on-surface">review them on Companies</Link>.
               </p>
             )}
@@ -408,8 +408,11 @@ function OutreachFlow() {
  * from the same rows, so it does not change when the detail lands.
  *
  * Zero is left as the bare line: a placeholder grid with no cards would claim
- * this region is about to fill and it is not (a former-employees-only company
- * still qualifies for the queue).
+ * this region is about to fill and it is not. Since CAR-259 the queue admits
+ * only companies with `current_count > 0`, so zero here means the count went
+ * stale between the queue fetch and this render (the last current employee left
+ * or was archived), not a former-employees-only company. Rare, still possible,
+ * so the branch stays.
  */
 function PeopleSkeleton({ currentCount }: { currentCount: number }) {
   const cards = Math.min(currentCount, 6);
