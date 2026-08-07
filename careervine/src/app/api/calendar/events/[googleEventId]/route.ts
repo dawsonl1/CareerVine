@@ -53,6 +53,7 @@ export const DELETE = withApiHandler({
     // Cascade: remove any CareerVine meeting row linked to this Google event
     const { data: linked } = await service
       .from("meetings")
+      // exclusion-exempt: deletion cascade. A struck meeting still has to be removed when its Google event is deleted, or it is orphaned.
       .select("id")
       .eq("calendar_event_id", googleEventId)
       .eq("user_id", user.id);

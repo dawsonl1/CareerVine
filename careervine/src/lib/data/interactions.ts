@@ -19,6 +19,7 @@ import { activateContacts } from "./contacts";
 export async function getInteractions(contactId: number) {
   const { data, error } = await db()
     .from("interactions")
+    // exclusion-exempt: record view. The contact timeline needs struck rows so Show removed can reveal and restore them; it filters client-side.
     .select("*")
     .eq("contact_id", contactId)
     .order("interaction_date", { ascending: false });
@@ -39,6 +40,8 @@ export async function getAllInteractions(userId: string) {
   const { data, error } = await db()
     .from("interactions")
     .select("*, contacts!inner(id, name)")
+    // CAR-260: struck by the user, so it must not count.
+    .eq("is_excluded", false)
     .eq("contacts.user_id", userId)
     .order("interaction_date", { ascending: false })
     .limit(500);

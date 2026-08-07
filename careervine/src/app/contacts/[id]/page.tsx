@@ -123,6 +123,30 @@ export default function ContactDetailPage() {
    */
   const [detailEntry, setDetailEntry] = useState<TimelineEntry | null>(null);
 
+  /**
+   * Which timeline email threads the user has expanded (CAR-260). Held here for
+   * the same reason as `detailEntry` directly above: the tab is remounted by
+   * every `dataGeneration` bump, so a thread opened by the user would collapse
+   * under them the moment a background refresh landed.
+   */
+  /**
+   * Whether the timeline shows entries struck from the record (CAR-260).
+   * Feeds `loadContactEmails`' dependency list, so flipping it refetches the
+   * email leg through the mount effect: meetings, interactions and completed
+   * actions already arrive with their excluded rows and are filtered in the
+   * tab, but /api/gmail/emails withholds struck messages unless asked.
+   */
+  const [showRemoved, setShowRemoved] = useState(false);
+
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  const toggleThread = useCallback((threadId: string) => {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(threadId)) next.add(threadId);
+      return next;
+    });
+  }, []);
+
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
   const [contactEmails, setContactEmails] = useState<EmailMessage[]>([]);
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
@@ -270,7 +294,7 @@ export default function ContactDetailPage() {
 
     const [emailsResult, scheduledResult] = await Promise.allSettled([
       apiFetch<{ success?: boolean; emails?: EmailMessage[] }>(
-        `/api/gmail/emails?contactId=${contactId}`,
+        `/api/gmail/emails?contactId=${contactId}${showRemoved ? "&includeExcluded=1" : ""}`,
       ),
       apiFetch<{ scheduledEmails?: ScheduledEmail[] }>(
         `/api/gmail/schedule?contactId=${contactId}`,
@@ -290,7 +314,10 @@ export default function ContactDetailPage() {
     setEmailsLoadFailed(emailsResult.status === "rejected");
     setScheduledLoadFailed(scheduledResult.status === "rejected");
     setLoadingEmails(false);
-  }, [contactId, gmailConn, emailsReq]);
+    // showRemoved is a real dependency, not a lint appeasement: the mount
+    // effect below re-runs on this callback's identity, which is what refetches
+    // the struck messages when the user flips the toggle (CAR-260).
+  }, [contactId, gmailConn, emailsReq, showRemoved]);
 
   useEffect(() => {
     if (user) {
@@ -548,6 +575,10 @@ export default function ContactDetailPage() {
                     emailsLoadFailed={emailsLoadFailed}
                     onReloadEmails={loadContactEmails}
                     onEntryClick={setDetailEntry}
+                    expandedThreads={expandedThreads}
+                    onToggleThread={toggleThread}
+                    showRemoved={showRemoved}
+                    onToggleShowRemoved={() => setShowRemoved((v) => !v)}
                   />
                 )}
                 {activeTab === "emails" && (

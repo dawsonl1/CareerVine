@@ -645,10 +645,10 @@ export async function getNetworkHealth() {
     getRelationshipsOnTrack(userId),
     getNeglectedContacts(userId),
     getNetworkingStreak(userId),
-    db().from("meetings").select("id", { count: "exact", head: true }).eq("user_id", userId).gte("meeting_date", thirtyAgo.split("T")[0]),
-    db().from("interactions").select("id, contacts!inner(user_id)", { count: "exact", head: true }).eq("contacts.user_id", userId).gte("interaction_date", thirtyAgo.split("T")[0]),
-    db().from("email_messages").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").eq("is_simulated", false).gte("date", thirtyAgo),
-    db().from("follow_up_action_items").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_completed", true).gte("completed_at", thirtyAgo),
+    db().from("meetings").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).gte("meeting_date", thirtyAgo.split("T")[0]),
+    db().from("interactions").select("id, contacts!inner(user_id)", { count: "exact", head: true }).eq("contacts.user_id", userId).eq("is_excluded", false).gte("interaction_date", thirtyAgo.split("T")[0]),
+    db().from("email_messages").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("direction", "outbound").eq("is_simulated", false).eq("is_excluded", false).gte("date", thirtyAgo),
+    db().from("follow_up_action_items").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_excluded", false).eq("is_completed", true).gte("completed_at", thirtyAgo),
   ]);
   const tierCounts = {
     active: tierResults[0].count ?? 0,
@@ -698,6 +698,8 @@ export async function searchEmailHistory(query: string, contactId?: number, limi
     .select(contactId != null ? `${baseColumns}, email_message_contacts!inner(contact_id)` : baseColumns)
     .eq("user_id", uid())
     .eq("is_simulated", false)
+    // CAR-260: struck by the user, so it must not ground a generated email.
+    .eq("is_excluded", false)
     .or(`subject.ilike.${pattern},snippet.ilike.${pattern}`)
     .order("date", { ascending: false })
     .limit(limit);
@@ -759,6 +761,7 @@ export async function searchEmailHistory(query: string, contactId?: number, limi
 export async function getCachedThreadMessages(threadId: string) {
   const { data, error } = await db()
     .from("email_messages")
+    // exclusion-exempt: real threading. resolveReplyHeaders anchors an outbound reply on the last message in the thread, which is a fact about Gmail rather than a derived value.
     .select("gmail_message_id, subject, snippet, from_address, to_addresses, date, direction")
     .eq("user_id", uid())
     .eq("thread_id", threadId)
@@ -890,6 +893,7 @@ export async function rescheduleFollowUpSequence(
 export async function findOriginalOutbound(ref: { threadId?: string; messageId?: string }) {
   let q = db()
     .from("email_messages")
+    // exclusion-exempt: real threading. findOriginalOutbound anchors a follow-up sequence on the message actually sent.
     .select("gmail_message_id, thread_id, subject, date, to_addresses")
     .eq("user_id", uid())
     .eq("direction", "outbound")
@@ -1032,12 +1036,14 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       .from("interactions")
       .select("id, interaction_date, interaction_type, interaction_type_detail, summary")
       .eq("contact_id", contactId)
+      .eq("is_excluded", false)
       .order("interaction_date", { ascending: false })
       .limit(limit),
     db()
       .from("interactions")
       .select("id", { count: "exact", head: true })
-      .eq("contact_id", contactId),
+      .eq("contact_id", contactId)
+      .eq("is_excluded", false),
     // private_notes and user_id are deliberately NOT selected — this bundle
     // feeds the email-grounding dossier the model reads before drafting, and
     // private reminders must not bleed into generated outreach.
@@ -1045,11 +1051,13 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       .from("meeting_contacts")
       .select("meetings!inner(id, meeting_date, meeting_type, meeting_type_detail, title, notes)")
       .eq("contact_id", contactId)
-      .eq("meetings.user_id", uid()),
+      .eq("meetings.user_id", uid())
+      .eq("meetings.is_excluded", false),
     db()
       .from("meeting_contacts")
       .select("contact_id, meetings!inner(user_id)", { count: "exact", head: true })
       .eq("contact_id", contactId)
+      .eq("meetings.is_excluded", false)
       .eq("meetings.user_id", uid()),
     // Junction-scoped (CAR-159), mirroring the meeting_contacts legs above:
     // shared threads appear in every linked contact's dossier. The !inner
@@ -1060,6 +1068,7 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       .eq("user_id", uid())
       .eq("email_message_contacts.contact_id", contactId)
       .eq("is_simulated", false)
+      .eq("is_excluded", false)
       .order("date", { ascending: false })
       .limit(limit),
     db()
@@ -1067,7 +1076,8 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       .select("contact_id, email_messages!inner(user_id, is_simulated)", { count: "exact", head: true })
       .eq("contact_id", contactId)
       .eq("email_messages.user_id", uid())
-      .eq("email_messages.is_simulated", false),
+      .eq("email_messages.is_simulated", false)
+      .eq("email_messages.is_excluded", false),
     db()
       .from("action_item_contacts")
       // Defense-in-depth: scope the embedded action item to this user. action_item_contacts
@@ -1076,12 +1086,14 @@ export async function getDossierBundle(contactId: number, depth: "recent" | "ful
       // outreach (same shape as the CAR-133 calendar-link defense above). The inner join drops it.
       .select("follow_up_action_items!inner(id, title, description, due_at, is_completed, completed_at, direction, snoozed_until, user_id)")
       .eq("contact_id", contactId)
-      .eq("follow_up_action_items.user_id", uid()),
+      .eq("follow_up_action_items.user_id", uid())
+      .eq("follow_up_action_items.is_excluded", false),
     db()
       .from("action_item_contacts")
       .select("follow_up_action_items!inner(id, title, completed_at, is_completed, user_id)")
       .eq("contact_id", contactId)
-      .eq("follow_up_action_items.user_id", uid()),
+      .eq("follow_up_action_items.user_id", uid())
+      .eq("follow_up_action_items.is_excluded", false),
     db()
       .from("scheduled_emails")
       .select("id, subject, scheduled_send_at, recipient_email")
@@ -1150,6 +1162,8 @@ export async function listCalendarEvents(timeMin: string, timeMax: string) {
     .gte("start_at", timeMin)
     .lt("start_at", timeMax)
     .neq("status", "cancelled")
+    // CAR-260: struck by the user, so it is not a meeting any more.
+    .eq("is_excluded", false)
     .order("start_at", { ascending: true });
   if (error) throw error;
   const events = data ?? [];

@@ -305,6 +305,7 @@ export const POST = withApiHandler({
       for (let i = 0; i < cancelledGoogleIds.length; i += 200) {
         const { data: toDelete, error: lookupErr } = await service
           .from("calendar_events")
+          // exclusion-exempt: deletion path. Google cancelled these events, so struck ones must be deleted too.
           .select("id")
           .eq("user_id", user.id)
           .in("google_event_id", cancelledGoogleIds.slice(i, i + 200));

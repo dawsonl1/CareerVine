@@ -122,74 +122,68 @@ const DRIVES: Record<string, () => Promise<unknown>> = {
 
 const EXPECTED: Record<string, string[]> = {
   buildLastTouchMap: [
-    "select meeting_contacts eq(meetings.user_id=$uid) in(contact_id=[…]) order(contact_id) order(meeting_id)",
-    "select interactions eq(contacts.user_id=$uid) in(contact_id=[…]) order(id)",
+    "select meeting_contacts eq(meetings.user_id=$uid) eq(meetings.is_excluded=false) in(contact_id=[…]) order(contact_id) order(meeting_id)",
+    "select interactions eq(contacts.user_id=$uid) eq(is_excluded=false) in(contact_id=[…]) order(id)",
   ],
   getDueFollowUps: [
-    'select contacts eq(user_id=$uid) eq(network_status="active") order(name) order(id)',
+    "select contacts eq(user_id=$uid) eq(network_status=\"active\") order(name) order(id)",
   ],
   getContactsWithLastTouch: [
-    'select contacts eq(user_id=$uid) eq(network_status="active") order(name) order(id)',
+    "select contacts eq(user_id=$uid) eq(network_status=\"active\") order(name) order(id)",
   ],
   getRelationshipsOnTrack: [
-    'select contacts eq(user_id=$uid) eq(network_status="active") order(id)',
+    "select contacts eq(user_id=$uid) eq(network_status=\"active\") order(id)",
   ],
   getNeglectedContacts: [
-    'select contacts eq(user_id=$uid) eq(network_status="active") order(name) order(id)',
+    "select contacts eq(user_id=$uid) eq(network_status=\"active\") order(name) order(id)",
   ],
   getNetworkHealthSummary: [
-    'select contacts eq(user_id=$uid) eq(network_status="active") order(name) order(id)',
+    "select contacts eq(user_id=$uid) eq(network_status=\"active\") order(name) order(id)",
   ],
-  // CAR-223: the action-items leg is now paginated like the contacts leg beside
-  // it, which adds the order(id) page-boundary tiebreak and moves it first.
   getHomeCoreData: [
-    "select follow_up_action_items eq(user_id=$uid) eq(is_completed=false) or(snoozed_until.is.null,snoozed_until.lt.$date) order(due_at) order(id)",
-    'select contacts eq(user_id=$uid) eq(network_status="active") order(name) order(id)',
+    "select follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=false) or(snoozed_until.is.null,snoozed_until.lt.$date) order(due_at) order(id)",
+    "select contacts eq(user_id=$uid) eq(network_status=\"active\") order(name) order(id)",
   ],
   getActionListCounts: [
-    "select·head·count follow_up_action_items eq(user_id=$uid) eq(is_completed=false) or(direction.is.null,direction.neq.waiting_on)",
+    "select·head·count follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=false) or(direction.is.null,direction.neq.waiting_on)",
     "select·head·count contacts eq(user_id=$uid) not(follow_up_frequency_days=null)",
-    'select·head·count contacts eq(user_id=$uid) eq(network_status="active") gte(created_at=$date)',
+    "select·head·count contacts eq(user_id=$uid) eq(network_status=\"active\") gte(created_at=$date)",
   ],
   getNetworkingStreak: [
-    "select meetings eq(user_id=$uid) gte(meeting_date=$date) order(id)",
-    "select follow_up_action_items eq(user_id=$uid) eq(is_completed=true) gte(completed_at=$date) order(id)",
-    "select interactions eq(contacts.user_id=$uid) gte(interaction_date=$date) order(id)",
+    "select meetings eq(user_id=$uid) eq(is_excluded=false) gte(meeting_date=$date) order(id)",
+    "select follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=true) gte(completed_at=$date) order(id)",
+    "select interactions eq(contacts.user_id=$uid) eq(is_excluded=false) gte(interaction_date=$date) order(id)",
   ],
   getHomeStats: [
-    "select·head·count meetings eq(user_id=$uid) gte(meeting_date=$date)",
-    "select·head·count meetings eq(user_id=$uid) gte(meeting_date=$date) lt(meeting_date=$date)",
-    "select·head·count follow_up_action_items eq(user_id=$uid) eq(is_completed=false)",
-    "select·head·count follow_up_action_items eq(user_id=$uid) eq(is_completed=true) gte(completed_at=$date)",
-    "select·head·count follow_up_action_items eq(user_id=$uid) eq(is_completed=true) gte(completed_at=$date) lt(completed_at=$date)",
-    'select·head·count contacts eq(user_id=$uid) eq(network_status="active") gte(created_at=$date)',
-    'select·head·count contacts eq(user_id=$uid) eq(network_status="active") gte(created_at=$date) lt(created_at=$date)',
-    "select·head·count interactions eq(contacts.user_id=$uid) gte(interaction_date=$date)",
-    "select·head·count interactions eq(contacts.user_id=$uid) gte(interaction_date=$date) lt(interaction_date=$date)",
-    'select·head·count email_messages eq(user_id=$uid) eq(direction="outbound") gte(date=$date)',
-    'select·head·count email_messages eq(user_id=$uid) eq(direction="outbound") gte(date=$date) lt(date=$date)',
+    "select·head·count meetings eq(user_id=$uid) eq(is_excluded=false) gte(meeting_date=$date)",
+    "select·head·count meetings eq(user_id=$uid) eq(is_excluded=false) gte(meeting_date=$date) lt(meeting_date=$date)",
+    "select·head·count follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=false)",
+    "select·head·count follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=true) gte(completed_at=$date)",
+    "select·head·count follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=true) gte(completed_at=$date) lt(completed_at=$date)",
+    "select·head·count contacts eq(user_id=$uid) eq(network_status=\"active\") gte(created_at=$date)",
+    "select·head·count contacts eq(user_id=$uid) eq(network_status=\"active\") gte(created_at=$date) lt(created_at=$date)",
+    "select·head·count interactions eq(contacts.user_id=$uid) eq(is_excluded=false) gte(interaction_date=$date)",
+    "select·head·count interactions eq(contacts.user_id=$uid) eq(is_excluded=false) gte(interaction_date=$date) lt(interaction_date=$date)",
+    "select·head·count email_messages eq(user_id=$uid) eq(is_excluded=false) eq(direction=\"outbound\") gte(date=$date)",
+    "select·head·count email_messages eq(user_id=$uid) eq(is_excluded=false) eq(direction=\"outbound\") gte(date=$date) lt(date=$date)",
   ],
   getActivityHeatmap: [
-    "select meetings eq(user_id=$uid) gte(meeting_date=$date) order(id)",
-    "select follow_up_action_items eq(user_id=$uid) eq(is_completed=true) gte(completed_at=$date) order(id)",
-    "select interactions eq(contacts.user_id=$uid) gte(interaction_date=$date) order(id)",
-    'select email_messages eq(user_id=$uid) eq(direction="outbound") gte(date=$date) order(id)',
+    "select meetings eq(user_id=$uid) eq(is_excluded=false) gte(meeting_date=$date) order(id)",
+    "select follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=true) gte(completed_at=$date) order(id)",
+    "select interactions eq(contacts.user_id=$uid) eq(is_excluded=false) gte(interaction_date=$date) order(id)",
+    "select email_messages eq(user_id=$uid) eq(is_excluded=false) eq(direction=\"outbound\") gte(date=$date) order(id)",
     "select contacts eq(user_id=$uid) gte(created_at=$date) order(id)",
   ],
   getActionItems: [
-    "select follow_up_action_items eq(user_id=$uid) eq(is_completed=false) or(snoozed_until.is.null,snoozed_until.lt.$date) order(due_at) order(id)",
+    "select follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=false) or(snoozed_until.is.null,snoozed_until.lt.$date) order(due_at) order(id)",
   ],
-  // CAR-223: paginated, so completed_at (nullable on legacy rows) gains an
-  // order(id) tiebreak to keep page boundaries stable.
   getCompletedActionItems: [
-    "select follow_up_action_items eq(user_id=$uid) eq(is_completed=true) order(completed_at) order(id)",
+    "select follow_up_action_items eq(user_id=$uid) eq(is_excluded=false) eq(is_completed=true) order(completed_at) order(id)",
   ],
   getOnboardingActionItemId: [
-    'select follow_up_action_items [maybeSingle] eq(user_id=$uid) eq(source="onboarding") eq(is_completed=false)',
+    "select follow_up_action_items [maybeSingle] eq(user_id=$uid) eq(source=\"onboarding\") eq(is_completed=false)",
   ],
   getContactById: [
-    // The two embedded orders are what make the profile page's sort input
-    // deterministic instead of plan-dependent (CAR-216).
     "select contacts [single] eq(id=$n) eq(user_id=$uid) order(contact_companies.id) order(contact_schools.id)",
   ],
   getContactEmailLookup: [

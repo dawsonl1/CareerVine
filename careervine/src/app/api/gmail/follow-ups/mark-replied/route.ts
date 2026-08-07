@@ -27,6 +27,7 @@ export const POST = withApiHandler<z.infer<typeof schema>>({
     // established via the follow-up message, so the guard lives here.)
     const { data: outbound } = await service
       .from("email_messages")
+      // exclusion-exempt: ownership guard: did this user write on this thread at all. Not a metric, and striking a sent message does not unsend it.
       .select("id")
       .eq("user_id", user.id)
       .eq("thread_id", threadId)

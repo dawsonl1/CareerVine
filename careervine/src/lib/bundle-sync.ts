@@ -289,6 +289,8 @@ export async function fetchTouchSignals(
         client
           .from("interactions")
           .select("contact_id")
+          // CAR-260: struck by the user, so it must not count.
+          .eq("is_excluded", false)
           .in("contact_id", contactIds)
           .order("id")
           .range(from, to),
@@ -306,6 +308,8 @@ export async function fetchTouchSignals(
         client
           .from("follow_up_action_items")
           .select("contact_id")
+          // CAR-260: struck by the user, so it must not count.
+          .eq("is_excluded", false)
           .in("contact_id", contactIds)
           .order("id")
           .range(from, to),

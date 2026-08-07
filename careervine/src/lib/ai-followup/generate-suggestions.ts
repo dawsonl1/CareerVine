@@ -78,6 +78,7 @@ export async function fetchSuggestionCandidates(userId: string): Promise<Suggest
         await service
           .from("interactions")
           .select("contact_id, interaction_date")
+          .eq("is_excluded", false)
           .in("contact_id", chunk)
           .order("id")
           .range(from, to),
@@ -87,7 +88,8 @@ export async function fetchSuggestionCandidates(userId: string): Promise<Suggest
       must(
         await service
           .from("meeting_contacts")
-          .select("contact_id, meetings(meeting_date)")
+          .select("contact_id, meetings!inner(meeting_date)")
+          .eq("meetings.is_excluded", false)
           .in("contact_id", chunk)
           // No id column on this junction; the composite key is the stable order.
           .order("meeting_id")
@@ -516,11 +518,15 @@ export async function generateSuggestions(userId: string): Promise<SuggestionsRe
       .select("contact_id")
       .eq("user_id", userId)
       .eq("source", ActionItemSource.AiSuggestion)
+      // CAR-260: struck by the user, so it must not count.
+      .eq("is_excluded", false)
       .eq("is_completed", false)
       .then(({ data }) => new Set((data || []).map((r) => r.contact_id).filter(Boolean) as number[])),
     service
       .from("follow_up_action_items")
       .select("id, contact_id, title, suggestion_evidence, created_at, contacts(name, photo_url, industry)")
+      // CAR-260: struck by the user, so it must not count.
+      .eq("is_excluded", false)
       .eq("user_id", userId)
       .eq("direction", ActionDirection.WaitingOn)
       .eq("is_completed", false),

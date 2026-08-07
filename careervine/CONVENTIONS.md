@@ -28,7 +28,7 @@ check, a unit-test coverage gate (§h), and `npm run check:conventions`.
 
 ## a. API routes
 
-108 routes live under `careervine/src/app/api` and 91 of them go through `withApiHandler`,
+109 routes live under `careervine/src/app/api` and 92 of them go through `withApiHandler`,
 which owns auth, the admin and capability gates, rate limiting, Zod validation (`paramsSchema`,
 then `schema`, then `querySchema`), and error mapping, in that order. Gates and the limiter run
 before the body is parsed. The 17 routes that skip the wrapper are the named allowlist in
@@ -159,9 +159,17 @@ Contact writes canonicalize inside `careervine/src/lib/data/contacts.ts`, locati
 `careervine/src/lib/data/locations.ts`. Under MCP the service-role client bypasses RLS, so
 every query scopes to the operating user or sits behind an ownership assertion.
 
-Four `calendar_events` columns are application-owned and unrecoverable from a re-sync. A
+Five `calendar_events` columns are application-owned and unrecoverable from a re-sync. A
 migration deleting or truncating that table must preserve them or carry a
 `-- destructive-resync-audited:` annotation.
+
+`is_excluded` on the five timeline-backing tables means "still stored, must not count toward
+anything derived". Every read of those tables filters it or writes down why it does not, in an
+`// exclusion-exempt: <reason>` comment on the chain. The bar for the hatch is that the read is
+not producing a value the user sees: sync bookkeeping, real reply threading, abuse controls and
+the record views the timeline restores from. Read the check's own header before adding one; it
+explains why the guard exists at all, which is that the near-identical `is_simulated` is applied
+at 6 of the roughly 22 reads that need it and nothing catches the rest.
 
 - Authoritative: `careervine/src/lib/queries.ts` (header), `careervine/src/lib/data/client.ts`
   (header, and the `must()` docblock), `careervine/src/mcp/lib/db.ts` (header)

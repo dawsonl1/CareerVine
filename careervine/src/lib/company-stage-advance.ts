@@ -141,6 +141,8 @@ export async function advanceCompaniesForRepliedThreads(
     .from("email_messages")
     .select("matched_contact_id, email_message_contacts(contact_id)")
     .eq("user_id", userId)
+    // CAR-260: a struck reply must not advance the company past researching.
+    .eq("is_excluded", false)
     .in("thread_id", threads)
     // Only needs enough messages to identify WHICH contacts replied, so a
     // partial window still resolves the same contact set in practice. Ordered

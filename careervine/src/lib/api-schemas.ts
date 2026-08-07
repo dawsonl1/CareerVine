@@ -77,6 +77,12 @@ export const gmailSendSchema = z.object({
 
 export const gmailEmailsQuerySchema = z.object({
   contactId: z.string().min(1, "contactId is required"),
+  /**
+   * Also return messages the user struck from the record (CAR-260), for the
+   * contact timeline's "Show removed" view. Off by default, so the Emails tab
+   * and every existing caller keep the filtered list they already had.
+   */
+  includeExcluded: z.enum(["0", "1"]).optional(),
 });
 
 export const gmailEmailMoveSchema = z.object({
@@ -552,3 +558,15 @@ export const bundleUnsubscribeSchema = z.object({
   keepAll: z.boolean(),
   cursor: z.number().int().nonnegative().nullable().optional(),
 });
+
+/**
+ * Striking a contact-timeline entry from every derived calculation, or
+ * restoring it (CAR-260). Discriminated on `kind` because emails are addressed
+ * by their Gmail message id and the other three by their numeric primary key.
+ */
+export const timelineExcludeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("email"), gmailMessageId: z.string().min(1) }),
+  z.object({ kind: z.literal("meeting"), id: z.number().int().positive() }),
+  z.object({ kind: z.literal("interaction"), id: z.number().int().positive() }),
+  z.object({ kind: z.literal("completed_action"), id: z.number().int().positive() }),
+]);

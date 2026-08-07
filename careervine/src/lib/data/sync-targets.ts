@@ -107,6 +107,7 @@ export async function getRecentlyTouchedContactIds(
   const outboundRows = await paginateAll(async (from, to) => {
     const { data, error } = await service
       .from("email_messages")
+      // exclusion-exempt: sync targeting. Decides whose mailbox to poll next, not what counts; a struck message still proves the contact is active.
       .select("matched_contact_id")
       .eq("user_id", userId)
       .eq("direction", "outbound")

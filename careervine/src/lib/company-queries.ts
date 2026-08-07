@@ -274,6 +274,8 @@ export async function getContactStages(
             )
             .eq("email_messages.user_id", userId)
             .eq("email_messages.is_simulated", false)
+            // CAR-260: struck by the user, so it must not derive a stage.
+            .eq("email_messages.is_excluded", false)
             .in("contact_id", chunk)
             .order("email_message_id")
             .order("contact_id")
@@ -328,6 +330,8 @@ export async function getContactStages(
               .from("interactions")
               .select("contact_id, interaction_date, contacts!inner()")
               .eq("contacts.user_id", userId)
+              // CAR-260: struck by the user, so it must not derive a stage.
+              .eq("is_excluded", false)
               .in("contact_id", chunk)
               .order("id")
               .range(from, to),
@@ -383,6 +387,8 @@ export async function getContactStages(
               // this event collapses onto it — see the noteEvent aggregation.
               .select("id, google_event_id, contact_id, start_at, status")
               .eq("user_id", userId)
+              // CAR-260: struck by the user, so it must not derive a stage.
+              .eq("is_excluded", false)
               .in("contact_id", chunk)
               .order("id")
               .range(from, to),
@@ -404,6 +410,8 @@ export async function getContactStages(
               // counting without the id double-counts one call.
               .select("calendar_event_id, contact_id, calendar_events!inner(user_id, google_event_id, start_at, status)")
               .eq("calendar_events.user_id", userId)
+              // CAR-260: struck by the user, so it must not derive a stage.
+              .eq("calendar_events.is_excluded", false)
               .in("contact_id", chunk)
               .order("calendar_event_id")
               .order("contact_id")
@@ -427,6 +435,8 @@ export async function getContactStages(
               // calendar_events carries no such column.
               .select("meeting_id, contact_id, meetings!inner(user_id, meeting_date, calendar_event_id, meeting_type)")
               .eq("meetings.user_id", userId)
+              // CAR-260: struck by the user, so it must not derive a stage.
+              .eq("meetings.is_excluded", false)
               .in("contact_id", chunk)
               .order("meeting_id")
               .order("contact_id")
@@ -2005,6 +2015,8 @@ export async function getCompanyDetail(
           await db()
             .from("interactions")
             .select("contact_id, interaction_type, interaction_type_detail, interaction_date")
+            // CAR-260: struck by the user, so it must not count.
+            .eq("is_excluded", false)
             .in("contact_id", chunk)
             // interaction_date DESC stays PRIMARY, with id DESC only as the
             // tiebreaker range pagination needs. The consumer below keeps the

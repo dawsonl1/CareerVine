@@ -50,6 +50,7 @@ export async function buildLastTouchMap(userId: string, contactIds: number[]): P
             .from("meeting_contacts")
             .select("contact_id, meetings!inner(meeting_date)")
             .eq("meetings.user_id", userId)
+            .eq("meetings.is_excluded", false)
             .in("contact_id", chunk)
             .order("contact_id")
             .order("meeting_id")
@@ -64,6 +65,7 @@ export async function buildLastTouchMap(userId: string, contactIds: number[]): P
             .from("interactions")
             .select("contact_id, interaction_date, contacts!inner()")
             .eq("contacts.user_id", userId)
+            .eq("is_excluded", false)
             .in("contact_id", chunk)
             .order("id")
             .range(from, to),

@@ -225,3 +225,17 @@ open to their full summary, an email opens to the message itself with a reply
 button, and a completed action can be reopened if it turns out not to be finished.
 Deleting a conversation keeps the action items that came out of it, and says so
 before you confirm rather than after.
+
+A back and forth is one conversation, not six rows. Emails on the same thread stack
+into a single entry showing how many messages it holds, and open to the individual
+messages when you want them, so a contact's history reads as the handful of things
+that actually happened rather than every message that carried them. A sent email no
+longer shows up twice either, once as the email and once as its own log entry.
+
+Some of what lands in your history is not really history. An automated calendar
+notice, a "so and so accepted your invitation" reply, a reminder nobody wrote: these
+used to count as the contact replying to you, which quietly retired your follow ups
+and moved the company forward. Any entry can now be struck from the record. It stays
+where it is, in Gmail and on your calendar, and stops counting toward your
+suggestions, your company progress and your network stats. Show removed on the
+timeline brings the struck entries back into view, and puts any of them back.
