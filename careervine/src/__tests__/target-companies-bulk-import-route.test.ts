@@ -74,7 +74,10 @@ function makeReq() {
   return new NextRequest("https://www.careervine.app/api/target-companies/bulk-import", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ companies: [{ name: "Stripe", tier: "Big Tech", priority_score: 9 }] }),
+    // No `tier`: CAR-251 retired target_companies.tier, dropping the column and
+    // the route's write of it. A sheet may still carry the key, and the route
+    // ignores it.
+    body: JSON.stringify({ companies: [{ name: "Stripe", priority_score: 9 }] }),
   });
 }
 
@@ -111,7 +114,6 @@ describe("POST /api/target-companies/bulk-import — targeting is hand-set", () 
     await POST(makeReq());
 
     expect(targetWrite()?.payload).toMatchObject({
-      tier: "Big Tech",
       priority_score: 9,
       program_name: null,
       app_window_text: null,
