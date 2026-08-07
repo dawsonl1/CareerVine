@@ -24,6 +24,7 @@ import { track } from "@/lib/analytics/client";
 import { editRatio } from "@/lib/analytics/edit-ratio";
 import { UI_EVENTS, emitUiEvent } from "@/lib/ui-events";
 import { useLatestRequest } from "@/hooks/use-latest-request";
+import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 
 type IntroPhase = "context" | "generating" | "editing" | "generating-followups" | "ready";
 
@@ -602,6 +603,9 @@ function ComposeEmailModalBody() {
       // onboardingIntro marks the guided flow's templated first outreach so
       // the finale doesn't fire on unrelated sends (isIntro is too broad —
       // it's also true for regular intro composes).
+      // Stage derivation reads this write, so a cached company roster
+      // would show the old badge (CAR-268).
+      invalidateCompanyScopes();
       emitUiEvent(UI_EVENTS.emailSent, { onboardingIntro: !!templateFollowUps?.length });
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {
@@ -684,6 +688,9 @@ function ComposeEmailModalBody() {
       // onboardingIntro marks the guided flow's templated first outreach so
       // the finale doesn't fire on unrelated sends (isIntro is too broad —
       // it's also true for regular intro composes).
+      // Stage derivation reads this write, so a cached company roster
+      // would show the old badge (CAR-268).
+      invalidateCompanyScopes();
       emitUiEvent(UI_EVENTS.emailSent, { onboardingIntro: !!templateFollowUps?.length });
       setTimeout(() => closeCompose(), 1500);
     } catch (err) {

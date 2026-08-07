@@ -101,6 +101,8 @@ function renderPipeline(all: LocationBlock) {
       linkedinUrl={null}
       offices={[]}
       state={state}
+      pipelineFailed={false}
+      onRetryPipeline={() => {}}
       actions={ACTIONS}
       saveStatus="idle"
       scope="all"
