@@ -296,7 +296,8 @@ describe("MeetingsPage — honest load-failure state (F21)", () => {
     q.getAllInteractions.mockResolvedValue([
       {
         id: 5,
-        interaction_type: "coffee chat",
+        interaction_type: "coffee",
+        interaction_type_detail: null,
         interaction_date: "2026-07-08T12:00:00Z",
         summary: "Caught up over coffee",
         contacts: { name: "Jane Doe" },

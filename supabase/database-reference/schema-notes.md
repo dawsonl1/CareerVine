@@ -197,7 +197,7 @@ Track meetings with contacts.
 - `id`: Auto-incrementing primary key.
 - `user_id`: Foreign key to `users`.
 - `meeting_date`: When the meeting occurred.
-- `meeting_type`: Type of meeting (coffee, video, etc.); optional for bare calendar events.
+- `meeting_type`: Type of meeting: career-fair | networking | coffee | text | other (CHECK-constrained since CAR-242). Optional for bare calendar events. 'coffee' is the one-on-one bucket and covers phone and video calls. Free text for 'other' lives in meeting_type_detail.
 - `title`: Custom meeting name (overrides auto-generated).
 - `notes`: Meeting notes (past meetings).
 - `private_notes`: Private reminders for future meetings.
@@ -228,7 +228,7 @@ Track all touchpoints with contacts.
 - `id`: Auto-incrementing primary key.
 - `contact_id`: Foreign key to `contacts`.
 - `interaction_date`: When interaction occurred.
-- `interaction_type`: Type (email, call, coffee, etc.).
+- `interaction_type`: Type: career-fair | networking | coffee | text | other, plus the system-written 'email' (CHECK-constrained since CAR-242). Shares its vocabulary with meetings.meeting_type; free text for 'other' lives in interaction_type_detail.
 - `summary`: What was discussed.
 
 ## tags

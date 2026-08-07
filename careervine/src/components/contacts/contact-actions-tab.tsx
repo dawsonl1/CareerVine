@@ -14,7 +14,7 @@ import { useDeferredAction } from "@/hooks/use-deferred-action";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, getPriorityOrder } from "@/lib/priority-helpers";
 import { dueDateKey, formatDueDate, isDueDateOverdue } from "@/lib/due-date";
 import { formatWallClock } from "@/lib/calendar-day";
-import { ActionDirection } from "@/lib/constants";
+import { ActionDirection, conversationTypeLabel } from "@/lib/constants";
 
 import { inputClasses } from "@/lib/form-styles";
 
@@ -453,7 +453,7 @@ export function ContactActionsTab({
                   { value: "", label: "No linked meeting" },
                   ...meetings.map((m) => ({
                     value: String(m.id),
-                    label: `${(m.meeting_type ? m.meeting_type.charAt(0).toUpperCase() + m.meeting_type.slice(1) : (m.title || "Meeting"))} · ${formatWallClock(m.meeting_date, { month: "short", day: "numeric", year: "numeric" }, "en-US")}`,
+                    label: `${conversationTypeLabel(m.meeting_type) || m.title || "Meeting"} · ${formatWallClock(m.meeting_date, { month: "short", day: "numeric", year: "numeric" }, "en-US")}`,
                   })),
                 ]}
               />

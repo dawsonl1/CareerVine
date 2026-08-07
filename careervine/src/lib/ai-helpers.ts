@@ -128,7 +128,7 @@ export async function getContactContext(
     // the user a draft entirely — the worse outcome for an assistive feature.
     const { data: meetings } = await service
       .from("meetings")
-      .select("id, meeting_date, meeting_type, notes, transcript")
+      .select("id, meeting_date, meeting_type, meeting_type_detail, notes, transcript")
       .in("id", meetingIds)
       .eq("user_id", userId)
       .order("meeting_date", { ascending: false });

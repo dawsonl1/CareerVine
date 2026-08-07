@@ -135,7 +135,7 @@ export async function gatherContactContext(
     const meetingRows = must(
       await service
         .from("meetings")
-        .select("id, meeting_date, meeting_type, title, notes")
+        .select("id, meeting_date, meeting_type, meeting_type_detail, title, notes")
         .in("id", meetingIds)
         .eq("user_id", userId)
         .order("meeting_date", { ascending: false })
@@ -185,7 +185,7 @@ export async function gatherContactContext(
 
   const interactionsPromise = service
     .from("interactions")
-    .select("interaction_date, interaction_type, summary")
+    .select("interaction_date, interaction_type, interaction_type_detail, summary")
     .eq("contact_id", contactId)
     .order("interaction_date", { ascending: false })
     .limit(MAX_INTERACTIONS)

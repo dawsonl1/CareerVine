@@ -242,7 +242,7 @@ describe("contact stages past the 1000-row ceiling (CAR-207 review)", () => {
       contacts.flatMap((c) =>
         Array.from({ length: PER_PERSON }, (_, j) => ({
           contact_id: c.id,
-          interaction_type: "phone",
+          interaction_type: "coffee",
           interaction_date: new Date(Date.UTC(2026, 0, j + 1)).toISOString(),
         })),
       ),

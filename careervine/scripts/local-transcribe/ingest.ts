@@ -64,7 +64,9 @@ if (!Array.isArray(turns) || turns.length === 0) {
 const contactId = Number(required("contact"));
 const meetingDate = required("date");
 const title = required("title");
-const meetingType = arg("type") ?? "video";
+// "coffee" is the one-on-one bucket and covers the video/phone calls this
+// script ingests (CAR-242); the DB CHECK rejects the old "video".
+const meetingType = arg("type") ?? "coffee";
 const zoomLink = arg("zoom-link") ?? null;
 
 const { data: contact, error: contactErr } = await supabase

@@ -55,7 +55,7 @@ import { useGmailConnection } from "@/hooks/use-gmail-connection";
 import { useQuickCapture } from "@/components/quick-capture-context";
 
 import { inputClasses } from "@/lib/form-styles";
-import { getRsvpDisplay } from "@/lib/constants";
+import { getRsvpDisplay, conversationTypeLabel } from "@/lib/constants";
 import { withToastOnError } from "@/lib/with-toast-on-error";
 import { dueDateKey, formatDueDate, isDueDateOverdue } from "@/lib/due-date";
 import { formatWallClock } from "@/lib/calendar-day";
@@ -434,7 +434,7 @@ export default function MeetingsPage() {
               const names = m.meeting_contacts.map(mc => mc.contacts?.name || "").join(" ");
               return (
                 title.toLowerCase().includes(q) ||
-                m.meeting_type?.toLowerCase().includes(q) ||
+                conversationTypeLabel(m.meeting_type, m.meeting_type_detail)?.toLowerCase().includes(q) ||
                 (m.notes || "").toLowerCase().includes(q) ||
                 (m.private_notes || "").toLowerCase().includes(q) ||
                 names.toLowerCase().includes(q)
@@ -443,7 +443,7 @@ export default function MeetingsPage() {
             const matchesInteraction = (i: InteractionWithContact) => {
               if (!q) return true;
               return (
-                (i.interaction_type || "").toLowerCase().includes(q) ||
+                (conversationTypeLabel(i.interaction_type, i.interaction_type_detail) || "").toLowerCase().includes(q) ||
                 (i.summary || "").toLowerCase().includes(q) ||
                 (i.contacts?.name || "").toLowerCase().includes(q)
               );
@@ -471,7 +471,7 @@ export default function MeetingsPage() {
                         <MessageSquare className="h-7 w-7 text-on-primary-container" />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-lg font-medium text-foreground capitalize">{(item.data as InteractionWithContact).interaction_type}</h3>
+                        <h3 className="text-lg font-medium text-foreground">{conversationTypeLabel((item.data as InteractionWithContact).interaction_type, (item.data as InteractionWithContact).interaction_type_detail) || "Interaction"}</h3>
                         <p className="text-base text-muted-foreground">
                           {new Date((item.data as InteractionWithContact).interaction_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         </p>
@@ -517,7 +517,7 @@ export default function MeetingsPage() {
                       <Calendar className="h-7 w-7 text-on-secondary-container" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-lg font-medium text-foreground">{meeting.title || <span className="capitalize">{meeting.meeting_type || "Meeting"}</span>}</h3>
+                      <h3 className="text-lg font-medium text-foreground">{meeting.title || conversationTypeLabel(meeting.meeting_type, meeting.meeting_type_detail) || "Meeting"}</h3>
                       <p className="text-base text-muted-foreground">
                         {formatWallClock(meeting.meeting_date, { weekday: "short", month: "short", day: "numeric", year: "numeric" }, "en-US")}
                         {" · "}

@@ -1969,6 +1969,7 @@ export type Database = {
           id: number
           interaction_date: string
           interaction_type: string
+          interaction_type_detail: string | null
           summary: string | null
         }
         Insert: {
@@ -1976,6 +1977,7 @@ export type Database = {
           id?: number
           interaction_date: string
           interaction_type: string
+          interaction_type_detail?: string | null
           summary?: string | null
         }
         Update: {
@@ -1983,6 +1985,7 @@ export type Database = {
           id?: number
           interaction_date?: string
           interaction_type?: string
+          interaction_type_detail?: string | null
           summary?: string | null
         }
         Relationships: [
@@ -2102,6 +2105,7 @@ export type Database = {
           meet_link: string | null
           meeting_date: string
           meeting_type: string | null
+          meeting_type_detail: string | null
           notes: string | null
           private_notes: string | null
           title: string | null
@@ -2119,6 +2123,7 @@ export type Database = {
           meet_link?: string | null
           meeting_date: string
           meeting_type?: string | null
+          meeting_type_detail?: string | null
           notes?: string | null
           private_notes?: string | null
           title?: string | null
@@ -2136,6 +2141,7 @@ export type Database = {
           meet_link?: string | null
           meeting_date?: string
           meeting_type?: string | null
+          meeting_type_detail?: string | null
           notes?: string | null
           private_notes?: string | null
           title?: string | null

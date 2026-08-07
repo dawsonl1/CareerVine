@@ -28,7 +28,7 @@ export const GET = withApiHandler({
     // Fetch the actual meetings (owned by user, with notes or transcripts)
     const { data: meetings } = await service
       .from("meetings")
-      .select("id, meeting_date, meeting_type, notes, transcript")
+      .select("id, meeting_date, meeting_type, meeting_type_detail, notes, transcript")
       .eq("user_id", user.id)
       .in("id", meetingIds)
       .order("meeting_date", { ascending: false })

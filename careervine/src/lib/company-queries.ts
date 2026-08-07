@@ -39,6 +39,7 @@ import { findOrCreateCompany } from "./company-helpers";
 import { nextActionForCompany } from "./company-next-action";
 import { isByuFamilySchool, schoolsMatch } from "@/lib/schools/affinity";
 import { sortExperiences } from "@/lib/experience-order";
+import { conversationTypeLabel } from "@/lib/constants";
 
 type QueryClient = ReturnType<typeof createSupabaseBrowserClient>;
 
@@ -1328,7 +1329,7 @@ export async function getCompanyDetail(
         must(
           await db()
             .from("interactions")
-            .select("contact_id, interaction_type, interaction_date")
+            .select("contact_id, interaction_type, interaction_type_detail, interaction_date")
             .in("contact_id", chunk)
             // interaction_date DESC stays PRIMARY, with id DESC only as the
             // tiebreaker range pagination needs. The consumer below keeps the
@@ -1382,7 +1383,10 @@ export async function getCompanyDetail(
   const lastInteractionByContact = new Map<number, { type: string; date: string }>();
   for (const i of interactionRows) {
     if (!lastInteractionByContact.has(i.contact_id)) {
-      lastInteractionByContact.set(i.contact_id, { type: i.interaction_type, date: i.interaction_date });
+      lastInteractionByContact.set(i.contact_id, {
+        type: conversationTypeLabel(i.interaction_type, i.interaction_type_detail) ?? i.interaction_type,
+        date: i.interaction_date,
+      });
     }
   }
 

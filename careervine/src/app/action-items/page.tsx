@@ -14,7 +14,7 @@ import type { Database } from "@/lib/database.types";
 import { CheckSquare, AlertTriangle, Check, Pencil, Calendar, X, Plus, Trash2, RotateCcw, ChevronDown, Clock, CalendarDays, Minus, Sparkles, Bookmark, Hourglass } from "lucide-react";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
-import { ActionItemSource, ActionDirection } from "@/lib/constants";
+import { ActionItemSource, ActionDirection, conversationTypeLabel } from "@/lib/constants";
 import { useSuggestions } from "@/hooks/use-suggestions";
 import { Select } from "@/components/ui/select";
 import { useDeferredAction } from "@/hooks/use-deferred-action";
@@ -791,7 +791,7 @@ export default function ActionItemsPage() {
                 </h3>
                 <div className="p-5 rounded-[12px] bg-surface-container">
                   <div className="flex items-center gap-3 mb-3">
-                    <span className="text-base font-medium text-foreground capitalize">{selectedItem.meetings.title || selectedItem.meetings.meeting_type || "Meeting"}</span>
+                    <span className="text-base font-medium text-foreground">{selectedItem.meetings.title || conversationTypeLabel(selectedItem.meetings.meeting_type) || "Meeting"}</span>
                     <span className="text-sm text-muted-foreground">
                       {formatWallClock(selectedItem.meetings.meeting_date, { month: "short", day: "numeric", year: "numeric" }, "en-US")}
                     </span>
