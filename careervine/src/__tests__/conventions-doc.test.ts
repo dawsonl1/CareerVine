@@ -99,6 +99,7 @@ const SYMBOL_CLAIMS: Array<[file: string, symbols: string[]]> = [
 const WORDS = [
   "Zero", "One", "Two", "Three", "Four", "Five", "Six",
   "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve",
+  "Thirteen", "Fourteen", "Fifteen",
 ];
 
 describe("CONVENTIONS.md", () => {

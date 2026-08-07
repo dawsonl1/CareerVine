@@ -35,6 +35,7 @@ function person(contact_id: number, roles: Partial<Role>[]): CompanyPerson {
     last_scraped_at: null,
     linkedin_url: null,
     stage: null,
+    conversations: { past: null, upcoming: null },
     email: null,
     last_interaction: null,
     adjacency_score: null,
