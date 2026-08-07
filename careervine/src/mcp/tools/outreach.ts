@@ -17,6 +17,8 @@ import {
   getOrCreateTargetCompany,
   getCompanyName,
   setStageOverride,
+  setCompanyStageForCompany,
+  updateCompanyResearch,
 } from "../lib/db";
 import { handler, contactRefShape, companyRefShape } from "../lib/tool-utils";
 
@@ -292,6 +294,56 @@ export function registerOutreachTools(server: McpServer): void {
       await addPipelineNote(uid(), targetId, note);
       const companyName = (await getCompanyName(id)) ?? `company ${id}`;
       return { summary: `Intel logged for ${companyName}` };
+    }),
+  );
+
+  server.registerTool(
+    "set_company_stage",
+    {
+      title: "Set company pipeline stage",
+      description:
+        "Move a company to a recruiting stage: researching, outreach_active, applied, interviewing, closed. This is the deliberate equivalent of dragging the stage on the company page, so it can move a company BACKWARDS to correct a mistake. The company becomes a target automatically if it is not one yet. Separate from the automatic advance that fires when someone who works there replies.",
+      inputSchema: {
+        ...companyRefShape,
+        stage: z.enum(["researching", "outreach_active", "applied", "interviewing", "closed"]),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ company_id, name, stage }) => {
+      const id = await resolveCompanyId({ company_id, name });
+      const companyName = await getCompanyName(id);
+      const { previousStage } = await setCompanyStageForCompany(id, stage);
+      return {
+        summary:
+          previousStage === stage
+            ? `${companyName} was already at ${stage}`
+            : `${companyName}: ${previousStage ?? "none"} → ${stage}`,
+        company_id: id,
+      };
+    }),
+  );
+
+  server.registerTool(
+    "update_company_target",
+    {
+      title: "Update company research fields",
+      description:
+        "Set a target company's application deadline, priority, program name, or application-window note. next_app_date is what the outreach queue orders by: a company with a date inside the boost window jumps to the front, so recording a deadline you found is how you steer your own queue. Only the fields you pass change. The company becomes a target automatically if it is not one yet.",
+      inputSchema: {
+        ...companyRefShape,
+        next_app_date: z.string().nullable().optional().describe("YYYY-MM-DD application deadline; null clears it"),
+        priority_score: z.number().int().nullable().optional().describe("Higher sorts first"),
+        program_name: z.string().nullable().optional(),
+        app_window_text: z.string().nullable().optional().describe("Free text when the window has no exact date"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ company_id, name, ...patch }) => {
+      const id = await resolveCompanyId({ company_id, name });
+      const companyName = await getCompanyName(id);
+      const { fields } = await updateCompanyResearch(id, patch);
+      if (fields.length === 0) throw new Error("Pass at least one field to change");
+      return { summary: `Updated ${companyName}: ${fields.join(", ")}`, company_id: id, fields };
     }),
   );
 

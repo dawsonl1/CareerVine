@@ -29,17 +29,36 @@ That's it. The server is registered in the repo-root `.mcp.json`, so any Claude 
 - **No tier auto-graduation on outbound email** — prospects graduate on a reply, a logged interaction, or a meeting, same as the app.
 - **No delete tools** — the lowest-regret omission.
 
-## Tools (29)
+## Tools (36)
 
 | Area | Tools |
 | --- | --- |
-| Contacts & research | `search_contacts`, `get_contact_dossier`, `add_contact`, `add_contact_note`, `tag_contact`, `set_network_status` |
+| Contacts & research | `search_contacts`, `get_contact_dossier`, `add_contact`, `update_contact`, `add_contact_note`, `add_contact_email`, `add_contact_phone`, `tag_contact`, `untag_contact`, `set_network_status`, `defer_follow_up` |
 | Email | `create_email_draft`, `send_email`, `check_delivery`, `schedule_email`, `create_follow_up_sequence`, `list_scheduled`, `cancel_scheduled`, `reschedule_follow_up`, `search_email_history`, `get_email_thread` |
-| Outreach engine | `list_outreach_queue`, `list_companies`, `get_company`, `add_company_intel`, `set_stage_override` |
+| Outreach engine | `list_outreach_queue`, `list_companies`, `get_company`, `add_company_intel`, `set_company_stage`, `update_company_target`, `set_stage_override` |
 | Relationship upkeep | `log_interaction`, `create_action_item`, `list_action_items`, `update_action_item`, `list_due_followups`, `get_network_health` |
 | Calendar | `list_meetings`, `create_meeting` |
 
-Deliberately excluded: AI generation tools — Claude is the generator; the server exposes data and actions only.
+Deliberately excluded: AI generation tools — Claude is the generator; the server exposes data and actions only. Still no delete tools: `untag_contact` removes a tag's LINK to one contact, never the tag itself.
+
+### Steering your own queue
+
+`list_outreach_queue` orders by application deadline (inside the boost window) then priority, and `update_company_target` is what writes both. Recording a deadline you found on a careers page is how a company moves to the front of the queue you are about to work.
+
+`set_company_stage` moves a company through researching → outreach_active → applied → interviewing → closed, and can move it BACKWARDS to correct a mistake. It writes the target row and the active pipeline cycle together, so the companies list and the company page never disagree. It is separate from the automatic advance that fires when someone who currently works there replies.
+
+A stage or field set through MCP reaches an already-loaded companies list on its next fetch, or after that list's 5-minute cache window.
+
+### Writing back
+
+The server is no longer read-mostly. An agent that finds something can record it:
+
+- `update_contact` edits a contact's own fields; `add_contact_email` / `add_contact_phone` attach details to someone already in the network, keeping exactly one primary.
+- `update_company_target` sets `next_app_date`, the field the outreach queue's boost window orders by, so an application deadline read off a careers page is one the queue can then act on.
+- `set_company_stage` moves a company through the pipeline. It writes both the target row and the active cycle, because the companies list reads one and the company page reads the other. It can move a company backwards, which the automatic reply-driven advance deliberately cannot.
+- `defer_follow_up` snoozes an overdue contact or stops suggesting a first outreach, so "email now" is not the only answer to a due follow-up.
+
+Still no delete tools, and nothing generates content: the model is the writer.
 
 ### Reading past the first page
 

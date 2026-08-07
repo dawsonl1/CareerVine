@@ -118,32 +118,45 @@ export async function getDueFollowUps(userId: string): Promise<DueFollowUpEntry[
 /**
  * Snooze a contact's reach-out / recently-added card until a given time.
  * Also sets suggestion_cooldown_until to 3 weeks from now.
+ *
+ * `userId` is optional for the same reason it is on `updateContact`: the web
+ * callers run under RLS, which scopes the write for them, while MCP runs a
+ * service client that does not. Passing it adds `.eq("user_id", userId)`
+ * (CAR-265). The two writes are coupled deliberately — every caller that snoozes
+ * also wants the suggestion cooldown, and splitting them has produced a contact
+ * that is snoozed but still being suggested.
  */
-export async function snoozeContact(contactId: number, until: string) {
+export async function snoozeContact(contactId: number, until: string, userId?: string) {
   const cooldown = getSuggestionCooldownTimestamp();
-  const { error } = await db()
+  let query = db()
     .from("contacts")
     .update({
       reach_out_snoozed_until: until,
       suggestion_cooldown_until: cooldown,
     })
     .eq("id", contactId);
+  if (userId) query = query.eq("user_id", userId);
+  const { error } = await query;
   if (error) throw error;
 }
 
 /**
  * Permanently skip first outreach for a contact.
  * Also sets suggestion_cooldown_until to 3 weeks from now.
+ *
+ * `userId` scopes the write for non-RLS clients — see `snoozeContact` (CAR-265).
  */
-export async function skipContactFirstOutreach(contactId: number) {
+export async function skipContactFirstOutreach(contactId: number, userId?: string) {
   const cooldown = getSuggestionCooldownTimestamp();
-  const { error } = await db()
+  let query = db()
     .from("contacts")
     .update({
       first_outreach_skipped: true,
       suggestion_cooldown_until: cooldown,
     })
     .eq("id", contactId);
+  if (userId) query = query.eq("user_id", userId);
+  const { error } = await query;
   if (error) throw error;
 }
 

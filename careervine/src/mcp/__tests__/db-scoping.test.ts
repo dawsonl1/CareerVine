@@ -200,6 +200,69 @@ const DB_TABLE: Record<string, Entry> = {
     drive: () => db.tagContact(5, ["VIP"]),
     route: (q) => (q.table === "contacts" && q.resolution === "maybeSingle" ? CONTACT_CORE : undefined),
   },
+  // CAR-265 writes. Each proves ownership first (assertContactOwned / a scoped
+  // target read), which is what lets the follow-up write key on that id.
+  untagContact: {
+    kind: "ownership",
+    drive: () => db.untagContact(5, ["VIP"]),
+    route: (q) =>
+      q.table === "contacts" && q.resolution === "maybeSingle"
+        ? CONTACT_CORE
+        : q.table === "tags"
+          ? [{ id: 77, name: "VIP" }]
+          : undefined,
+  },
+  updateContactFields: {
+    kind: "ownership",
+    drive: () => db.updateContactFields(5, { industry: "SaaS" }),
+    route: (q) => (q.table === "contacts" && q.resolution === "maybeSingle" ? CONTACT_CORE : undefined),
+  },
+  addContactEmail: {
+    kind: "ownership",
+    drive: () => db.addContactEmail(5, "a@b.com", { isPrimary: true }),
+    route: (q) =>
+      q.table === "contacts" && q.resolution === "maybeSingle"
+        ? CONTACT_CORE
+        : q.table === "contact_emails" && q.op === "select"
+          ? [{ id: 31, email: "old@b.com", is_primary: true }]
+          : undefined,
+  },
+  addContactPhone: {
+    kind: "ownership",
+    drive: () => db.addContactPhone(5, "555-0100", { isPrimary: true }),
+    route: (q) =>
+      q.table === "contacts" && q.resolution === "maybeSingle"
+        ? CONTACT_CORE
+        : q.table === "contact_phones" && q.op === "select"
+          ? [{ id: 41, is_primary: true }]
+          : undefined,
+  },
+  deferFollowUp: {
+    kind: "ownership",
+    // BOTH branches in one drive: the tool routes to snoozeContact or
+    // skipContactFirstOutreach depending on its arguments, and each is a
+    // separate shared export needing its own provenance. A single-branch drive
+    // would leave the other one classified but never exercised.
+    drive: async () => {
+      await db.deferFollowUp(5, { until: "2026-09-01T00:00:00.000Z" });
+      await db.deferFollowUp(5, { skipFirstOutreach: true });
+    },
+    route: (q) => (q.table === "contacts" && q.resolution === "maybeSingle" ? CONTACT_CORE : undefined),
+  },
+  setCompanyStageForCompany: {
+    kind: "ownership",
+    drive: () => db.setCompanyStageForCompany(9, "applied"),
+    route: (q) =>
+      q.table === "target_companies" && q.op === "select"
+        ? { id: 21, active_cycle: 1, status: "researching" }
+        : undefined,
+  },
+  updateCompanyResearch: {
+    kind: "ownership",
+    drive: () => db.updateCompanyResearch(9, { next_app_date: "2026-10-01" }),
+    route: (q) =>
+      q.table === "target_companies" && q.op === "select" ? { id: 21, active_cycle: 1 } : undefined,
+  },
   setNetworkStatus: {
     kind: "scoped",
     drive: () => db.setNetworkStatus(5, "active"),
@@ -441,6 +504,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     // Takes userId explicitly and asserts ownership on the parent target row
     // before writing; pipeline_notes itself carries no user_id.
     addPipelineNote: { kind: "scoped" },
+    setCompanyStage: { kind: "mcp-covered", coveredBy: "setCompanyStageForCompany", touches: "pipeline_cycles" },
+    updateTargetResearch: { kind: "mcp-covered", coveredBy: "updateCompanyResearch", touches: "target_companies" },
   },
   "@/lib/data/client": {
     setDataClient: { kind: "context" },
@@ -484,7 +549,10 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     getContacts: { kind: "web-only" },
     getContactsSearchCorpus: { kind: "web-only" },
     getContactsStreamed: { kind: "web-only" },
-    updateContact: { kind: "web-only" },
+    updateContact: { kind: "mcp-covered", coveredBy: "updateContactFields", touches: "contacts" },
+    attachEmailToContact: { kind: "mcp-covered", coveredBy: "addContactEmail", touches: "contact_emails" },
+    attachPhoneToContact: { kind: "mcp-covered", coveredBy: "addContactPhone", touches: "contact_phones" },
+    removeContactTagsByName: { kind: "mcp-covered", coveredBy: "untagContact", touches: "contact_tags" },
     getFreshJobChangeContactIds: { kind: "web-only" },
     deleteContact: { kind: "web-only" },
     uploadContactPhoto: { kind: "web-only" },
@@ -557,8 +625,8 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     getRelationshipsOnTrack: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "contacts" },
     getNeglectedContacts: { kind: "mcp-covered", coveredBy: "getNetworkHealth", touches: "contacts" },
     getNetworkHealthSummary: { kind: "web-only" },
-    snoozeContact: { kind: "web-only" },
-    skipContactFirstOutreach: { kind: "web-only" },
+    snoozeContact: { kind: "mcp-covered", coveredBy: "deferFollowUp", touches: "contacts" },
+    skipContactFirstOutreach: { kind: "mcp-covered", coveredBy: "deferFollowUp", touches: "contacts" },
     setSuggestionCooldown: { kind: "web-only" },
   },
   "@/lib/data/home": {
