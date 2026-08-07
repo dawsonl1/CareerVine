@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, use } from "react";
+import { useCallback, useEffect, useRef, useState, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
@@ -12,11 +12,14 @@ import { useLatestRequest } from "@/hooks/use-latest-request";
 import { fetchCompanyScopes, type LocationTabsData } from "@/lib/company-scopes";
 import { loadPipeline, type LoadedPipeline } from "@/lib/pipeline-queries";
 import {
+  deleteCompanyForUser,
   demoteContactToBench,
   promoteContactToProspect,
   type CompanyDetail,
   type CompanyPerson,
 } from "@/lib/company-queries";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { withToastOnError } from "@/lib/with-toast-on-error";
 import { activateContact, getFreshJobChangeContactIds } from "@/lib/queries";
 import { invalidateCompaniesList } from "@/lib/companies-list-cache";
 import { hasInAppBackHistory } from "@/lib/nav-history";
@@ -42,6 +45,10 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
   const router = useRouter();
   const searchParams = useSearchParams();
   const { error: toastError, success: toastSuccess } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
+  // Synchronous, and separate from any render state: two clicks land in the same
+  // tick and the second must never reach the write (CONVENTIONS f).
+  const deletingRef = useRef(false);
   const { openCompose, gmailConnected } = useCompose();
   const { state: onboardingState } = useOnboarding();
   const onboardingOutreach = onboardingState === "outreach";
@@ -173,6 +180,56 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
     }
   };
 
+  /**
+   * Delete this company profile (CAR-271).
+   *
+   * The copy is specific about the two things a user cannot check for
+   * themselves: that their contacts survive, and that a bundle resync will not
+   * quietly bring the company back. "Permanently" is literal — there is no
+   * restore surface, and re-adding the company by name is the only way back.
+   */
+  const handleDeleteCompany = async () => {
+    // `user` is narrowed by an early return further down, which runs on render
+    // rather than in this closure, so the handler proves it itself.
+    if (deletingRef.current || !company || !user) return;
+    // Claimed BEFORE the confirm, not after it. The dialog is itself an await,
+    // so a ref taken on the far side of it lets a double click open two dialogs
+    // — which is the same bug in a costume, since both then resolve.
+    deletingRef.current = true;
+    try {
+      if (
+        !(await confirm({
+          title: `Delete ${company.name}`,
+          message:
+            `${company.name} will be removed from your companies for good, and syncing a data bundle or importing a contact who works there will not bring it back. ` +
+            "Contacts who work there are kept, and you can still find them in your network.",
+          confirmLabel: "Delete company",
+          destructive: true,
+        }))
+      ) {
+        return;
+      }
+      const deleted = await withToastOnError(
+        () => deleteCompanyForUser(user.id, companyId),
+        toastError,
+        "Couldn't delete this company. Please try again.",
+      );
+      if (!deleted) return;
+
+      // The list is unmounted right now, so it cannot hear a ui-event:
+      // invalidate at the write site or the company sits in the 5-minute cache
+      // (CAR-256).
+      invalidateCompaniesList(user.id);
+      toastSuccess(`${company.name} deleted`);
+      // push, not back(): back() would land on a companies list restored from
+      // history that still contains this company, and the entry for this page
+      // would still be in the forward stack.
+      router.push("/companies");
+    } finally {
+      deletingRef.current = false;
+    }
+  };
+
   if (!user) return null;
 
   const body = () => {
@@ -242,6 +299,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         onSetTier={handleSetTier}
         jobChangeIds={jobChangeIds}
         onOfficesChanged={load}
+        onDeleteCompany={handleDeleteCompany}
       />
       </>
     );
@@ -270,6 +328,7 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
         </button>
         {body()}
       </main>
+      {confirmDialog}
     </div>
   );
 }

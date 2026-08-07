@@ -85,6 +85,12 @@ side, a living pipeline on the other.
 - Email a prospect in one click (with bounced and pattern-guessed addresses clearly
   flagged), promote bench contacts into outreach, and manage office locations
   without leaving the page.
+- A company that does not belong in your list can be deleted from its own page, and
+  it stays deleted. Syncing a data bundle again will not bring it back, and neither
+  will importing someone who works there, which is what makes the list yours rather
+  than a running total of everyone the data has ever mentioned. Contacts are never
+  deleted with the company: the people you know inside stay in your network and stay
+  reachable. Deleting is permanent, so it asks first.
 - When an address stops accepting mail, you find out the same day. CareerVine reads
   delivery failures back on its own, cancels the follow-ups and scheduled emails
   still queued to that address, emails you what happened, and marks the address on

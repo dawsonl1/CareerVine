@@ -61,9 +61,27 @@ function writesTo(table: string) {
 }
 
 /** The default fixture. Individual tests narrow it by reassigning state.route. */
+/**
+ * CAR-271: `resolveCompanyId` reads the caller's company tombstones before it
+ * resolves anything, so every company tool now issues this read first.
+ *
+ * It has to be routed separately from the single-row target lookup below, and
+ * the reason is worth stating: it is a LIST read behind `paginateAll`, so
+ * answering it with that lookup's single object makes the helper spread a
+ * non-iterable — which surfaces as "Spread syntax requires ...iterable" from
+ * deep inside the tool, not as anything resembling a routing gap.
+ *
+ * Keyed on the `is_deleted = true` filter, which is what makes this read the
+ * tombstone read and nothing else.
+ */
+const isTombstoneRead = (q: RecordedQuery): boolean =>
+  q.table === "target_companies" &&
+  q.filters.some(([m, c, v]) => m === "eq" && c === "is_deleted" && v === true);
+
 const defaultRoute = (q: RecordedQuery): unknown => {
     if (q.table === "contacts" && q.resolution === "maybeSingle") return CONTACT;
     if (q.table === "companies") return { id: 9, name: "Acme" };
+    if (isTombstoneRead(q)) return [];
     if (q.table === "target_companies" && q.op === "select") {
       return { id: 21, active_cycle: 2, status: "researching" };
     }
@@ -186,6 +204,7 @@ describe("set_company_stage", () => {
   it("moves BACKWARDS, because a stage set by mistake has to be correctable", async () => {
     state.route = ((q: RecordedQuery) => {
       if (q.table === "companies") return { id: 9, name: "Acme" };
+      if (isTombstoneRead(q)) return [];
       if (q.table === "target_companies" && q.op === "select") {
         return { id: 21, active_cycle: 1, status: "interviewing" };
       }

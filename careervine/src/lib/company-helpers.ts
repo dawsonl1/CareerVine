@@ -691,6 +691,12 @@ export async function ensureCompanyTargets(
       const rows = must(
         await supabase
           .from("target_companies")
+          // deleted-exempt: this probe MUST see tombstones (CAR-271). A deleted
+          // company's row is what makes this function skip it, so filtering
+          // is_deleted here would report the company as "not targeted yet" and
+          // insert a fresh row — the exact resurrection-on-contact-import the
+          // tombstone exists to prevent. The insert below is guarded by
+          // `missing`, so seeing the row is the entire mechanism.
           .select("company_id")
           .eq("user_id", userId)
           .is("location_id", null)
