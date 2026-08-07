@@ -67,6 +67,10 @@ side, a living pipeline on the other.
   pipelines with their own status and notes, switchable from one location dropdown.
 - Applied more than once? Cycles keep each application season separate, so last
   year's run doesn't muddy this year's.
+- The pipeline moves itself when it should: the moment someone who works at a
+  company writes back, that company steps from Researching to Active outreach on
+  its own. Only their current employer moves, and a company already at Applied or
+  later is never dragged backwards by a stray reply on an old thread.
 - Everything saves as you type, with no save buttons, and your pipeline stage flows
   straight into the Companies dashboard so priorities stay honest.
 - Email a prospect in one click (with bounced and pattern-guessed addresses clearly
