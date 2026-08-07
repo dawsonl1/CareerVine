@@ -1,29 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { Select } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Modal, ModalCancelButton } from "@/components/ui/modal";
-import { useToast } from "@/components/ui/toast";
+import { Calendar } from "lucide-react";
 import { LoadErrorBanner } from "@/components/ui/load-error-state";
-import { withToastOnError } from "@/lib/with-toast-on-error";
-import { updateInteraction, deleteInteraction, getInteractions } from "@/lib/queries";
 import type { ContactMeeting, InteractionRow, EmailMessage, CompletedActionEntry, TimelineEntry } from "@/lib/types";
-import { Calendar, MessageSquare, Pencil, Trash2, ArrowUpRight, ArrowDownLeft, CheckCircle } from "lucide-react";
-import {
-  CONVERSATION_TYPE_OPTIONS,
-  CONVERSATION_TYPE_HINT,
-  CONVERSATION_TYPE_DETAIL_MAX_LENGTH,
-  ConversationType,
-  SYSTEM_INTERACTION_TYPE_EMAIL,
-  conversationTypeLabel,
-  normalizeConversationTypeDetail,
-} from "@/lib/constants";
-
-import { inputClasses, labelClasses } from "@/lib/form-styles";
+import { MessageSquare, ArrowUpRight, ArrowDownLeft, CheckCircle } from "lucide-react";
+import { conversationTypeLabel } from "@/lib/constants";
 
 interface ContactTimelineTabProps {
-  contactId: number;
   meetings: ContactMeeting[];
   interactions: InteractionRow[];
   emails: EmailMessage[];
@@ -40,23 +23,51 @@ interface ContactTimelineTabProps {
    */
   emailsLoadFailed?: boolean;
   onReloadEmails?: () => void;
-  onMeetingClick?: (meeting: ContactMeeting) => void;
-  onInteractionsChange: (interactions: InteractionRow[]) => void;
   /**
-   * Asks the user to confirm deleting an interaction.
+   * Opens the detail view for a row. Every entry kind is clickable (CAR-249):
+   * before it, meeting rows carried `cursor-pointer` and called an
+   * `onMeetingClick` prop no caller ever passed, so they advertised a click that
+   * did nothing, and edit/delete for an interaction existed only as a
+   * hover-revealed icon.
    *
-   * Owned by the PAGE, not this component (CAR-204). This tab renders inside a
-   * `SectionBoundary` whose key includes `dataGeneration`, which every completed
-   * background refresh bumps by design — so a `useConfirm` living here was
-   * unmounted mid-question whenever a refresh landed, and the open dialog just
-   * vanished with nothing deleted and nothing said. Hoisting the hook above the
-   * keyed boundary is what keeps the question alive.
+   * The detail modal itself lives on the PAGE, not here — this tab renders
+   * inside a `SectionBoundary` keyed on `dataGeneration`, so a modal owned here
+   * would be unmounted mid-interaction by any background refresh (CAR-204).
    */
-  onConfirmDeleteInteraction: () => Promise<boolean>;
+  onEntryClick: (entry: TimelineEntry) => void;
+}
+
+/** One row's shared chrome: the icon bubble, the click target, the hover state. */
+function TimelineRow({
+  icon,
+  onClick,
+  label,
+  children,
+}: {
+  icon: React.ReactNode;
+  onClick: () => void;
+  /** Accessible name for the row button, which is otherwise a div of spans. */
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="w-full text-left relative flex items-center gap-4 p-4 rounded-[12px] hover:bg-surface-container-low transition-colors cursor-pointer"
+    >
+      {icon}
+      <div className="min-w-0 flex-1">{children}</div>
+    </button>
+  );
+}
+
+function shortDate(value: string) {
+  return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function ContactTimelineTab({
-  contactId,
   meetings,
   interactions,
   emails,
@@ -64,46 +75,8 @@ export function ContactTimelineTab({
   loading,
   emailsLoadFailed = false,
   onReloadEmails,
-  onMeetingClick,
-  onInteractionsChange,
-  onConfirmDeleteInteraction,
+  onEntryClick,
 }: ContactTimelineTabProps) {
-  const { error: toastError } = useToast();
-  const [editingInteraction, setEditingInteraction] = useState<InteractionRow | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [interactionForm, setInteractionForm] = useState({ interaction_date: "", interaction_type: "", interaction_type_detail: "", summary: "" });
-  const [saving, setSaving] = useState(false);
-
-  const closeEditModal = useCallback(() => {
-    setShowEditModal(false);
-    setEditingInteraction(null);
-  }, []);
-
-  /**
-   * The five user-selectable types, plus `email` ONLY while editing a row the
-   * send path wrote. `email` is system-written and deliberately absent from
-   * CONVERSATION_TYPE_OPTIONS, but every interaction in production carries it —
-   * without this the picker would render blank on the one kind of row that
-   * actually exists, and saving would silently retype a sent email.
-   */
-  const interactionTypeOptions = useMemo(() => {
-    const base = CONVERSATION_TYPE_OPTIONS.map(({ value, label }) => ({ value, label }));
-    return editingInteraction?.interaction_type === SYSTEM_INTERACTION_TYPE_EMAIL
-      ? [...base, { value: SYSTEM_INTERACTION_TYPE_EMAIL, label: "Email" }]
-      : base;
-  }, [editingInteraction]);
-
-  // The pristine value is the row being edited, so no snapshot state is needed.
-  // Gated on `saving`: mid-save the form is legitimately dirty, and offering to
-  // discard a write already in flight would be a lie.
-  const hasUnsavedChanges =
-    !saving &&
-    !!editingInteraction &&
-    (interactionForm.interaction_date !== editingInteraction.interaction_date ||
-      interactionForm.interaction_type !== editingInteraction.interaction_type ||
-      interactionForm.interaction_type_detail !== (editingInteraction.interaction_type_detail || "") ||
-      interactionForm.summary !== (editingInteraction.summary || ""));
-
   const entries: TimelineEntry[] = [
     ...meetings.map((m) => ({ kind: "meeting" as const, date: m.meeting_date, data: m })),
     ...interactions.map((i) => ({ kind: "interaction" as const, date: i.interaction_date, data: i })),
@@ -112,39 +85,6 @@ export function ContactTimelineTab({
       .filter((a) => a.completed_at)
       .map((a) => ({ kind: "completed_action" as const, date: a.completed_at!, data: a })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-  const handleDeleteInteraction = async (id: number) => {
-    if (!(await onConfirmDeleteInteraction())) return;
-    await withToastOnError(async () => {
-      await deleteInteraction(id);
-      onInteractionsChange(interactions.filter((x) => x.id !== id));
-    }, toastError, "Couldn't delete that interaction. Please try again.");
-  };
-
-  const handleSaveInteraction = async () => {
-    if (!editingInteraction) return;
-    setSaving(true);
-    try {
-      await updateInteraction(editingInteraction.id, {
-        interaction_date: interactionForm.interaction_date,
-        interaction_type: interactionForm.interaction_type,
-        // The detail CHECK rejects free text carried over from a type the user
-        // switched away from.
-        interaction_type_detail: normalizeConversationTypeDetail(
-          interactionForm.interaction_type,
-          interactionForm.interaction_type_detail,
-        ),
-        summary: interactionForm.summary || null,
-      });
-      const updated = await getInteractions(contactId);
-      onInteractionsChange(updated);
-      closeEditModal();
-    } catch (err) {
-      console.error("Error saving interaction:", err);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div>
@@ -182,198 +122,100 @@ export function ContactTimelineTab({
             {entries.map((item) => {
               if (item.kind === "meeting") {
                 const m = item.data;
+                const title = m.title || conversationTypeLabel(m.meeting_type, m.meeting_type_detail) || "Meeting";
                 return (
-                  <div
+                  <TimelineRow
                     key={`m-${m.id}`}
-                    className="relative flex items-start gap-4 p-4 rounded-[12px] hover:bg-surface-container-low transition-colors cursor-pointer"
-                    onClick={() => onMeetingClick?.(m)}
-                  >
-                    <div className="w-9 h-9 rounded-full bg-secondary-container flex items-center justify-center shrink-0 z-10">
-                      <Calendar className="h-4 w-4 text-on-secondary-container" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-base font-medium text-foreground">{m.title || conversationTypeLabel(m.meeting_type, m.meeting_type_detail) || "Meeting"}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        </span>
+                    label={`${title}, ${shortDate(item.date)}. Open details`}
+                    onClick={() => onEntryClick(item)}
+                    icon={
+                      <div className="w-9 h-9 rounded-full bg-secondary-container flex items-center justify-center shrink-0 z-10">
+                        <Calendar className="h-4 w-4 text-on-secondary-container" />
                       </div>
-                      {m.notes && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{m.notes}</p>}
+                    }
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base font-medium text-foreground">{title}</span>
+                      <span className="text-sm text-muted-foreground">{shortDate(item.date)}</span>
                     </div>
-                  </div>
+                    {m.notes && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{m.notes}</p>}
+                  </TimelineRow>
                 );
               }
               if (item.kind === "interaction") {
                 const i = item.data;
+                const title = conversationTypeLabel(i.interaction_type, i.interaction_type_detail) || "Interaction";
                 return (
-                  <div key={`i-${i.id}`} className="relative flex items-center gap-4 p-4 rounded-[12px] hover:bg-surface-container-low transition-colors group">
-                    <div className="w-9 h-9 rounded-full bg-tertiary-container flex items-center justify-center shrink-0 z-10">
-                      <MessageSquare className="h-4 w-4 text-on-tertiary-container" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-base font-medium text-foreground">{conversationTypeLabel(i.interaction_type, i.interaction_type_detail) || "Interaction"}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        </span>
+                  <TimelineRow
+                    key={`i-${i.id}`}
+                    label={`${title}, ${shortDate(item.date)}. Open details`}
+                    onClick={() => onEntryClick(item)}
+                    icon={
+                      <div className="w-9 h-9 rounded-full bg-tertiary-container flex items-center justify-center shrink-0 z-10">
+                        <MessageSquare className="h-4 w-4 text-on-tertiary-container" />
                       </div>
-                      {i.summary && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{i.summary}</p>}
+                    }
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base font-medium text-foreground">{title}</span>
+                      <span className="text-sm text-muted-foreground">{shortDate(item.date)}</span>
                     </div>
-                    <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingInteraction(i);
-                          setInteractionForm({
-                            interaction_date: i.interaction_date,
-                            interaction_type: i.interaction_type,
-                            interaction_type_detail: i.interaction_type_detail || "",
-                            summary: i.summary || "",
-                          });
-                          setShowEditModal(true);
-                        }}
-                        className="p-1 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
-                        title="Edit"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // handleDeleteInteraction reports its own failures via withToastOnError.
-                          void handleDeleteInteraction(i.id);
-                        }}
-                        className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
+                    {i.summary && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{i.summary}</p>}
+                  </TimelineRow>
                 );
               }
               if (item.kind === "completed_action") {
                 const a = item.data;
                 return (
-                  <div key={`ca-${a.id}`} className="relative flex items-center gap-4 p-4 rounded-[12px] hover:bg-surface-container-low transition-colors">
-                    <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0 z-10">
-                      <CheckCircle className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-base font-medium text-foreground">Action completed</span>
-                        <span className="text-sm text-muted-foreground">
-                          {new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        </span>
+                  <TimelineRow
+                    key={`ca-${a.id}`}
+                    label={`Action completed, ${shortDate(item.date)}: ${a.title}. Open details`}
+                    onClick={() => onEntryClick(item)}
+                    icon={
+                      <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0 z-10">
+                        <CheckCircle className="h-4 w-4 text-primary" />
                       </div>
-                      <p className="text-sm text-muted-foreground mt-0.5 truncate">{a.title}</p>
+                    }
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base font-medium text-foreground">Action completed</span>
+                      <span className="text-sm text-muted-foreground">{shortDate(item.date)}</span>
                     </div>
-                  </div>
+                    <p className="text-sm text-muted-foreground mt-0.5 truncate">{a.title}</p>
+                  </TimelineRow>
                 );
               }
               // email
               const e = item.data;
+              const subject = e.subject || "(no subject)";
               return (
-                <div key={`e-${e.gmail_message_id}`} className="relative flex items-center gap-4 p-4 rounded-[12px] hover:bg-surface-container-low transition-colors">
-                  <div className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center shrink-0 z-10">
-                    {e.direction === "outbound" ? (
-                      <ArrowUpRight className="h-4 w-4 text-on-primary-container" />
-                    ) : (
-                      <ArrowDownLeft className="h-4 w-4 text-on-primary-container" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-base font-medium text-foreground truncate">{e.subject || "(no subject)"}</span>
-                      <span className="text-sm text-muted-foreground shrink-0">
-                        {e.date ? new Date(e.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""}
-                      </span>
+                <TimelineRow
+                  key={`e-${e.gmail_message_id}`}
+                  label={`${subject}${e.date ? `, ${shortDate(e.date)}` : ""}. Open details`}
+                  onClick={() => onEntryClick(item)}
+                  icon={
+                    <div className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center shrink-0 z-10">
+                      {e.direction === "outbound" ? (
+                        <ArrowUpRight className="h-4 w-4 text-on-primary-container" />
+                      ) : (
+                        <ArrowDownLeft className="h-4 w-4 text-on-primary-container" />
+                      )}
                     </div>
-                    <p className="text-sm text-muted-foreground mt-0.5 truncate">{e.snippet || ""}</p>
+                  }
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-base font-medium text-foreground truncate">{subject}</span>
+                    <span className="text-sm text-muted-foreground shrink-0">
+                      {e.date ? shortDate(e.date) : ""}
+                    </span>
                   </div>
-                </div>
+                  <p className="text-sm text-muted-foreground mt-0.5 truncate">{e.snippet || ""}</p>
+                </TimelineRow>
               );
             })}
           </div>
         </div>
       )}
-
-      {/* Interaction edit modal */}
-      <Modal
-        isOpen={showEditModal && !!editingInteraction}
-        onClose={closeEditModal}
-        title="Edit interaction"
-        hasUnsavedChanges={hasUnsavedChanges}
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelClasses}>Date & Time *</label>
-              <input
-                type="datetime-local"
-                required
-                value={interactionForm.interaction_date}
-                onChange={(e) => setInteractionForm({ ...interactionForm, interaction_date: e.target.value })}
-                className={inputClasses}
-              />
-            </div>
-            <div>
-              <label className={labelClasses}>Type *</label>
-              <Select
-                ariaLabel="Interaction type"
-                value={interactionForm.interaction_type}
-                onChange={(val) =>
-                  setInteractionForm({
-                    ...interactionForm,
-                    interaction_type: val,
-                    interaction_type_detail:
-                      val === ConversationType.Other ? interactionForm.interaction_type_detail : "",
-                  })
-                }
-                placeholder="Select..."
-                options={interactionTypeOptions}
-              />
-            </div>
-          </div>
-          <p className="-mt-2 text-sm text-muted-foreground">{CONVERSATION_TYPE_HINT}</p>
-          {interactionForm.interaction_type === ConversationType.Other && (
-            <div>
-              <label className={labelClasses}>What kind of conversation?</label>
-              <input
-                type="text"
-                value={interactionForm.interaction_type_detail}
-                onChange={(e) => setInteractionForm({ ...interactionForm, interaction_type_detail: e.target.value })}
-                maxLength={CONVERSATION_TYPE_DETAIL_MAX_LENGTH}
-                className={inputClasses}
-                placeholder="e.g. Alumni panel"
-              />
-            </div>
-          )}
-          <div>
-            <label className={labelClasses}>Summary</label>
-            <textarea
-              value={interactionForm.summary}
-              onChange={(e) => setInteractionForm({ ...interactionForm, summary: e.target.value })}
-              className={`${inputClasses} !h-auto py-3`}
-              rows={4}
-              placeholder="What was discussed? Key takeaways?"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <ModalCancelButton disabled={saving} />
-            <Button
-              type="button"
-              disabled={!interactionForm.interaction_date || !interactionForm.interaction_type || saving}
-              loading={saving}
-              onClick={handleSaveInteraction}
-            >
-              Save
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

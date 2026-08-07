@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /**
- * CAR-242 — the interaction type editor on the contact timeline.
+ * CAR-242 — the interaction type editor, now inside the contact timeline's
+ * detail modal (moved there by CAR-249; it used to live in the timeline tab).
  *
  * Three behaviors that the DB CHECKs make load-bearing rather than cosmetic:
  *  1. The picker offers the shared five, not the retired eight it hardcoded.
@@ -13,18 +14,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { mockToastModule } from "./helpers/mock-toast";
+import { typedMock } from "./helpers/typed-mock";
 
 const q = vi.hoisted(() => ({
   updateInteraction: vi.fn(),
   deleteInteraction: vi.fn(),
-  getInteractions: vi.fn(),
 }));
 
-vi.mock("@/lib/queries", () => q);
+vi.mock("@/lib/data/interactions", () =>
+  typedMock<typeof import("@/lib/data/interactions")>({
+    getInteractions: vi.fn(),
+    getAllInteractions: vi.fn(),
+    createInteraction: vi.fn(),
+    updateInteraction: q.updateInteraction,
+    deleteInteraction: q.deleteInteraction,
+  }),
+);
 vi.mock("@/components/ui/toast", () => mockToastModule());
+vi.mock("@/components/compose-email-context", () => ({
+  useCompose: () => ({ openCompose: vi.fn(), gmailConnected: false }),
+}));
+vi.mock("@/components/quick-capture-context", () => ({
+  useQuickCapture: () => ({ open: vi.fn(), openEdit: vi.fn() }),
+}));
 
-import { ContactTimelineTab } from "@/components/contacts/contact-timeline-tab";
-import type { InteractionRow } from "@/lib/types";
+import { TimelineDetailModal } from "@/components/contacts/timeline-detail-modal";
+import type { InteractionRow, TimelineEntry } from "@/lib/types";
 
 const interaction = (over: Partial<InteractionRow> = {}): InteractionRow =>
   ({
@@ -38,31 +53,32 @@ const interaction = (over: Partial<InteractionRow> = {}): InteractionRow =>
     ...over,
   }) as InteractionRow;
 
-function renderTab(rows: InteractionRow[]) {
+function renderDetail(row: InteractionRow) {
+  const entry: TimelineEntry = {
+    kind: "interaction",
+    date: row.interaction_date,
+    data: row,
+  };
   return render(
-    <ContactTimelineTab
-      contactId={7}
-      meetings={[]}
-      interactions={rows}
-      emails={[]}
-      completedActions={[]}
-      loading={false}
-      onInteractionsChange={vi.fn()}
-      onConfirmDeleteInteraction={vi.fn().mockResolvedValue(true)}
+    <TimelineDetailModal
+      entry={entry}
+      contactName="Spencer Hintze"
+      canReadMailbox={false}
+      gmailConnected={false}
+      onClose={vi.fn()}
+      onChanged={vi.fn()}
+      onConfirmDelete={vi.fn().mockResolvedValue(true)}
     />,
   );
 }
 
-/** Open the edit modal for the first interaction in the timeline. */
+/** Switch the open detail modal into its edit form. */
 function openEditor() {
-  const edit = screen.getAllByRole("button").find((b) => b.getAttribute("title")?.match(/edit/i))
-    ?? screen.getAllByRole("button")[0];
-  fireEvent.click(edit);
+  fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
 }
 
 beforeEach(() => {
   q.updateInteraction.mockResolvedValue(undefined);
-  q.getInteractions.mockResolvedValue([]);
 });
 afterEach(() => {
   cleanup();
@@ -71,17 +87,17 @@ afterEach(() => {
 
 describe("interaction type editor", () => {
   it("renders the stored type through its human label, not the raw slug", () => {
-    renderTab([interaction({ interaction_type: "career-fair" })]);
+    renderDetail(interaction({ interaction_type: "career-fair" }));
     expect(screen.getByText("Career Fair")).toBeTruthy();
   });
 
   it("shows the user's own words for an Other interaction", () => {
-    renderTab([interaction({ interaction_type: "other", interaction_type_detail: "Alumni panel" })]);
+    renderDetail(interaction({ interaction_type: "other", interaction_type_detail: "Alumni panel" }));
     expect(screen.getByText("Alumni panel")).toBeTruthy();
   });
 
   it("offers the shared five and none of the retired types", () => {
-    renderTab([interaction()]);
+    renderDetail(interaction());
     openEditor();
     fireEvent.click(screen.getByLabelText("Interaction type"));
 
@@ -94,20 +110,20 @@ describe("interaction type editor", () => {
   });
 
   it("keeps Email selectable while editing a send-path row, and hides it otherwise", () => {
-    renderTab([interaction({ interaction_type: "email" })]);
+    renderDetail(interaction({ interaction_type: "email" }));
     openEditor();
     fireEvent.click(screen.getByLabelText("Interaction type"));
     expect(screen.getAllByText("Email").length).toBeGreaterThan(0);
 
     cleanup();
-    renderTab([interaction({ interaction_type: "coffee" })]);
+    renderDetail(interaction({ interaction_type: "coffee" }));
     openEditor();
     fireEvent.click(screen.getByLabelText("Interaction type"));
     expect(screen.queryByText("Email")).toBeNull();
   });
 
   it("reveals the free-text field only under Other", () => {
-    renderTab([interaction()]);
+    renderDetail(interaction());
     openEditor();
     expect(screen.queryByPlaceholderText("e.g. Alumni panel")).toBeNull();
 
@@ -117,7 +133,7 @@ describe("interaction type editor", () => {
   });
 
   it("drops the free text when the user switches away from Other", async () => {
-    renderTab([interaction({ interaction_type: "other", interaction_type_detail: "Alumni panel" })]);
+    renderDetail(interaction({ interaction_type: "other", interaction_type_detail: "Alumni panel" }));
     openEditor();
     expect((screen.getByPlaceholderText("e.g. Alumni panel") as HTMLInputElement).value).toBe("Alumni panel");
 
@@ -147,7 +163,7 @@ describe("interaction type editor", () => {
   it("persists the free text when the type stays Other", async () => {
     // Start on Coffee Chat: with the row already on Other, the closed trigger
     // and the open option both read "Other" and the query is ambiguous.
-    renderTab([interaction({ interaction_type: "coffee" })]);
+    renderDetail(interaction({ interaction_type: "coffee" }));
     openEditor();
     fireEvent.click(screen.getByLabelText("Interaction type"));
     fireEvent.click(screen.getByText("Other"));
