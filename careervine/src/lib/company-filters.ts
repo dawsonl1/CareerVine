@@ -1,6 +1,16 @@
 /**
  * Pure search/filter logic for the Companies page (CAR-32).
  * Kept free of React/Supabase so it can be unit-tested in the node env.
+ *
+ * FACET CONTRACT (CAR-245). Every multi-value facet holds an array where **empty
+ * means any** — the absence of a filter, never "match nothing". Values inside one
+ * facet OR together; facets AND with each other. That is what makes the two
+ * complementary pairs (`contacts` with/none, `alumni` with/without) need no special
+ * case: selecting both sides ORs to everything, which is the same result as
+ * selecting neither.
+ *
+ * Every facet reads a field `getCompanies` already returns, so nothing here implies
+ * a query change.
  */
 
 import type { CompanySummary } from "./company-queries";
@@ -15,39 +25,65 @@ export const TARGET_STATUSES = [
 ] as const;
 export type TargetStatus = (typeof TARGET_STATUSES)[number];
 
-export type ContactsFilter = "any" | "with" | "none";
+/** `with` = at least one current or former contact; `none` = neither. */
+export const CONTACTS_FILTERS = ["with", "none"] as const;
+export type ContactsFilter = (typeof CONTACTS_FILTERS)[number];
+
+/**
+ * `with` = at least one alum of the user's school among CURRENT contacts, which is
+ * what `alum_count` counts and what the company card badges. Meaningless without
+ * school affinity (`alum_count` is 0 for everyone), so the control is hidden there.
+ */
+export const ALUMNI_FILTERS = ["with", "without"] as const;
+export type AlumniFilter = (typeof ALUMNI_FILTERS)[number];
 
 export interface CompanyFilters {
   /** Free-text query — matched against name, program name, and tier label. */
   q: string;
   /** Target statuses to include; empty = any. */
   statuses: TargetStatus[];
-  traction: OutreachStage | null;
-  tier: string | null;
-  contacts: ContactsFilter;
-  /** Only companies with a BYU alum in a product role. */
+  /** Derived outreach stages to include; empty = any. */
+  traction: OutreachStage[];
+  /** Tier labels to include; empty = any. */
+  tiers: string[];
+  /** Contact-presence sides to include; empty (or both) = any. */
+  contacts: ContactsFilter[];
+  /** Alumni-presence sides to include; empty (or both) = any. */
+  alumni: AlumniFilter[];
+  /**
+   * Only companies where a contact or prospect works there NOW. Distinct from
+   * `contacts: ["with"]`, which also keeps a company whose only person has left.
+   */
+  currentOnly: boolean;
+  /** Only companies with an alum of the user's school in a product role. */
   productAlum: boolean;
 }
 
 export const EMPTY_COMPANY_FILTERS: CompanyFilters = {
   q: "",
   statuses: [],
-  traction: null,
-  tier: null,
-  contacts: "any",
+  traction: [],
+  tiers: [],
+  contacts: [],
+  alumni: [],
+  currentOnly: false,
   productAlum: false,
 };
 
 const VALID_STATUSES = new Set<string>(TARGET_STATUSES);
 const VALID_STAGES = new Set<string>(STAGE_ORDER);
+const VALID_CONTACTS = new Set<string>(CONTACTS_FILTERS);
+const VALID_ALUMNI = new Set<string>(ALUMNI_FILTERS);
 
 export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
   return (
     f.q.trim() !== "" ||
     f.statuses.length > 0 ||
-    f.traction !== null ||
-    f.tier !== null ||
-    f.contacts !== "any" ||
+    f.traction.length > 0 ||
+    f.tiers.length > 0 ||
+    f.contacts.length > 0 ||
+    f.alumni.length > 0 ||
+    f.currentOnly ||
     f.productAlum
   );
 }
@@ -55,20 +91,28 @@ export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
 /** AND-combine the free-text query with every active facet. */
 export function filterCompanies(rows: CompanySummary[], f: CompanyFilters): CompanySummary[] {
   const q = f.q.trim().toLowerCase();
+  const statuses = new Set<string>(f.statuses);
+  const traction = new Set<string>(f.traction);
+  const tiers = new Set<string>(f.tiers);
   return rows.filter((c) => {
     if (q) {
       const haystacks = [c.name, c.target?.program_name, c.target?.tier];
       if (!haystacks.some((h) => h != null && h.toLowerCase().includes(q))) return false;
     }
-    if (f.statuses.length > 0 && (!c.target || !f.statuses.includes(c.target.status as TargetStatus))) {
-      return false;
-    }
-    if (f.traction !== null && c.traction !== f.traction) return false;
-    if (f.tier !== null && c.target?.tier !== f.tier) return false;
-    if (f.contacts !== "any") {
+    if (statuses.size > 0 && (!c.target || !statuses.has(c.target.status))) return false;
+    if (traction.size > 0 && (c.traction === null || !traction.has(c.traction))) return false;
+    if (tiers.size > 0 && (c.target?.tier == null || !tiers.has(c.target.tier))) return false;
+    if (f.contacts.length > 0) {
       const withContacts = c.current_count + c.former_count > 0;
-      if (f.contacts === "with" ? !withContacts : withContacts) return false;
+      if (!f.contacts.some((side) => (side === "with" ? withContacts : !withContacts))) return false;
     }
+    if (f.alumni.length > 0) {
+      const withAlumni = c.alum_count > 0;
+      if (!f.alumni.some((side) => (side === "with" ? withAlumni : !withAlumni))) return false;
+    }
+    // current_count is non-bench contacts (active + prospect) holding a CURRENT role
+    // at the company — exactly "someone is there now".
+    if (f.currentOnly && c.current_count === 0) return false;
     if (f.productAlum && c.product_alum_count === 0) return false;
     return true;
   });
@@ -94,23 +138,67 @@ export function countByStatus(rows: CompanySummary[]): Record<TargetStatus, numb
   return counts;
 }
 
+/**
+ * Counts for the status chips: every active filter applied EXCEPT the status chips
+ * themselves (CAR-245).
+ *
+ * A count printed on a toggle is a promise about what clicking it yields, so it has
+ * to move with the rest of the bar — before this, "Researching 314" stayed 314 while
+ * a tier facet cut the list to a fraction of that. Clearing `statuses` rather than
+ * every facet is what keeps each chip's count answering "how many would I get", and
+ * keeps an already-selected chip from shrinking its siblings to zero.
+ *
+ * The search box counts as a filter here, deliberately: it ANDs like any other
+ * facet, so excluding it would leave the counts wrong in the one case the user is
+ * looking hardest at them.
+ */
+export function statusChipCounts(
+  rows: CompanySummary[],
+  f: CompanyFilters,
+): Record<TargetStatus, number> {
+  return countByStatus(filterCompanies(rows, { ...f, statuses: [] }));
+}
+
 // ── URL param round-trip ────────────────────────────────────────────────
-// Scheme: ?q=stripe&status=applied,interviewing&traction=replied&tier=Big+Tech&contacts=none
+// Scheme: ?q=stripe&status=applied,interviewing&traction=replied,call_done
+//          &tier=Big+Tech&tier=Utah&contacts=none&alumni=with&current=1&product_alum=1
+//
+// Param names stay SINGULAR, so every link shared before the facets went
+// multi-value still parses: one value lands as a one-element array, and the
+// retired `contacts=any` fails validation and falls through to the empty array,
+// which is exactly what it meant.
+//
+// Enum facets are comma-joined (the scheme `status` already used). `tier` is
+// REPEATED instead, and never split: a tier label is free text and may itself
+// contain a comma, so splitting would turn the pre-existing link for a tier named
+// "Foo, Bar" into two tiers that match nothing. Parsing accepts both forms
+// everywhere; only the emitted shape differs.
+
+/** Repeated and/or comma-joined param → deduped list of values that pass `valid`. */
+function parseList<T extends string>(params: URLSearchParams, key: string, valid: Set<string>): T[] {
+  const values = params
+    .getAll(key)
+    .flatMap((raw) => raw.split(","))
+    .map((s) => s.trim())
+    .filter((s): s is T => valid.has(s));
+  return [...new Set(values)];
+}
 
 export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
-  const statuses = (params.get("status") ?? "")
-    .split(",")
+  // Tiers are free text (a user-defined label), so there is no value list to
+  // validate against — only blanks are dropped.
+  const tiers = params
+    .getAll("tier")
     .map((s) => s.trim())
-    .filter((s): s is TargetStatus => VALID_STATUSES.has(s));
-  const rawTraction = params.get("traction");
-  const rawTier = params.get("tier")?.trim();
-  const rawContacts = params.get("contacts");
+    .filter((s) => s !== "");
   return {
     q: params.get("q") ?? "",
-    statuses: [...new Set(statuses)],
-    traction: rawTraction && VALID_STAGES.has(rawTraction) ? (rawTraction as OutreachStage) : null,
-    tier: rawTier || null,
-    contacts: rawContacts === "with" || rawContacts === "none" ? rawContacts : "any",
+    statuses: parseList<TargetStatus>(params, "status", VALID_STATUSES),
+    traction: parseList<OutreachStage>(params, "traction", VALID_STAGES),
+    tiers: [...new Set(tiers)],
+    contacts: parseList<ContactsFilter>(params, "contacts", VALID_CONTACTS),
+    alumni: parseList<AlumniFilter>(params, "alumni", VALID_ALUMNI),
+    currentOnly: params.get("current") === "1",
     productAlum: params.get("product_alum") === "1",
   };
 }
@@ -125,11 +213,21 @@ export function serializeCompanyFilters(f: CompanyFilters, base: URLSearchParams
     if (value) out.set(key, value);
     else out.delete(key);
   };
+  const setList = (key: string, values: string[]) =>
+    setOrDelete(key, values.length > 0 ? values.join(",") : null);
+  /** One param per value, for a facet whose values may contain a comma. */
+  const setRepeated = (key: string, values: string[]) => {
+    out.delete(key);
+    for (const v of values) out.append(key, v);
+  };
+
   setOrDelete("q", f.q.trim() || null);
-  setOrDelete("status", f.statuses.length > 0 ? f.statuses.join(",") : null);
-  setOrDelete("traction", f.traction);
-  setOrDelete("tier", f.tier);
-  setOrDelete("contacts", f.contacts === "any" ? null : f.contacts);
+  setList("status", f.statuses);
+  setList("traction", f.traction);
+  setRepeated("tier", f.tiers);
+  setList("contacts", f.contacts);
+  setList("alumni", f.alumni);
+  setOrDelete("current", f.currentOnly ? "1" : null);
   setOrDelete("product_alum", f.productAlum ? "1" : null);
   return out;
 }
