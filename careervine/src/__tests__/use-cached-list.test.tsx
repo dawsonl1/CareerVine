@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
 import { useCachedList } from "@/hooks/use-cached-list";
-import { resetListCache, writeList, readList } from "@/lib/list-cache";
+import { resetListCache, writeList, readList, refreshList } from "@/lib/list-cache";
 
 /**
  * CAR-256. The page-level test (`companies-page-cache.test.tsx`) proves the
@@ -213,5 +213,78 @@ describe("useCachedList", () => {
     rerender();
     rerender();
     expect(calls).toBe(1);
+  });
+
+  /**
+   * CAR-278. A write on a detail page starts a background refresh of this exact
+   * key, and pressing Back lands here while it is still running. Issuing a
+   * second copy of the same query would double a multi-second aggregate for no
+   * new information.
+   */
+  describe("joining a background refresh", () => {
+    it("awaits the refresh in flight instead of fetching again", async () => {
+      const refresh = deferred<string[]>();
+      const own = vi.fn(() => Promise.resolve(["own"]));
+      refreshList("k", () => refresh.promise);
+
+      const { result } = renderHook(() => useHarness("k", own));
+      expect(result.current.loading).toBe(true);
+      expect(own).not.toHaveBeenCalled();
+
+      await act(async () => {
+        refresh.resolve(["refreshed"]);
+        await refresh.promise;
+      });
+
+      expect(result.current.data).toEqual(["refreshed"]);
+      // Still zero: the whole point is that no second query was issued.
+      expect(own).not.toHaveBeenCalled();
+      // `fromCache` stays false — the user did wait, so scroll restoration
+      // correctly declines to jump them down the page.
+      expect(result.current.fromCache).toBe(false);
+    });
+
+    it("fetches for itself when the refresh in flight is already out of date", async () => {
+      const refresh = deferred<string[]>();
+      const own = vi.fn(() => Promise.resolve(["own"]));
+      refreshList("k", () => refresh.promise);
+      // A second write lands: that fetch started before it, so its rows are
+      // known-stale and joining would show the user contradicted data.
+      refreshList("k", () => refresh.promise);
+
+      const { result } = renderHook(() => useHarness("k", own));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(own).toHaveBeenCalledTimes(1);
+      expect(result.current.data).toEqual(["own"]);
+    });
+
+    it("reload() ignores an in-flight refresh, because Retry means fetch now", async () => {
+      const refresh = deferred<string[]>();
+      const own = vi.fn(() => Promise.resolve(["own"]));
+      refreshList("k", () => refresh.promise);
+
+      const { result } = renderHook(() => useHarness("k", own));
+      act(() => result.current.reload());
+      await waitFor(() => expect(result.current.data).toEqual(["own"]));
+      expect(own).toHaveBeenCalledTimes(1);
+    });
+
+    it("surfaces a joined rejection as a failed read", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const refresh = deferred<string[]>();
+      const own = vi.fn(() => Promise.resolve(["own"]));
+      refreshList("k", () => refresh.promise);
+
+      const { result } = renderHook(() => useHarness("k", own));
+      await act(async () => {
+        refresh.reject(new Error("network"));
+        await refresh.promise.catch(() => {});
+      });
+
+      expect(result.current.failed).toBe(true);
+      expect(result.current.loading).toBe(false);
+      spy.mockRestore();
+    });
   });
 });

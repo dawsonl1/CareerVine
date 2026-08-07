@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLatestRequest } from "@/hooks/use-latest-request";
-import { readList, writeList } from "@/lib/list-cache";
+import { inflightList, readList, writeList } from "@/lib/list-cache";
 
 /**
  * A list read that survives back-navigation (CAR-256).
  *
  * Wraps the `useEffect` + `load()` + `useState` shape every list page in this
  * app uses, adding the one thing that shape cannot have: a result that outlives
- * the unmount. See `src/lib/list-cache.ts` for why the store is in-memory and
- * why there is deliberately no background revalidation.
+ * the unmount. See `src/lib/list-cache.ts` for why the store is in-memory, why
+ * nothing stale is ever served while a refetch runs, and how a write refreshes
+ * the cache from outside any mounted component.
  *
  * ── Hydration happens in the state INITIALIZER, on purpose ───────────────
  *
@@ -113,11 +114,20 @@ export function useCachedList<T>({
       setFromCache(false);
       setLoading(true);
       setFailed(false);
-      void fetcherRef
-        .current()
+      // A write on a detail page starts a background refresh of this exact key
+      // (CAR-278), and pressing Back lands here while it is still running.
+      // Joining it beats issuing a second copy of a query that is already in
+      // flight — for `getCompanies` that is a paginated multi-query aggregate.
+      // `inflightList` returns nothing once its fetch is known to predate a
+      // write, so joining can never adopt a result the cache itself rejected.
+      const joined = force ? undefined : inflightList<T>(key);
+      void (joined ?? fetcherRef.current())
         .then((result) => {
           if (!request.isLatest(token)) return;
-          writeList(key, result);
+          // A joined fetch writes its own result through `refreshList`, under a
+          // staleness check this hook cannot see. Writing it again here would
+          // reinstate rows that check may have just refused.
+          if (!joined) writeList(key, result);
           setData(result);
           setLoading(false);
         })

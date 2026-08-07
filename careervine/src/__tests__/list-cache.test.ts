@@ -1,9 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   readList,
   writeList,
   invalidateListsByPrefix,
+  listKeysByPrefix,
+  refreshList,
+  inflightList,
   resetListCache,
+  MIN_REFRESH_INTERVAL_MS,
 } from "@/lib/list-cache";
 
 /**
@@ -70,5 +74,166 @@ describe("list cache", () => {
     // the users with the least to show.
     writeList("k", [], 0);
     expect(readList<number[]>("k", 5_000, 0)).toEqual([]);
+  });
+});
+
+/**
+ * CAR-278. Deleting on a write left the cache cold at the exact moment the user
+ * was most likely to press Back, so invalidation now refetches. The properties
+ * that matter are the ones a naive "just call the fetcher" version gets wrong:
+ * it must not fan out one aggregate per keystroke of an autosave, it must still
+ * end up fetching the FINAL state rather than an intermediate one, and a result
+ * that started before a write must never be written back as if it were current.
+ */
+describe("background refresh", () => {
+  /** A fetcher whose settlement this test controls. */
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  const TTL = 60_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    resetListCache();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("drops the entry immediately, before the refetch has anything to show", () => {
+    writeList("k", ["old"]);
+    refreshList("k", () => deferred<string[]>().promise);
+    // The contract is NOT stale-while-revalidate: a read during the refetch is
+    // an ordinary miss, so contradicted rows are never served.
+    expect(readList("k", TTL)).toBeUndefined();
+  });
+
+  it("writes the fresh rows back, so the next read is a hit", async () => {
+    refreshList("k", () => Promise.resolve(["new"]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(readList<string[]>("k", TTL)).toEqual(["new"]);
+  });
+
+  it("collapses a burst into one fetch plus one trailing run", async () => {
+    const calls: Array<ReturnType<typeof deferred<string[]>>> = [];
+    const fetcher = () => {
+      const d = deferred<string[]>();
+      calls.push(d);
+      return d.promise;
+    };
+
+    // Ten saves in quick succession, the shape `use-pipeline-autosave` produces.
+    for (let i = 0; i < 10; i++) refreshList("k", fetcher);
+    expect(calls).toHaveLength(1);
+
+    calls[0].resolve(["intermediate"]);
+    await vi.advanceTimersByTimeAsync(0);
+    // That result STARTED before nine of the ten writes, so it is not the
+    // current state and must not be cached as if it were.
+    expect(readList("k", TTL)).toBeUndefined();
+
+    // The trailing run is what makes the burst converge. Without it the cache
+    // would stay empty until the TTL, i.e. exactly the old behaviour.
+    await vi.advanceTimersByTimeAsync(MIN_REFRESH_INTERVAL_MS);
+    expect(calls).toHaveLength(2);
+    calls[1].resolve(["final"]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(readList<string[]>("k", TTL)).toEqual(["final"]);
+  });
+
+  it("runs the first request immediately, since one write then Back is the common case", () => {
+    const fetcher = vi.fn(() => Promise.resolve(["a"]));
+    refreshList("k", fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers a request that arrives inside the interval, then runs it once", async () => {
+    const fetcher = vi.fn(() => Promise.resolve(["a"]));
+    refreshList("k", fetcher);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // Settled, but still inside the window. A version that only de-duplicated
+    // IN-FLIGHT fetches would fire again here, once per save, forever.
+    await vi.advanceTimersByTimeAsync(1_000);
+    refreshList("k", fetcher);
+    refreshList("k", fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(MIN_REFRESH_INTERVAL_MS);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the key absent when the fetch rejects, and never rejects itself", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    writeList("k", ["old"]);
+    expect(() => refreshList("k", () => Promise.reject(new Error("network")))).not.toThrow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(readList("k", TTL)).toBeUndefined();
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it("does not write back a result whose key was dropped mid-flight", async () => {
+    const d = deferred<string[]>();
+    refreshList("k", () => d.promise);
+    // Some other write clears the key while the fetch is out.
+    invalidateListsByPrefix("k");
+    d.resolve(["started-before-the-write"]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(readList("k", TTL)).toBeUndefined();
+  });
+
+  describe("inflightList", () => {
+    it("hands a reader the running fetch instead of a second copy", async () => {
+      const d = deferred<string[]>();
+      refreshList("k", () => d.promise);
+      const joined = inflightList<string[]>("k");
+      expect(joined).toBeDefined();
+      d.resolve(["rows"]);
+      await expect(joined).resolves.toEqual(["rows"]);
+    });
+
+    it("offers nothing once that fetch is known to predate a write", () => {
+      refreshList("k", () => deferred<string[]>().promise);
+      invalidateListsByPrefix("k");
+      // Joining here would show the user rows their own action contradicted.
+      expect(inflightList("k")).toBeUndefined();
+    });
+
+    it("offers nothing when no refresh is running", async () => {
+      refreshList("k", () => Promise.resolve(["a"]));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(inflightList("k")).toBeUndefined();
+    });
+  });
+
+  it("reports a key that is only being refreshed, not just one holding a value", () => {
+    refreshList("companies:u-1:next", () => deferred<string[]>().promise);
+    // The entry is gone at this point. A `listKeysByPrefix` that read only the
+    // value map would skip this key for the whole burst, so its in-flight fetch
+    // would never be marked stale and would land as if current.
+    expect(readList("companies:u-1:next", TTL)).toBeUndefined();
+    expect(listKeysByPrefix("companies:u-1:")).toEqual(["companies:u-1:next"]);
+    expect(listKeysByPrefix("companies:u-2:")).toEqual([]);
+  });
+
+  it("cancels a pending trailing run on reset, so a suite cannot leak one", async () => {
+    const fetcher = vi.fn(() => Promise.resolve(["a"]));
+    refreshList("k", fetcher);
+    await vi.advanceTimersByTimeAsync(0);
+    refreshList("k", fetcher); // inside the interval → scheduled
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    resetListCache();
+    await vi.advanceTimersByTimeAsync(MIN_REFRESH_INTERVAL_MS * 2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

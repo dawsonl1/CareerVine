@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { mockAuthProviderModule } from "./helpers/mock-auth-provider";
 import { resetListCache } from "@/lib/list-cache";
-import { invalidateCompaniesList } from "@/lib/companies-list-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 import type { CompanySummary } from "@/lib/company-queries";
 
 /**
@@ -82,7 +82,7 @@ describe("companies list cache", () => {
     expect(q.getCompanies).toHaveBeenCalledTimes(1);
   });
 
-  it("refetches after a write invalidates the list", async () => {
+  it("shows the written row, never the cached one it contradicts", async () => {
     q.getCompanies.mockResolvedValue([summary(1, "Acme")]);
     const first = render(<CompaniesPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeTruthy());
@@ -91,24 +91,66 @@ describe("companies list cache", () => {
     // What the detail page does after a pipeline save or a tier move: the row
     // it just changed must not come back from cache contradicting the write.
     q.getCompanies.mockResolvedValue([summary(1, "Acme"), summary(2, "Globex")]);
-    invalidateCompaniesList(USER_ID);
+    refreshCompaniesList(USER_ID);
 
     render(<CompaniesPage />);
     await waitFor(() => expect(screen.getByText("Globex")).toBeTruthy());
+    // Two, not three: the refresh's fetch is JOINED, not duplicated (CAR-278).
     expect(q.getCompanies).toHaveBeenCalledTimes(2);
   });
 
-  it("scopes invalidation to the user who did the writing", async () => {
+  it("comes back warm when the refresh landed before the user did (CAR-278)", async () => {
     q.getCompanies.mockResolvedValue([summary(1, "Acme")]);
     const first = render(<CompaniesPage />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeTruthy());
     first.unmount();
 
-    invalidateCompaniesList("someone-else");
+    // The user changes something and stays on the detail page long enough for
+    // the background refetch to finish. This is the whole feature: the write
+    // used to leave the cache empty, so the return trip paid for a full read.
+    q.getCompanies.mockResolvedValue([summary(1, "Acme"), summary(2, "Globex")]);
+    refreshCompaniesList(USER_ID);
+    await waitFor(() => expect(q.getCompanies).toHaveBeenCalledTimes(2));
+
+    render(<CompaniesPage />);
+    // Synchronous, like the first test: a warm cache means no loading flash and
+    // a document already at full height for scroll restoration.
+    expect(screen.getByText("Globex")).toBeTruthy();
+    expect(screen.queryByText("Loading companies…")).toBeNull();
+    expect(q.getCompanies).toHaveBeenCalledTimes(2);
+  });
+
+  it("scopes the refresh to the user who did the writing", async () => {
+    q.getCompanies.mockResolvedValue([summary(1, "Acme")]);
+    const first = render(<CompaniesPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeTruthy());
+    first.unmount();
+
+    refreshCompaniesList("someone-else");
 
     render(<CompaniesPage />);
     expect(screen.getByText("Acme")).toBeTruthy();
     expect(q.getCompanies).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the cache empty when the background refresh fails", async () => {
+    q.getCompanies.mockResolvedValue([summary(1, "Acme")]);
+    const first = render(<CompaniesPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeTruthy());
+    first.unmount();
+
+    // A refresh nobody asked for must not strand the page on stale rows or
+    // surface an error: it degrades to an ordinary miss.
+    const console_ = vi.spyOn(console, "error").mockImplementation(() => {});
+    q.getCompanies.mockRejectedValueOnce(new Error("network"));
+    refreshCompaniesList(USER_ID);
+    await waitFor(() => expect(q.getCompanies).toHaveBeenCalledTimes(2));
+
+    q.getCompanies.mockResolvedValue([summary(2, "Globex")]);
+    render(<CompaniesPage />);
+    await waitFor(() => expect(screen.getByText("Globex")).toBeTruthy());
+    expect(q.getCompanies).toHaveBeenCalledTimes(3);
+    console_.mockRestore();
   });
 
   it("does not cache a failed read", async () => {

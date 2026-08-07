@@ -2,7 +2,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration";
-import { rememberScroll, recallScroll, setLastPopAtForTest } from "@/lib/scroll-memory";
+import {
+  rememberScroll,
+  recallScroll,
+  rememberAnchor,
+  consumeAnchor,
+  setLastPopAtForTest,
+} from "@/lib/scroll-memory";
 
 /**
  * CAR-256. The e2e flow proves this end to end in a real browser; these cover
@@ -24,10 +30,25 @@ function setScrollable(y: number) {
   Object.defineProperty(window, "scrollY", { value: y, writable: true, configurable: true });
 }
 
+/**
+ * A row the anchor can find, with the layout jsdom does not compute. `top`/
+ * `bottom` are viewport-relative, i.e. what the offset restore left behind.
+ */
+function anchoredRow(id: string, top: number, height = 100) {
+  const el = document.createElement("div");
+  el.setAttribute("data-scroll-anchor", id);
+  el.getBoundingClientRect = () =>
+    ({ top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top }) as DOMRect;
+  el.scrollIntoView = vi.fn();
+  document.body.appendChild(el);
+  return el;
+}
+
 beforeEach(() => {
   sessionStorage.clear();
   setLastPopAtForTest(0);
   setScrollable(0);
+  document.body.innerHTML = "";
   window.history.replaceState({}, "", PATH);
 });
 afterEach(cleanup);
@@ -104,6 +125,92 @@ describe("useScrollRestoration — restoring", () => {
     );
 
     expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * CAR-278. A write now refreshes the list in the background, so the rows behind
+ * a remembered offset can have moved by the time the user comes back. The offset
+ * still wins whenever it is right, because it reproduces the view exactly; the
+ * anchor only rescues the case where it is not.
+ */
+describe("useScrollRestoration — anchors", () => {
+  it("scrolls the row into view when the offset left it off screen", () => {
+    rememberScroll(PATH, "", 900);
+    rememberAnchor(PATH, "", "42");
+    setLastPopAtForTest(Date.now());
+    // The list came back reordered: the row is now far below the fold.
+    const row = anchoredRow("42", 4000);
+
+    renderHook(() => useScrollRestoration({ pathname: PATH, search: "", ready: true }));
+
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 900);
+    expect(row.scrollIntoView).toHaveBeenCalledWith({ block: "center" });
+  });
+
+  it("leaves the page alone when the offset already put the row on screen", () => {
+    // The list did not change, so the offset reproduced the view exactly.
+    // Re-centring here would move a page the user is already reading.
+    rememberScroll(PATH, "", 900);
+    rememberAnchor(PATH, "", "42");
+    setLastPopAtForTest(Date.now());
+    const row = anchoredRow("42", 200);
+
+    renderHook(() => useScrollRestoration({ pathname: PATH, search: "", ready: true }));
+
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 900);
+    expect(row.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the offset when the row is gone entirely", () => {
+    // Deleted, or filtered out of this view. Nothing to anchor to, so the
+    // remembered offset stands rather than the page jumping somewhere arbitrary.
+    rememberScroll(PATH, "", 900);
+    rememberAnchor(PATH, "", "42");
+    setLastPopAtForTest(Date.now());
+
+    renderHook(() => useScrollRestoration({ pathname: PATH, search: "", ready: true }));
+
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 900);
+  });
+
+  it("rescues even when the browser restored the scroll itself", () => {
+    // The `scrollY > 0` branch stands down from touching the offset, and it is
+    // right to: Next already applied one. But Next measured it against the old
+    // list too, so the row can still be in the wrong place.
+    rememberScroll(PATH, "", 900);
+    rememberAnchor(PATH, "", "42");
+    setLastPopAtForTest(Date.now());
+    setScrollable(900);
+    const row = anchoredRow("42", -3000);
+
+    renderHook(() => useScrollRestoration({ pathname: PATH, search: "", ready: true }));
+
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    expect(row.scrollIntoView).toHaveBeenCalledWith({ block: "center" });
+  });
+
+  it("consumes the anchor on a mount that never restores", () => {
+    // `ready: false` is a real refetch, where restoration deliberately declines.
+    // The anchor must not survive it: the next pop onto this view belongs to a
+    // different trip and would jump to a row the user had moved on from.
+    rememberAnchor(PATH, "", "42");
+    setLastPopAtForTest(Date.now());
+
+    renderHook(() => useScrollRestoration({ pathname: PATH, search: "", ready: false }));
+
+    expect(consumeAnchor(PATH, "")).toBeNull();
+  });
+
+  it("exposes rememberAnchor bound to the current view", () => {
+    const { result } = renderHook(() =>
+      useScrollRestoration({ pathname: PATH, search: "status=applied", ready: false }),
+    );
+
+    act(() => result.current.rememberAnchor("77"));
+
+    expect(consumeAnchor(PATH, "status=applied")).toBe("77");
+    expect(consumeAnchor(PATH, "status=closed")).toBeNull();
   });
 });
 

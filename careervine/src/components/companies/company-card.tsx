@@ -119,10 +119,16 @@ function tractionChipText(
 export function CompanyCard({
   company: c,
   locationSelection,
+  onNavigate,
 }: {
   company: CompanySummary;
   /** Active location filter, so the card reports the places the user asked for. */
   locationSelection?: LocationSelection;
+  /**
+   * Fired on the click that leaves the list. The list uses it to remember which
+   * row to come back to (CAR-278), which pairs with `data-scroll-anchor` below.
+   */
+  onNavigate?: () => void;
 }) {
   const affinity = useAlumniAffinity();
   // Null when the ladder has nothing to say — the card shows no pill at all
@@ -151,7 +157,12 @@ export function CompanyCard({
   const scopeLabel = matched.length === 1 ? matched[0].label : matched.length > 1 ? `${matched.length} offices` : null;
 
   return (
-    <Link href={companyHref(c, sel ?? EMPTY_SELECTION)} className="block group">
+    <Link
+      href={companyHref(c, sel ?? EMPTY_SELECTION)}
+      className="block group"
+      onClick={onNavigate}
+      data-scroll-anchor={c.id}
+    >
       <Card className="transition-shadow group-hover:shadow-md">
         <CardContent className="py-4 px-5">
           <div className="flex items-center gap-4">

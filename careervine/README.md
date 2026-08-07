@@ -137,8 +137,12 @@ search and stackable filters:
 - Clicking into a company and coming back returns you to the list you left, not
   to a fresh one. The companies are already there with no second wait, you are
   back at the row you were reading rather than the top of the page, and every
-  filter you had set is still set. Change something on the company page and the
-  list picks up the change instead of showing you what it said before.
+  filter you had set is still set.
+- That holds even when you change something. Update a stage, move someone on or
+  off your network, and the list quietly re-reads itself while you are still on
+  the company page, so coming back is instant and already shows the change. If
+  the update reshuffles the order, you still land on the company you were just
+  looking at rather than wherever that spot on the page now points.
 
 Each card also carries a traction badge that reads like a status report rather
 than a label: "3 Contacted (2 days ago)", "2 Calls Done (2 weeks ago)", "1 Call

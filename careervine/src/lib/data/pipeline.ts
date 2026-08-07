@@ -226,10 +226,11 @@ export type TargetCompanyStage =
  * predicate, which is unsafe precisely here, under a service client that
  * bypasses RLS.
  *
- * CACHE: CAR-256's `invalidateCompaniesList` is browser module state. Calling it
- * from a server process would invalidate nothing, so it is deliberately not
+ * CACHE: CAR-256's `refreshCompaniesList` is browser module state. Calling it
+ * from a server process would refresh nothing, so it is deliberately not
  * called — a stage set through here reaches the list on its next fetch or after
- * the 5-minute TTL.
+ * `COMPANIES_LIST_TTL_MS` expires. That TTL is the ONLY bound on this path,
+ * which is the reason it is not longer than it is (CAR-278).
  *
  * @param userId Owner. `pipeline_cycles` has no user_id, so ownership is proven
  *               on the parent target row before the cycle is touched.

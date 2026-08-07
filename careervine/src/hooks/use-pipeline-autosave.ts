@@ -41,7 +41,7 @@ import {
   setScopeUntargeted,
   syncScopeStatus,
 } from "@/lib/pipeline-queries";
-import { invalidateCompaniesList } from "@/lib/companies-list-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -207,7 +207,7 @@ export function usePipelineAutosave({
         // the user is here, so it cannot listen for this — the cache has to be
         // dropped at the write (CAR-256).
         if (userId) {
-          invalidateCompaniesList(userId);
+          refreshCompaniesList(userId);
           // syncScopeStatus above writes target_companies.status, which the
           // company page's cached scopes carry too (CAR-268).
           invalidateCompanyScopes();
@@ -254,7 +254,7 @@ export function usePipelineAutosave({
           // target_companies rows the companies list reads. Same reasoning as
           // in flush(): invalidate at the write, not from a mounted listener.
           if (userId) {
-            invalidateCompaniesList(userId);
+            refreshCompaniesList(userId);
             invalidateCompanyScopes();
           }
         } catch (error) {
