@@ -36,6 +36,7 @@ import type {
   TimelineEntry,
   TranscriptSegment,
 } from "@/lib/types";
+import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -98,6 +99,15 @@ export function TimelineDetailModal({
   const { openCompose } = useCompose();
   const { openEdit } = useQuickCapture();
 
+  // Every write reachable from this modal (excluding or restoring a timeline
+  // entry, deleting a meeting or interaction) changes what stage derivation
+  // sees, and so changes the badges on a company roster that is cached and
+  // unmounted (CAR-268). One wrapper, because they all report through here.
+  const handleChanged = useCallback(() => {
+    invalidateCompanyScopes();
+    onChanged();
+  }, [onChanged]);
+
   const isOpen = !!entry;
 
   return (
@@ -111,7 +121,7 @@ export function TimelineDetailModal({
         <MeetingDetail
           meetingId={entry.data.id}
           onClose={onClose}
-          onChanged={onChanged}
+          onChanged={handleChanged}
           onConfirmDelete={onConfirmDelete}
           onEdit={(meeting, actions) => {
             // Close first: the conversation modal is a sibling dialog, and
@@ -128,7 +138,7 @@ export function TimelineDetailModal({
         <InteractionDetail
           interaction={entry.data}
           onClose={onClose}
-          onChanged={onChanged}
+          onChanged={handleChanged}
           onConfirmDelete={onConfirmDelete}
           toastError={toastError}
         />
@@ -148,7 +158,7 @@ export function TimelineDetailModal({
         <CompletedActionDetail
           action={entry.data}
           onClose={onClose}
-          onChanged={onChanged}
+          onChanged={handleChanged}
           onConfirmDelete={onConfirmDelete}
           toastError={toastError}
         />
@@ -158,7 +168,7 @@ export function TimelineDetailModal({
         <CountToggle
           entry={entry}
           onClose={onClose}
-          onChanged={onChanged}
+          onChanged={handleChanged}
           onConfirm={onConfirmDelete}
           toastError={toastError}
         />

@@ -47,6 +47,7 @@ import { FutureMeetingFields } from "./future-meeting-fields";
 import { ActionItemsSection } from "./action-items-section";
 import { apiSend, jsonBody } from "@/lib/api-client";
 import { wallClockParts } from "@/lib/calendar-day";
+import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 
 // Map icon names to components. One entry per CONVERSATION_TYPE_OPTIONS
 // `iconName`; a missing entry degrades to a label-only chip (guarded below).
@@ -375,6 +376,9 @@ export function ConversationModal() {
       close();
 
       // Notify other components to refresh
+      // Stage derivation reads this write, so a cached company roster
+      // would show the old badge (CAR-268).
+      invalidateCompanyScopes();
       emitUiEvent(UI_EVENTS.conversationLogged);
     } catch (err) {
       console.error("Error saving:", err);
@@ -541,7 +545,10 @@ export function ConversationModal() {
             allContacts={allContacts}
             onAiActionAccepted={(action) => setPendingActions((prev) => [...prev, action])}
             onActionCreated={() => {
-              emitUiEvent(UI_EVENTS.conversationLogged);
+              // Stage derivation reads this write, so a cached company roster
+      // would show the old badge (CAR-268).
+      invalidateCompanyScopes();
+      emitUiEvent(UI_EVENTS.conversationLogged);
             }}
           />
           <ActionItemsSection

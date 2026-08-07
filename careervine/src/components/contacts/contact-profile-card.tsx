@@ -27,6 +27,7 @@ import { primaryCurrentRole } from "@/lib/experience-order";
 import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
 import type { Contact } from "@/lib/types";
 import { apiFetch, jsonBody } from "@/lib/api-client";
+import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
 
 interface ContactProfileCardProps {
   contact: Contact;
@@ -115,6 +116,8 @@ export function ContactProfileCard({
         }
       }
       onContactUpdate();
+      // The roster this person appears on is cached and unmounted (CAR-268).
+      invalidateCompanyScopes();
       toastSuccess("Email updated");
     } catch {
       toastError("Failed to update email");
@@ -125,6 +128,8 @@ export function ContactProfileCard({
     try {
       await activateContact(contact.id);
       onContactUpdate();
+      // The roster this person appears on is cached and unmounted (CAR-268).
+      invalidateCompanyScopes();
       toastSuccess(`${contact.name} added to your network`);
     } catch {
       toastError("Failed to add to network");

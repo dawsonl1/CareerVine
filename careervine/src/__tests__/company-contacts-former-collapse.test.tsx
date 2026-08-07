@@ -91,6 +91,8 @@ function renderRoster(all: LocationBlock) {
       linkedinUrl={null}
       offices={[]}
       state={STATE}
+      pipelineFailed={false}
+      onRetryPipeline={() => {}}
       actions={ACTIONS}
       saveStatus="idle"
       scope="all"

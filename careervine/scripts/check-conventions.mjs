@@ -1140,7 +1140,13 @@ const SEAM_MODULE = /^@\/lib\//;
 // `(?![a-z])` lookahead would also reject an uppercase next character, which is
 // the common case (`getFoo`), inverting the whole list.
 const READ_VERB =
-  /^(?:summar|(?:get|list|find|search|count|build|load|read|is|has|can|should|format|parse|derive|compute|select|resolve|to|map|filter|sort|group|pick|use|make|new|calc|estimate|score|rank|match|diff|compare|validate|check|infer|extract|render|describe|label|title|display)(?![a-z]))/;
+  // `fetch` joined the list in CAR-268. It is one of the commonest read
+  // prefixes in this codebase (`fetchCompanyScopes`, `fetchOfficeScopes`,
+  // `fetchCompanyCounts`) and its absence classified every one of them as a
+  // mutation, demanding a double-submit guard on a read. `apiFetch` is
+  // unaffected: it is classified by `apiFetchMutates`, which reads the actual
+  // HTTP method, before this regex is consulted.
+  /^(?:summar|(?:get|list|find|search|fetch|count|build|load|read|is|has|can|should|format|parse|derive|compute|select|resolve|to|map|filter|sort|group|pick|use|make|new|calc|estimate|score|rank|match|diff|compare|validate|check|infer|extract|render|describe|label|title|display)(?![a-z]))/;
 const ALWAYS_MUTATING = new Set(["apiSend", "withToastOnError"]);
 
 // A JSX prop that takes an event handler, for the inline form below. Every DOM
@@ -1492,7 +1498,10 @@ const DOUBLE_SUBMIT_BASELINE = {
   ],
   "src/app/admin/users/page.tsx": ["setAiPolicy", "setScrapeControl"],
   "src/app/calendar/page.tsx": ["handleDeleteEvent", "handleSaveMeeting", "handleSync", "loadData"],
-  "src/app/companies/[id]/page.tsx": ["handleSetTier", "load"],
+  // `load` left this list in CAR-268: it no longer awaits anything itself, it
+  // just re-triggers the two reads (the cached roster and the pipeline), each of
+  // which gates its own commit on useLatestRequest.
+  "src/app/companies/[id]/page.tsx": ["handleSetTier"],
   "src/app/contacts/[id]/page.tsx": ["handleDelete"],
   "src/app/contacts/page.tsx": ["handleActivate", "handleSetTier", "onClick~aqoh"],
   "src/app/contacts/preview/page.tsx": ["handleSave"],
