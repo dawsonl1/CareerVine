@@ -12,8 +12,9 @@
  * names; the card maps them to components.
  */
 
+import { formatRelativeTime } from "./relative-time";
 import type { CompanySummary } from "./company-queries";
-import type { OutreachStage } from "./stage-derivation";
+import type { ConversationKind, OutreachStage } from "./stage-derivation";
 
 export type NextActionTone = "urgent" | "active" | "muted";
 
@@ -45,6 +46,15 @@ export interface NextActionInput {
   recruiterCount: number;
   /** The person to name in the line (already chosen upstream); null if none. */
   leadName: string | null;
+  /**
+   * What the conversation behind a `call_done` / `call_scheduled` traction
+   * actually was (CAR-257). Null means no type was recorded, which the two call
+   * rungs read as a call — a Google-synced calendar event carries no type, and
+   * treating those as unknown would silence every real call on the list.
+   */
+  conversationKind: ConversationKind | null;
+  /** When that conversation happened, for the lines that state a date. */
+  conversationAt: string | null;
 }
 
 /** Whole days from `now` (local midnight) to a YYYY-MM-DD date; negative = past. */
@@ -64,6 +74,88 @@ function firstName(name: string | null): string | null {
 }
 
 /**
+ * The "you already had this conversation, now follow up" rung, worded for what
+ * the conversation actually was (CAR-257).
+ *
+ * Text Message Chat and Other deliberately return no PROMPT. Following up after
+ * a text exchange is not a move the app should push — Lucid Software advised
+ * "Follow up with Spencer after your call" off a meeting titled "LinkedIn
+ * chat", and the correction is not better wording for the same nudge, it is not
+ * nudging. Those two state the fact instead, at a rank below every real move
+ * (the warm-intro band bottoms out at 34) so a dead end never wins the
+ * "What's next" sort.
+ */
+function pastConversationAction(
+  kind: ConversationKind,
+  lead: string | null,
+  at: string | null,
+  now: Date,
+): NextAction {
+  switch (kind) {
+    case "career-fair":
+      return {
+        text: lead ? `Follow up with ${lead} after the career fair` : "Follow up after the career fair",
+        icon: "Briefcase",
+        tone: "active",
+        rank: 65,
+      };
+    case "networking":
+      return {
+        text: lead ? `Follow up with ${lead} after the networking event` : "Follow up after the networking event",
+        icon: "Users",
+        tone: "active",
+        rank: 65,
+      };
+    case "text":
+    case "other": {
+      // "You texted Spencer a month ago" — a statement, so the time clause is
+      // what carries it. Without a usable date it degrades to the bare fact
+      // rather than inventing one.
+      const when = formatRelativeTime(at, now);
+      const verb = kind === "text" ? "texted" : "connected with";
+      const who = lead ?? "someone here";
+      return {
+        text: when ? `You ${verb} ${who} ${when}` : `You ${verb} ${who}`,
+        icon: kind === "text" ? "MessageSquare" : "CircleEllipsis",
+        tone: "muted",
+        rank: 30,
+      };
+    }
+    case "call":
+      return {
+        text: lead ? `Follow up with ${lead} after your call` : "Follow up after your call",
+        icon: "MessageSquare",
+        tone: "active",
+        rank: 65,
+      };
+  }
+}
+
+/**
+ * The "a conversation is on the calendar" rung, worded for what it is
+ * (CAR-257). Same defect as the rung above, one step earlier: a career fair
+ * synced to Google Calendar used to read "Prep for your call".
+ *
+ * Text and Other collapse to the neutral "conversation" — you do not schedule
+ * a text exchange, so anything that lands here is a mislabel, and a generic
+ * word is the one wording that cannot be wrong about it.
+ */
+function upcomingConversationAction(kind: ConversationKind, lead: string | null): NextAction {
+  const base = { icon: "Phone", tone: "active" as const, rank: 86 };
+  switch (kind) {
+    case "career-fair":
+      return { ...base, icon: "Briefcase", text: lead ? `Prep for the career fair, ${lead} will be there` : "Prep for the career fair" };
+    case "networking":
+      return { ...base, icon: "Users", text: lead ? `Prep for the networking event, ${lead} will be there` : "Prep for the networking event" };
+    case "text":
+    case "other":
+      return { ...base, icon: "MessageSquare", text: lead ? `Prep for your conversation with ${lead}` : "Prep for your upcoming conversation" };
+    case "call":
+      return { ...base, text: lead ? `Prep for your call with ${lead}` : "Prep for your upcoming call" };
+  }
+}
+
+/**
  * The single most useful next move for a company. The ladder is ordered by
  * what a job-seeker should actually do first: finish live conversations and
  * beat hard deadlines before starting cold ones, and always prefer a warm
@@ -77,6 +169,8 @@ function firstName(name: string | null): string | null {
 export function deriveNextAction(input: NextActionInput, now: Date = new Date()): NextAction | null {
   const { status, nextAppDate, traction, currentCount, alumCount, productAlumCount } = input;
   const lead = firstName(input.leadName);
+  // Untyped means a call — see NextActionInput.conversationKind.
+  const conversation = input.conversationKind ?? "call";
 
   // Closed — nothing left to do.
   if (status === "closed") {
@@ -101,7 +195,7 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
     return { text: lead ? `${lead} offered a referral, line up the intro` : "You have a referral, line up the intro", icon: "Handshake", tone: "active", rank: 88 };
   }
   if (traction === "call_scheduled") {
-    return { text: lead ? `Prep for your call with ${lead}` : "Prep for your upcoming call", icon: "Phone", tone: "active", rank: 86 };
+    return upcomingConversationAction(conversation, lead);
   }
   if (traction === "replied") {
     return { text: lead ? `${lead} replied, write back` : "You have a reply, write back", icon: "MailOpen", tone: "active", rank: 84 };
@@ -114,7 +208,7 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
 
   // Conversation started but no live thread.
   if (traction === "call_done") {
-    return { text: lead ? `Follow up with ${lead} after your call` : "Follow up after your call", icon: "MessageSquare", tone: "active", rank: 65 };
+    return pastConversationAction(conversation, lead, input.conversationAt, now);
   }
 
   // Applied — nudge toward a human to back the application. With nobody current
@@ -197,6 +291,8 @@ export function nextActionForCompany(c: CompanySummary, now: Date = new Date()):
       productAlumCount: c.product_alum_count,
       recruiterCount: c.recruiter_count,
       leadName: c.lead_contact_name,
+      conversationKind: c.conversation?.kind ?? null,
+      conversationAt: c.traction_detail?.at ?? null,
     },
     now,
   );
