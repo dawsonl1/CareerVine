@@ -41,7 +41,7 @@ function company(over: Partial<CompanySummary> = {}): CompanySummary {
     lead_detail: null,
     // Two real calls behind the default fixture, matching what the query layer
     // produces for a `call_done` company (CAR-257).
-    conversation: { kind: "call", allCalls: true },
+    conversation: { kind: "call", kinds: ["call"], allCalls: true },
     ...over,
   };
 }
@@ -152,7 +152,7 @@ describe("the chip only says 'Call' when the conversations were calls (CAR-257)"
       <CompanyCard
         company={company({
           traction_detail: { count: 1, at: daysAgo(30) },
-          conversation: { kind: "text", allCalls: false },
+          conversation: { kind: "text", kinds: ["text"], allCalls: false },
         })}
       />,
     );
@@ -161,13 +161,13 @@ describe("the chip only says 'Call' when the conversations were calls (CAR-257)"
   });
 
   it("pluralizes the neutral noun too", () => {
-    render(<CompanyCard company={company({ conversation: { kind: "career-fair", allCalls: false } })} />);
+    render(<CompanyCard company={company({ conversation: { kind: "career-fair", kinds: ["career-fair"], allCalls: false } })} />);
     expect(screen.getByText("2 Conversations (2 weeks ago)")).toBeTruthy();
   });
 
   it("keeps 'Calls Done' when every conversation was a call", () => {
     // Including the untyped Google-synced case, which resolves to a call.
-    render(<CompanyCard company={company({ conversation: { kind: "call", allCalls: true } })} />);
+    render(<CompanyCard company={company({ conversation: { kind: "call", kinds: ["call"], allCalls: true } })} />);
     expect(screen.getByText("2 Calls Done (2 weeks ago)")).toBeTruthy();
   });
 
@@ -177,7 +177,7 @@ describe("the chip only says 'Call' when the conversations were calls (CAR-257)"
         company={company({
           traction: "call_scheduled",
           traction_detail: { count: 1, at: daysAgo(-3) },
-          conversation: { kind: "career-fair", allCalls: false },
+          conversation: { kind: "career-fair", kinds: ["career-fair"], allCalls: false },
         })}
       />,
     );

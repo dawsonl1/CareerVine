@@ -156,6 +156,12 @@ export interface StageTally {
 export interface ConversationSummary {
   /** Kind of the LATEST past conversation, or the SOONEST upcoming one. */
   kind: ConversationKind;
+  /**
+   * Every DISTINCT kind on this side, latest-first (past) / soonest-first
+   * (upcoming), so a contact's chip row can name each conversation type
+   * individually (CAR-267). `kinds[0]` always equals `kind`.
+   */
+  kinds: ConversationKind[];
   /** False as soon as one conversation in the tally was not a call. */
   allCalls: boolean;
 }
@@ -231,6 +237,22 @@ function earlierOf(a: string | null, b: string | null): string | null {
   if (!a) return b;
   if (!b) return a;
   return a < b ? a : b;
+}
+
+/**
+ * One side's ConversationSummary from its already-sorted conversations
+ * (latest-first for past, soonest-first for upcoming), so `kind` and
+ * `kinds[0]` are both the conversation whose date the chip prints.
+ */
+function summarizeConversations(
+  convs: Array<{ at: string; kind: ConversationKind }>,
+): ConversationSummary | null {
+  if (convs.length === 0) return null;
+  return {
+    kind: convs[0].kind,
+    kinds: [...new Set(convs.map((c) => c.kind))],
+    allCalls: convs.every((c) => c.kind === "call"),
+  };
 }
 
 /**
@@ -640,38 +662,25 @@ export async function getContactStages(
         ? inbounds
         : [];
 
-    let upcomingCalls = 0;
-    let pastCalls = 0;
-    let soonestCall: string | null = null;
-    let latestCall: string | null = null;
-    // The kind of the conversation each of those two timestamps belongs to, and
-    // whether every conversation on that side was a call (CAR-257). Tracked in
-    // the same pass so the pill's wording and the chip's noun can never describe
-    // a different conversation than the one whose date they print.
-    let latestPastKind: ConversationKind | null = null;
-    let soonestUpcomingKind: ConversationKind | null = null;
-    let allPastAreCalls = true;
-    let allUpcomingAreCalls = true;
+    // Each side sorted so index 0 is the conversation the chip dates: latest
+    // first for past, soonest first for upcoming. The kinds travel WITH the
+    // dates (CAR-257) so the pill's wording and the chip's noun can never
+    // describe a different conversation than the one whose date they print,
+    // and the distinct-kind list (CAR-267) inherits the same order.
+    const pastConvs: Array<{ at: string; kind: ConversationKind }> = [];
+    const upcomingConvs: Array<{ at: string; kind: ConversationKind }> = [];
     for (const { at, kind } of callsByContact.get(contact.id)?.values() ?? []) {
       // An untyped conversation is a call: a Google-synced event carries no
       // type, and treating those as unknown would silence every real call.
       const resolved: ConversationKind = kind ?? "call";
-      if (at > nowIso) {
-        upcomingCalls++;
-        if (soonestCall == null || at < soonestCall) {
-          soonestCall = at;
-          soonestUpcomingKind = resolved;
-        }
-        if (resolved !== "call") allUpcomingAreCalls = false;
-      } else {
-        pastCalls++;
-        if (latestCall == null || at > latestCall) {
-          latestCall = at;
-          latestPastKind = resolved;
-        }
-        if (resolved !== "call") allPastAreCalls = false;
-      }
+      (at > nowIso ? upcomingConvs : pastConvs).push({ at, kind: resolved });
     }
+    pastConvs.sort((a, b) => (a.at > b.at ? -1 : a.at < b.at ? 1 : 0));
+    upcomingConvs.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+    const pastCalls = pastConvs.length;
+    const upcomingCalls = upcomingConvs.length;
+    const latestCall = pastConvs[0]?.at ?? null;
+    const soonestCall = upcomingConvs[0]?.at ?? null;
 
     // Where those replies leave us, per thread (CAR-253). The qualification
     // repeats the rule above rather than reusing `replies`, because the answer
@@ -737,8 +746,8 @@ export async function getContactStages(
       tallies,
       replyThread,
       conversations: {
-        past: pastCalls > 0 ? { kind: latestPastKind ?? "call", allCalls: allPastAreCalls } : null,
-        upcoming: upcomingCalls > 0 ? { kind: soonestUpcomingKind ?? "call", allCalls: allUpcomingAreCalls } : null,
+        past: summarizeConversations(pastConvs),
+        upcoming: summarizeConversations(upcomingConvs),
       },
     });
   }
@@ -1625,6 +1634,7 @@ export async function getCompanies(
         // behind the count was one — one text chat in the mix demotes the whole
         // chip to "Conversations" (CAR-257).
         let allCalls = true;
+        const companyKinds = new Set<ConversationKind>();
         for (const p of current) {
           const s = stages.get(p.id);
           const tally = s?.tallies[winning];
@@ -1634,19 +1644,30 @@ export async function getCompanies(
           // the most recent thing that happened.
           at = winning === "call_scheduled" ? earlierOf(at, tally.at) : laterOf(at, tally.at);
           const side = winning === "call_scheduled" ? s?.conversations.upcoming : s?.conversations.past;
-          if (side && !side.allCalls) allCalls = false;
+          if (side) {
+            if (!side.allCalls) allCalls = false;
+            for (const k of side.kinds) companyKinds.add(k);
+          }
         }
         tractionDetail.set(id, { count, at });
 
         // Only the two call stages describe a conversation. The kind comes from
-        // the winner alone — it is the one the pill names a person for.
+        // the winner alone — it is the one the pill names a person for — while
+        // `kinds` spans every current contact on that side, winner's first, to
+        // keep the kinds[0] === kind contract.
         const winningSide =
           winning === "call_done"
             ? best.stage.conversations.past
             : winning === "call_scheduled"
               ? best.stage.conversations.upcoming
               : null;
-        if (winningSide) conversationByCompany.set(id, { kind: winningSide.kind, allCalls });
+        if (winningSide) {
+          conversationByCompany.set(id, {
+            kind: winningSide.kind,
+            kinds: [winningSide.kind, ...[...companyKinds].filter((k) => k !== winningSide.kind)],
+            allCalls,
+          });
+        }
       }
 
       // Lead name for the next-action line: the contact with real momentum, else
@@ -1856,6 +1877,13 @@ export interface CompanyPerson {
    * this same field, two years apart in the codebase.
    */
   stage: OutreachStage | null;
+  /**
+   * What the conversations behind a call stage actually were (CAR-267), so a
+   * chip can say "Texted" instead of presenting a LinkedIn message exchange as
+   * "Call done". Both sides null when the stage was never derived (bench rows)
+   * or nothing conversational backs it (pure `stage_override`).
+   */
+  conversations: ContactStage["conversations"];
   email: { address: string; source: string; bounced: boolean } | null;
   /** Most recent logged interaction (offline touchpoints live on the contact). */
   last_interaction: { type: string; date: string } | null;
@@ -2148,6 +2176,7 @@ export async function getCompanyDetail(
         last_scraped_at: r.contacts.last_scraped_at,
         linkedin_url: r.contacts.linkedin_url,
         stage: stages.get(r.contact_id)?.stage ?? null,
+        conversations: stages.get(r.contact_id)?.conversations ?? { past: null, upcoming: null },
         email: emailByContact.get(r.contact_id) ?? null,
         last_interaction: lastInteractionByContact.get(r.contact_id) ?? null,
         adjacency_score: Number.isNaN(adjacency) ? null : adjacency,

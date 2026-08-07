@@ -77,6 +77,11 @@ side, a living pipeline on the other.
   on is folded into a collapsed "Former employees" group, so a company with years of
   scraped history still opens on the contacts you can reach inside it. Searching the
   roster still finds the people who left, without a click.
+- Each person's card says what actually happened, not a generic status: a logged
+  text exchange reads "Texted", a career fair reads "Career fair", and "Call done"
+  is reserved for conversations that really were calls. Someone you have both
+  called and texted wears one chip for each. The card also links straight to their
+  LinkedIn profile, alongside their email, location, and current employer.
 - Email a prospect in one click (with bounced and pattern-guessed addresses clearly
   flagged), promote bench contacts into outreach, and manage office locations
   without leaving the page.

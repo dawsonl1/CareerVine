@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import type { LocationBlock, LocationTabsData } from "@/lib/company-scopes";
 import type { CompanyOffice, CompanyPerson } from "@/lib/company-queries";
-import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
+import { stageChipLabels, type OutreachStage } from "@/lib/stage-derivation";
 import { formatRoleLocationInList } from "@/lib/location-tab-label";
 import {
   PIPELINE_STAGES,
@@ -87,6 +87,30 @@ function filterPeople(people: CompanyPerson[], query: string): CompanyPerson[] {
     (p) =>
       p.name.toLowerCase().includes(query) ||
       (p.roles[0]?.title ?? p.headline ?? "").toLowerCase().includes(query),
+  );
+}
+
+/**
+ * One chip per distinct conversation kind behind a call stage, the plain stage
+ * label for everything else (CAR-267) — so a text exchange reads "Texted"
+ * rather than "Call done". Color still comes from the STAGE, which is what the
+ * chip's traction claim is about.
+ */
+function StageChips({
+  stage,
+  conversations,
+}: {
+  stage: OutreachStage;
+  conversations: CompanyPerson["conversations"];
+}) {
+  return (
+    <>
+      {stageChipLabels(stage, conversations).map((label) => (
+        <span key={label} className={`px-1.5 py-0.5 rounded text-[10px] ${STAGE_STYLES[stage]}`}>
+          {label}
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -289,7 +313,7 @@ function StageSummary({
             <li key={p.contact_id} className="text-xs text-on-surface leading-relaxed">
               {p.name.split(" ")[0]}
               {p.stage && (
-                <span className="text-on-surface-variant"> · {STAGE_LABELS[p.stage]}</span>
+                <span className="text-on-surface-variant"> · {stageChipLabels(p.stage, p.conversations).join(" · ")}</span>
               )}
               {lastInteractionSuffix(p) && (
                 <span className="text-on-surface-variant"> · {lastInteractionSuffix(p)}</span>
@@ -434,7 +458,7 @@ function StageFormFields({
                 {p.name.split(" ")[0]}
               </Link>
               {p.stage && (
-                <span className="text-xs text-on-surface-variant ml-1">· {STAGE_LABELS[p.stage]}</span>
+                <span className="text-xs text-on-surface-variant ml-1">· {stageChipLabels(p.stage, p.conversations).join(" · ")}</span>
               )}
               {lastInteractionSuffix(p) && (
                 <span className="text-xs text-on-surface-variant ml-1">· {lastInteractionSuffix(p)}</span>
@@ -730,9 +754,7 @@ function ContactRow({
               </span>
             )}
             {person.stage && person.stage !== "not_contacted" && (
-              <span className={`px-1.5 py-0.5 rounded text-[10px] ${STAGE_STYLES[person.stage]}`}>
-                {STAGE_LABELS[person.stage]}
-              </span>
+              <StageChips stage={person.stage} conversations={person.conversations} />
             )}
             {isFormer && (
               <span className="px-1.5 py-0.5 rounded text-[10px] bg-surface-container text-on-surface-variant border border-outline-variant/40">
@@ -774,6 +796,21 @@ function ContactRow({
               <Briefcase className="w-3 h-3 shrink-0" />
               <span className="truncate">{person.current_position.company_name}</span>
             </button>
+          )}
+          {person.linkedin_url && (
+            <a
+              href={person.linkedin_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              // The row's own click navigates to the contact page; without this
+              // the profile would open AND the page would navigate away.
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant hover:text-primary hover:underline min-w-0"
+              title={`Open ${person.name}'s LinkedIn profile`}
+            >
+              <ExternalLink className="w-3 h-3 shrink-0" />
+              <span className="truncate">LinkedIn</span>
+            </a>
           )}
         </div>
 
