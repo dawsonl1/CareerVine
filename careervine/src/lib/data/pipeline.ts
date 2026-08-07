@@ -10,12 +10,19 @@ import { randomUUID } from "node:crypto";
 import { db, must } from "./client";
 
 /**
- * The five recruiting stages, in order. Duplicated from `pipeline-state.ts`
- * rather than imported: that module is a client component's state model and
- * pulling it in here would drag React types into the data layer.
+ * The five recruiting stages. A type, not a runtime array: the only caller is
+ * an MCP tool whose zod enum already validates the value at the boundary, so a
+ * second list here would be a copy to keep in sync for nothing.
+ *
+ * Spelled out rather than imported from `pipeline-state.ts`, which is a client
+ * component's state model and would drag React types into the data layer.
  */
-const PIPELINE_STAGES = ["researching", "outreach_active", "applied", "interviewing", "closed"] as const;
-export type TargetCompanyStage = (typeof PIPELINE_STAGES)[number];
+export type TargetCompanyStage =
+  | "researching"
+  | "outreach_active"
+  | "applied"
+  | "interviewing"
+  | "closed";
 
 /**
  * Set a company target's pipeline stage, by explicit instruction (CAR-265).
