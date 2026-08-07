@@ -117,6 +117,14 @@ company and whether it has gone cold, without opening it. Only people who
 currently work there count toward it, so a conversation with someone who has
 since moved on never makes a company look warmer than it is.
 
+The next move on each card answers the same question with the same honesty.
+Waiting on someone reads "Waiting on Julian. You reached out 3 days ago", so the
+decision to nudge is yours to make from a number rather than a shrug. And
+"Samuel replied, write back" shows up only while you actually owe someone a
+response: answer the thread and it settles into "You had an email thread with
+Samuel (2 days ago)", which stays true even if Samuel writes again. A card should
+never ask you for something you have already done.
+
 ## A network that keeps itself fresh
 
 Contact data goes stale the moment you save it. People change jobs, get promoted,

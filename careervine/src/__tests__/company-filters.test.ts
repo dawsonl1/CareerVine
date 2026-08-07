@@ -31,6 +31,7 @@ function company(overrides: CompanyOverrides): CompanySummary {
     office_scopes: [],
     traction: null,
     traction_detail: null,
+    lead_detail: null,
     ...rest,
     target:
       target == null

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { formatRelativeTime } from "@/lib/relative-time";
+import { formatRelativeTime, formatTimeAgo } from "@/lib/relative-time";
 
 /** Local noon, so day arithmetic never straddles a DST shift. */
 const NOW = new Date(2026, 7, 6, 12, 0, 0);
@@ -75,5 +75,32 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(undefined, NOW)).toBeNull();
     expect(formatRelativeTime("", NOW)).toBeNull();
     expect(formatRelativeTime("not a date", NOW)).toBeNull();
+  });
+});
+
+/**
+ * The past-only variant behind "You reached out 3 days ago" (CAR-253). It
+ * shares the whole ladder with formatRelativeTime, so the only behavior worth
+ * pinning separately is the one place they differ.
+ */
+describe("formatTimeAgo", () => {
+  it("reads the past exactly like formatRelativeTime", () => {
+    for (const days of [0, -1, -2, -7, -28, -365]) {
+      expect(formatTimeAgo(offset(days), NOW)).toBe(formatRelativeTime(offset(days), NOW));
+    }
+  });
+
+  it("drops a future timestamp rather than rendering a backwards sentence", () => {
+    // "You reached out in 3 days" is the failure. A `Date:` header from a
+    // misconfigured sender, or a hand-entered interaction date, gets there.
+    expect(formatRelativeTime(offset(3), NOW)).toBe("in 3 days");
+    expect(formatTimeAgo(offset(3), NOW)).toBeNull();
+    expect(formatTimeAgo(offset(1), NOW)).toBeNull();
+  });
+
+  it("returns null for anything it cannot date", () => {
+    expect(formatTimeAgo(null, NOW)).toBeNull();
+    expect(formatTimeAgo(undefined, NOW)).toBeNull();
+    expect(formatTimeAgo("not a date", NOW)).toBeNull();
   });
 });
