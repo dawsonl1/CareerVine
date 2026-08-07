@@ -49,7 +49,6 @@ function company(overrides: CompanyOverrides): CompanySummary {
         : {
             id: 1,
             priority_score: null,
-            tier: null,
             program_name: null,
             app_window_text: null,
             next_app_date: null,

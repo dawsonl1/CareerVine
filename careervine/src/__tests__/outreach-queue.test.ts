@@ -23,7 +23,6 @@ function company(overrides: Partial<CompanySummary> & { name: string }): Company
     target: {
       id: 1,
       priority_score: 50,
-      tier: null,
       program_name: null,
       app_window_text: null,
       next_app_date: null,
@@ -37,7 +36,6 @@ function target(overrides: Partial<NonNullable<CompanySummary['target']>> = {}) 
   return {
     id: 1,
     priority_score: 50,
-    tier: null,
     program_name: null,
     app_window_text: null,
     next_app_date: null,

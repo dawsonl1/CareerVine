@@ -385,7 +385,6 @@ export async function getContactStages(
 export interface TargetInfo {
   id: number;
   priority_score: number | null;
-  tier: string | null;
   program_name: string | null;
   app_window_text: string | null;
   next_app_date: string | null;
@@ -521,7 +520,6 @@ export interface CompanyTargetScopeRow {
   location_id: number | null;
   is_targeted: boolean;
   priority_score: number | null;
-  tier: string | null;
   program_name: string | null;
   app_window_text: string | null;
   next_app_date: string | null;
@@ -533,7 +531,7 @@ export interface CompanyTargetScopeRow {
  * Collapse a company's scope rows into what the dashboard card shows.
  *
  * The status chip follows the company-wide row when it's targeted, else
- * the highest-priority targeted office. Tier / program / window hint are
+ * the highest-priority targeted office. Program / window hint are
  * employer attributes (§18.12 Q5 Option C), so they come from the
  * company-wide row even when it's a soft-untargeted container. The app
  * date is the nearest across targeted scopes (deadlines drive action);
@@ -577,7 +575,6 @@ export function deriveCompanyTarget(rows: CompanyTargetScopeRow[]): {
     target: {
       id: primary.id,
       status: primary.status,
-      tier: companyWide?.tier ?? primary.tier ?? null,
       program_name: companyWide?.program_name ?? primary.program_name ?? null,
       app_window_text: companyWide?.app_window_text ?? primary.app_window_text ?? null,
       next_app_date: appDates[0] ?? null,
@@ -821,8 +818,8 @@ export async function getCompanies(
   // so that shape is preserved verbatim; only `enrich: false` drops the keys.
   const runEnrichment = enrich && scope !== "all";
 
-  // All scope rows, including soft-untargeted containers: tier/program
-  // live on the company-wide row even when only offices are targeted.
+  // All scope rows, including soft-untargeted containers: the program name
+  // lives on the company-wide row even when only offices are targeted.
   //
   // Paginated (CAR-223): one row per company AND per targeted office, so the
   // count multiplies well past the company count, and a truncated read here
@@ -844,7 +841,7 @@ export async function getCompanies(
         await db()
           .from("target_companies")
           .select(
-            "id, company_id, location_id, is_targeted, priority_score, tier, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
+            "id, company_id, location_id, is_targeted, priority_score, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
           )
           .eq("user_id", userId)
           .order("id")
@@ -1424,7 +1421,7 @@ export async function getCompanyDetail(
       .eq("company_id", companyId),
     db()
       .from("target_companies")
-      .select("id, priority_score, tier, program_name, app_window_text, next_app_date, status")
+      .select("id, priority_score, program_name, app_window_text, next_app_date, status")
       .eq("user_id", userId)
       .eq("company_id", companyId)
       .is("location_id", null)
@@ -1990,7 +1987,7 @@ export async function removeTargetCompany(targetId: number) {
 
 export async function updateTargetCompany(
   targetId: number,
-  patch: Partial<Pick<TargetInfo, "priority_score" | "tier" | "program_name" | "app_window_text" | "next_app_date" | "status">>,
+  patch: Partial<Pick<TargetInfo, "priority_score" | "program_name" | "app_window_text" | "next_app_date" | "status">>,
 ) {
   const { error } = await db()
     .from("target_companies")

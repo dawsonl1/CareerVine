@@ -91,19 +91,29 @@ side, a living pipeline on the other.
 As your target list grows, the Companies page keeps it navigable with instant
 search and stackable filters:
 
-- Search as you type across company names, program names, and tier labels. Results
-  update instantly, no page reloads.
+- Search as you type across company names and program names. Results update
+  instantly, no page reloads.
 - Narrow the list by target status (researching through closed), outreach traction,
-  tier, whether you already know someone inside, whether one of your contacts works
-  there right now, and whether anyone there went to your school.
-- The traction, tier, contacts, and alumni menus each take several answers at once,
-  so "Big Tech or Utah" and "Replied or Call done" are single filters rather than
-  two separate views.
-- Filters combine, so "applied companies in Big Tech where I have no contacts yet"
-  is two clicks, and a live count shows how much of your list matches.
-- The count on each status chip follows the rest of the bar. Filter to one tier and
+  office location, whether you already know someone inside, whether one of your
+  contacts works there right now, and whether anyone there went to your school.
+- The location menu groups cities under their state, so you can take all of Utah in
+  one click or pick Lehi and Boston individually, and type to jump straight to a
+  city. Companies with no office on file are their own option, so they stay
+  reachable instead of disappearing.
+- The traction, location, contacts, and alumni menus each take several answers at
+  once, so "Lehi or Boston" and "Replied or Call done" are single filters rather
+  than two separate views.
+- Filters combine, so "applied companies in Utah where I have no contacts yet" is
+  two clicks, and a live count shows how much of your list matches.
+- Filtering by location changes what each company card reports, not just which
+  companies appear. Ask for Lehi and a card counts the people you know at the Lehi
+  office, and says how many of your contacts there have no office on file rather
+  than quietly leaving them out.
+- Clicking a company opens straight to that office when your filter points at
+  exactly one of its locations, and to the whole company when it points at more.
+- The count on each status chip follows the rest of the bar. Filter to one state and
   the chips tell you how many researching, applied, and interviewing companies are
-  left in that tier, so the number you click is the number you get.
+  left there, so the number you click is the number you get.
 - Every filtered view lives in the URL: share it, bookmark it, or click into a
   company and come back without losing your place.
 

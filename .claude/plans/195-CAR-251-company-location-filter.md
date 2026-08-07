@@ -79,9 +79,11 @@ Migration D drops the column.
 
 **Ordering constraint — this is the one thing that can break production.** Migration D must be applied **after** the new code is live, inverting the usual order. Rule 42's mechanism applies in reverse: old code selecting a dropped column gets PostgREST 42703, which supabase-js surfaces as `{data: null}` **without throwing**, so the companies page would render empty rather than error. Sequence: merge → `wait-for-deploy.mjs` confirms live → apply D. Migrations A/B/C are additive and safe to apply before merge.
 
-### 6. Make office location editable after creation
+### 6. Make office location editable after creation — ALREADY EXISTS, no work needed
 
-The add-company modal collects an office location but nothing can edit one afterward, which is why 144 companies are stuck. Add office add/remove on the company detail page, writing `source = 'manual'`. Without this the feature is still bundle-shaped: a user who mistypes a city, or adds a company before knowing its office, has no recovery.
+The plan assumed nothing could edit an office after creation. That was wrong, and checking beat building: `ManageOfficesPanel` (`components/companies/pipeline/manage-offices-panel.tsx`) already does add/remove against `addCompanyOfficeLocation` / `deleteCompanyOffice`, and it is rendered on the company detail page at `pipeline-layout.tsx:1436`.
+
+So the escape hatch the feature needs is live: a user who mistypes a city, disagrees with a `tier_migration` anchor, or wants to correct one of the two flagged `hq_seed` judgment calls can already fix it in the UI. Nothing to build here.
 
 ### 7. Tests and docs
 

@@ -150,7 +150,6 @@ describe("nextActionForCompany adapter", () => {
       target: {
         id: 1,
         priority_score: 90,
-        tier: "Tier 1",
         program_name: null,
         app_window_text: null,
         next_app_date: null,
