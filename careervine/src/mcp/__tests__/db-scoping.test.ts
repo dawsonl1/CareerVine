@@ -216,7 +216,7 @@ const DB_TABLE: Record<string, Entry> = {
   },
   logInteraction: {
     kind: "ownership",
-    drive: () => db.logInteraction(5, "call", "2026-07-01", "caught up"),
+    drive: () => db.logInteraction(5, "coffee", null, "2026-07-01", "caught up"),
     route: (q) => (q.table === "contacts" && q.resolution === "maybeSingle" ? CONTACT_CORE : undefined),
   },
   createActionItem: {

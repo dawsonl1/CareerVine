@@ -23,7 +23,9 @@ import {
   ChangeEventStatus,
   ChangeEventTier,
   ChangeEventType,
+  CONVERSATION_TYPE_VALUES,
   EmailDirection,
+  INTERACTION_TYPE_VALUES,
   FollowUpMessageStatus,
   FollowUpStatus,
   ScheduledEmailStatus,
@@ -69,6 +71,11 @@ const VOCABULARIES: VocabSpec[] = [
   { name: "ScrapeRunStatus", table: "scrape_runs", column: "status", values: Object.values(ScrapeRunStatus), requireCheck: true },
   { name: "ScrapeMode", table: "scrape_runs", column: "mode", values: Object.values(ScrapeMode), requireCheck: true },
   { name: "ScrapeTrigger", table: "scrape_runs", column: "trigger", values: Object.values(ScrapeTrigger), requireCheck: true },
+  // CAR-242. Both columns were unconstrained varchar until three disjoint
+  // vocabularies were collapsed into one; the CHECKs are what keep them that
+  // way. INTERACTION_TYPE_VALUES carries the extra system-only 'email'.
+  { name: "ConversationType(meetings)", table: "meetings", column: "meeting_type", values: CONVERSATION_TYPE_VALUES, requireCheck: true },
+  { name: "InteractionType", table: "interactions", column: "interaction_type", values: INTERACTION_TYPE_VALUES, requireCheck: true },
   // No CHECK on these columns today; write-path acceptance still proven, and
   // the subset assertion arms itself automatically if a CHECK is ever added.
   { name: "ActionItemSource", table: "follow_up_action_items", column: "source", values: Object.values(ActionItemSource), requireCheck: false },
@@ -170,6 +177,12 @@ beforeAll(async () => {
     dedupe_key: uniq("dk"),
     headline: "h",
   });
+  await seed("meetings", { user_id: tenant.userId, meeting_date: nowIso });
+  await seed("interactions", {
+    contact_id: contactId,
+    interaction_date: nowIso,
+    interaction_type: "coffee",
+  });
   await seed("scrape_runs", {
     user_id: tenant.userId,
     actor: "harvestapi/linkedin-profile-scraper",
@@ -231,6 +244,37 @@ it("a value outside the CHECK is rejected with 23514 (constraint actually enforc
     } else if (error.code !== "23514") {
       failures.push(`${spec.table}.${spec.column}: expected 23514, got ${error.code} ${error.message}`);
     }
+  }
+  expect(failures).toEqual([]);
+});
+
+it("a *_type_detail is rejected unless its type is 'other' (CAR-242)", async () => {
+  const cases = [
+    { table: "meetings" as const, typeCol: "meeting_type", detailCol: "meeting_type_detail" },
+    { table: "interactions" as const, typeCol: "interaction_type", detailCol: "interaction_type_detail" },
+  ];
+  const failures: string[] = [];
+  for (const { table, typeCol, detailCol } of cases) {
+    const id = rowIds.get(table);
+
+    // Detail alongside a non-'other' type: rejected.
+    const bad = await fromTable(svc, table)
+      .update({ [typeCol]: "coffee", [detailCol]: "Alumni panel" })
+      .eq("id", id);
+    if (!bad.error) failures.push(`${table}: detail accepted on a non-'other' type — CHECK missing or dropped`);
+    else if (bad.error.code !== "23514") failures.push(`${table}: expected 23514, got ${bad.error.code} ${bad.error.message}`);
+
+    // The same detail under 'other': accepted.
+    const good = await fromTable(svc, table)
+      .update({ [typeCol]: "other", [detailCol]: "Alumni panel" })
+      .eq("id", id);
+    if (good.error) failures.push(`${table}: detail rejected under 'other': ${good.error.code} ${good.error.message}`);
+
+    // Over the 80-char cap: rejected.
+    const tooLong = await fromTable(svc, table)
+      .update({ [typeCol]: "other", [detailCol]: "x".repeat(81) })
+      .eq("id", id);
+    if (!tooLong.error) failures.push(`${table}: an 81-char detail was accepted — length half of the CHECK is missing`);
   }
   expect(failures).toEqual([]);
 });

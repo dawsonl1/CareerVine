@@ -15,6 +15,12 @@ import {
 } from "../lib/db";
 import { handler, contactRefShape } from "../lib/tool-utils";
 import { dueDateKey } from "@/lib/due-date";
+import {
+  CONVERSATION_TYPE_DETAIL_MAX_LENGTH,
+  CONVERSATION_TYPE_VALUES,
+  conversationTypeLabel,
+  normalizeConversationTypeDetail,
+} from "@/lib/constants";
 
 /** UI wording ("todo" / "waiting_on") ↔ DB values ("my_task" / "waiting_on"). */
 const directionToDb = { todo: "my_task", waiting_on: "waiting_on" } as const;
@@ -25,22 +31,34 @@ export function registerUpkeepTools(server: McpServer): void {
     {
       title: "Log interaction",
       description:
-        "Record a touchpoint with a contact (call, coffee, event, email, other). This is a real relationship touch, so it graduates prospects/archived contacts into the active network and resets their follow-up clock.",
+        "Record a touchpoint with a contact (career-fair, networking, coffee, text, other). This is a real relationship touch, so it graduates prospects/archived contacts into the active network and resets their follow-up clock. Use 'coffee' for ANY one-on-one conversation including phone and video calls; use 'other' with `detail` for anything the five do not cover.",
       inputSchema: {
         ...contactRefShape,
-        type: z.enum(["call", "coffee", "event", "email", "meeting", "other"]),
+        // Derived from the shared vocabulary, never hand-listed (CAR-242): the
+        // previous enum was a fourth independent list and had already drifted
+        // from its own description. `email` is excluded because the send path
+        // writes it, not callers.
+        type: z.enum(CONVERSATION_TYPE_VALUES),
+        detail: z
+          .string()
+          .max(CONVERSATION_TYPE_DETAIL_MAX_LENGTH)
+          .optional()
+          .describe("Free text describing the conversation. Only used when type is 'other'; ignored otherwise."),
         date: z.string().optional().describe("ISO timestamp; defaults to now"),
         summary: z.string().optional().describe("What was discussed"),
       },
       annotations: { readOnlyHint: false },
     },
-    handler(async ({ contact_id, name, type, date, summary }) => {
+    handler(async ({ contact_id, name, type, detail, date, summary }) => {
       const contact = await resolveContact({ contact_id, name });
       const when = date ? new Date(date) : new Date();
       if (Number.isNaN(when.getTime())) throw new Error(`Invalid date: ${date}`);
-      const result = await logInteraction(contact.id, type, when.toISOString(), summary ?? null);
+      // Drops a detail sent alongside a non-'other' type, which the
+      // interactions_interaction_type_detail_check CHECK would reject.
+      const typeDetail = normalizeConversationTypeDetail(type, detail);
+      const result = await logInteraction(contact.id, type, typeDetail, when.toISOString(), summary ?? null);
       return {
-        summary: `Logged ${type} with ${contact.name}${result.activated ? ". Graduated into the active network" : ""}`,
+        summary: `Logged ${conversationTypeLabel(type, typeDetail)} with ${contact.name}${result.activated ? ". Graduated into the active network" : ""}`,
         interaction_id: result.interactionId,
       };
     }),

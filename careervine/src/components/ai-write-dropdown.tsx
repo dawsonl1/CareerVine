@@ -8,6 +8,7 @@ import { apiFetch, isApiRequestError, jsonBody } from "@/lib/api-client";
 import { AiUnavailableNotice } from "@/components/ai/ai-unavailable-notice";
 import { useLatestRequest } from "@/hooks/use-latest-request";
 import { formatWallClock } from "@/lib/calendar-day";
+import { conversationTypeLabel } from "@/lib/constants";
 
 type PresetTemplate = {
   name: string;
@@ -288,7 +289,7 @@ export function AiWriteDropdown({ recipientEmail, recipientName, existingSubject
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground">
                             {formatWallClock(m.meeting_date, { month: "short", day: "numeric", year: "numeric" }, "en-US")}
-                            <span className="ml-2 font-normal text-muted-foreground">({m.meeting_type || "Meeting"})</span>
+                            <span className="ml-2 font-normal text-muted-foreground">({conversationTypeLabel(m.meeting_type) || "Meeting"})</span>
                           </p>
                           {m.notes && (
                             <p className="text-xs text-muted-foreground truncate mt-0.5">{m.notes.substring(0, 80)}</p>

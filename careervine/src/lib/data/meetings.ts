@@ -51,6 +51,7 @@ export async function getMeetingsForContact(contactId: number) {
         id,
         meeting_date,
         meeting_type,
+        meeting_type_detail,
         title,
         notes,
         private_notes,

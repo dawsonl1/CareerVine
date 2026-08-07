@@ -24,17 +24,22 @@ import {
   addAttachmentToMeeting,
   deleteAttachment,
 } from "@/lib/queries";
-import { CONVERSATION_TYPE_OPTIONS, ActionItemSource } from "@/lib/constants";
+import {
+  CONVERSATION_TYPE_OPTIONS,
+  CONVERSATION_TYPE_HINT,
+  CONVERSATION_TYPE_DETAIL_MAX_LENGTH,
+  ConversationType,
+  ActionItemSource,
+  conversationTypeLabel,
+  normalizeConversationTypeDetail,
+} from "@/lib/constants";
 import { inputClasses, labelClasses } from "@/lib/form-styles";
 import {
-  Coffee,
-  Phone,
-  Video,
+  Briefcase,
   Users,
-  UtensilsCrossed,
-  Building2,
-  Globe,
+  Coffee,
   MessageSquare,
+  CircleEllipsis,
 } from "lucide-react";
 import type { ConversationFormState, PendingAction, TranscriptState } from "./types";
 import { PastMeetingFields } from "./past-meeting-fields";
@@ -43,22 +48,21 @@ import { ActionItemsSection } from "./action-items-section";
 import { apiSend, jsonBody } from "@/lib/api-client";
 import { wallClockParts } from "@/lib/calendar-day";
 
-// Map icon names to components
+// Map icon names to components. One entry per CONVERSATION_TYPE_OPTIONS
+// `iconName`; a missing entry degrades to a label-only chip (guarded below).
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  Coffee,
-  Phone,
-  Video,
+  Briefcase,
   Users,
-  UtensilsCrossed,
-  Building2,
-  Globe,
+  Coffee,
   MessageSquare,
+  CircleEllipsis,
 };
 
 const emptyForm: ConversationFormState = {
   selectedContactIds: [],
   title: "",
   meetingType: "",
+  meetingTypeDetail: "",
   date: "",
   time: "",
   notes: "",
@@ -138,7 +142,12 @@ export function ConversationModal() {
       setForm({
         selectedContactIds: editMeeting.meeting_contacts.map((mc) => mc.contact_id),
         title: editMeeting.title || "",
-        meetingType: editMeeting.meeting_type || "coffee",
+        // NOT `|| "coffee"` (CAR-242). meeting_type is nullable — MCP-created
+        // meetings and bare calendar events have none — and defaulting to a
+        // real type meant merely opening such a meeting and saving stamped it
+        // with a type the user never chose.
+        meetingType: editMeeting.meeting_type || "",
+        meetingTypeDetail: editMeeting.meeting_type_detail || "",
         date: dateStr,
         time: timeStr,
         notes: editMeeting.notes || "",
@@ -155,7 +164,8 @@ export function ConversationModal() {
       const editForm = {
         selectedContactIds: editMeeting.meeting_contacts.map((mc) => mc.contact_id),
         title: editMeeting.title || "",
-        meetingType: editMeeting.meeting_type || "coffee",
+        meetingType: editMeeting.meeting_type || "",
+        meetingTypeDetail: editMeeting.meeting_type_detail || "",
         date: dateStr,
         time: timeStr,
         notes: editMeeting.notes || "",
@@ -198,16 +208,25 @@ export function ConversationModal() {
 
       let meetingId: number;
 
+      // Through conversationTypeLabel, not raw-value capitalization: that spelled
+      // `career-fair` as "Career fair" and could never show the user's own words
+      // for Other.
+      const typeLabel = conversationTypeLabel(form.meetingType, form.meetingTypeDetail);
       const autoSummary = form.title ||
-        (form.meetingType
-          ? `${form.meetingType.charAt(0).toUpperCase() + form.meetingType.slice(1).replace("-", " ")} with ${form.selectedContactIds.map(id => allContacts.find(c => c.id === id)?.name).filter(Boolean).join(", ") || "Contact"}`
+        (typeLabel
+          ? `${typeLabel} with ${form.selectedContactIds.map(id => allContacts.find(c => c.id === id)?.name).filter(Boolean).join(", ") || "Contact"}`
           : "Meeting");
+
+      // The `*_type_detail` CHECK rejects a detail left over from a type the
+      // user has since switched away from, so normalize at the write site.
+      const meetingTypeDetail = normalizeConversationTypeDetail(form.meetingType, form.meetingTypeDetail);
 
       if (editMeeting) {
         // Update existing meeting
         await updateMeeting(editMeeting.id, {
           meeting_date: dateTime,
-          meeting_type: form.meetingType,
+          meeting_type: form.meetingType || null,
+          meeting_type_detail: meetingTypeDetail,
           title: form.title || null,
           notes: form.notes || null,
           private_notes: form.privateNotes || null,
@@ -240,7 +259,8 @@ export function ConversationModal() {
         const created = await createMeeting({
           user_id: user.id,
           meeting_date: dateTime,
-          meeting_type: form.meetingType,
+          meeting_type: form.meetingType || null,
+          meeting_type_detail: meetingTypeDetail,
           title: form.title || null,
           notes: form.notes || null,
           private_notes: form.privateNotes || null,
@@ -426,7 +446,16 @@ export function ConversationModal() {
               <button
                 key={type.value}
                 type="button"
-                onClick={() => setForm((prev) => ({ ...prev, meetingType: type.value }))}
+                aria-pressed={active}
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    meetingType: type.value,
+                    // Drop the free text when leaving Other, or the detail CHECK
+                    // rejects the save.
+                    meetingTypeDetail: type.value === ConversationType.Other ? prev.meetingTypeDetail : "",
+                  }))
+                }
                 className={`inline-flex items-center gap-2 h-10 px-5 rounded-full text-base font-medium cursor-pointer transition-colors ${
                   active
                     ? "bg-secondary-container text-on-secondary-container"
@@ -439,6 +468,19 @@ export function ConversationModal() {
             );
           })}
         </div>
+        <p className="mt-2 text-sm text-muted-foreground">{CONVERSATION_TYPE_HINT}</p>
+        {form.meetingType === ConversationType.Other && (
+          <input
+            type="text"
+            autoFocus
+            value={form.meetingTypeDetail}
+            onChange={(e) => setForm((prev) => ({ ...prev, meetingTypeDetail: e.target.value }))}
+            maxLength={CONVERSATION_TYPE_DETAIL_MAX_LENGTH}
+            className={`${inputClasses} mt-3`}
+            aria-label="Describe the conversation type"
+            placeholder="What kind of conversation?"
+          />
+        )}
       </div>
 
       {/* Date + optional Time */}
