@@ -8,6 +8,7 @@ import {
   parseCompanyFilters,
   serializeCompanyFilters,
   statusChipCounts,
+  TARGET_STATUSES,
   type CompanyFilters,
 } from "@/lib/company-filters";
 import type { CompanySummary, TargetInfo } from "@/lib/company-queries";
@@ -190,6 +191,56 @@ describe("filterCompanies", () => {
     });
   });
 
+  describe("targeting facet", () => {
+    const target = company({ name: "Stripe", target: { status: "applied" } });
+    const untargeted = company({ name: "Adobe", target: null, current_count: 2 });
+    const rows = [target, untargeted];
+
+    it('"target" keeps only companies the user targets', () => {
+      expect(filterCompanies(rows, filters({ targeting: ["target"] }))).toEqual([target]);
+    });
+
+    it('"untargeted" keeps only the companies no status chip can reach', () => {
+      // The point of the facet: every status chip ANDs on c.target.status, so this
+      // set is unreachable from the chip row (CAR-252).
+      expect(filterCompanies(rows, filters({ targeting: ["untargeted"] }))).toEqual([untargeted]);
+    });
+
+    it("selecting both sides is the same as selecting neither", () => {
+      expect(filterCompanies(rows, filters({ targeting: ["target", "untargeted"] }))).toEqual(rows);
+    });
+
+    it('"target" matches what selecting every status chip matches', () => {
+      // The overlap this facet knowingly carries: status is CHECK-pinned to the five
+      // TARGET_STATUSES, so the two selections are the same set. Pinned so a new
+      // status value cannot silently make them diverge.
+      const varied = [
+        company({ target: { status: "researching" } }),
+        company({ target: { status: "outreach_active" } }),
+        company({ target: { status: "applied" } }),
+        company({ target: { status: "interviewing" } }),
+        company({ target: { status: "closed" } }),
+        company({ target: null }),
+      ];
+      expect(filterCompanies(varied, filters({ targeting: ["target"] }))).toEqual(
+        filterCompanies(varied, filters({ statuses: [...TARGET_STATUSES] })),
+      );
+    });
+
+    it("ANDs with the status chips rather than widening them", () => {
+      const applied = company({ name: "Stripe", target: { status: "applied" } });
+      const closed = company({ name: "Lucid", target: { status: "closed" } });
+      const rows = [applied, closed, company({ name: "Adobe", target: null })];
+      expect(
+        filterCompanies(rows, filters({ targeting: ["target"], statuses: ["applied"] })),
+      ).toEqual([applied]);
+      // The contradictory pair: a status chip already implies a target.
+      expect(
+        filterCompanies(rows, filters({ targeting: ["untargeted"], statuses: ["applied"] })),
+      ).toEqual([]);
+    });
+  });
+
   describe("alum-in-product facet", () => {
     it("keeps only companies with a product alum when enabled", () => {
       const withProductAlum = company({ name: "Stripe", product_alum_count: 1 });
@@ -232,6 +283,8 @@ describe("hasActiveCompanyFilters", () => {
     expect(hasActiveCompanyFilters(filters({ contacts: ["none"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ contacts: ["current"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ alumni: ["with"] }))).toBe(true);
+    expect(hasActiveCompanyFilters(filters({ targeting: ["target"] }))).toBe(true);
+    expect(hasActiveCompanyFilters(filters({ targeting: ["untargeted"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ productAlum: true }))).toBe(true);
   });
 });
@@ -312,7 +365,7 @@ describe("URL param round-trip", () => {
   it("parses a fully-populated query string", () => {
     const params = new URLSearchParams(
       "q=stripe&status=applied,interviewing&traction=replied,call_done&tier=Big+Tech&tier=Utah" +
-        "&contacts=current,former&alumni=with&product_alum=1",
+        "&contacts=current,former&alumni=with&targeting=untargeted&product_alum=1",
     );
     expect(parseCompanyFilters(params)).toEqual({
       q: "stripe",
@@ -321,6 +374,7 @@ describe("URL param round-trip", () => {
       tiers: ["Big Tech", "Utah"],
       contacts: ["current", "former"],
       alumni: ["with"],
+      targeting: ["untargeted"],
       productAlum: true,
     });
   });
@@ -329,9 +383,10 @@ describe("URL param round-trip", () => {
     expect(parseCompanyFilters(new URLSearchParams())).toEqual(EMPTY_COMPANY_FILTERS);
   });
 
-  it("drops unknown status/traction/contacts/alumni values instead of throwing", () => {
+  it("drops unknown status/traction/contacts/alumni/targeting values instead of throwing", () => {
     const params = new URLSearchParams(
-      "status=applied,bogus, ,interviewing&traction=warp&contacts=maybe&alumni=sometimes",
+      "status=applied,bogus, ,interviewing&traction=warp&contacts=maybe&alumni=sometimes" +
+        "&targeting=someday",
     );
     expect(parseCompanyFilters(params)).toEqual(filters({ statuses: ["applied", "interviewing"] }));
   });
@@ -354,17 +409,21 @@ describe("URL param round-trip", () => {
     expect(out.has("traction")).toBe(false);
     expect(out.has("tier")).toBe(false);
     expect(out.has("alumni")).toBe(false);
+    expect(out.has("targeting")).toBe(false);
     expect(out.has("current")).toBe(false);
     expect(out.has("product_alum")).toBe(false);
   });
 
   it("preserves unrelated params and clears stale filter params", () => {
-    const base = new URLSearchParams("view=targets&sort=priority&q=old&tier=Utah&current=1");
+    const base = new URLSearchParams(
+      "view=targets&sort=priority&q=old&tier=Utah&targeting=target&current=1",
+    );
     const out = serializeCompanyFilters(filters({ q: "new" }), base);
     expect(out.get("view")).toBe("targets");
     expect(out.get("sort")).toBe("priority");
     expect(out.get("q")).toBe("new");
     expect(out.has("tier")).toBe(false);
+    expect(out.has("targeting")).toBe(false);
     expect(out.has("current")).toBe(false);
     // base is not mutated
     expect(base.get("q")).toBe("old");
@@ -391,6 +450,7 @@ describe("URL param round-trip", () => {
       tiers: ["Utah/Silicon Slopes", "Big Tech"],
       contacts: ["former", "none"],
       alumni: ["without"],
+      targeting: ["untargeted"],
       productAlum: true,
     });
     expect(parseCompanyFilters(serializeCompanyFilters(f, new URLSearchParams()))).toEqual(f);
@@ -420,6 +480,12 @@ describe("URL param round-trip", () => {
 
     it("reads a comma-joined tier label as ONE tier, not two", () => {
       expect(parseCompanyFilters(new URLSearchParams("tier=Foo,+Bar")).tiers).toEqual(["Foo, Bar"]);
+    });
+
+    it("reads a link shared before the targeting facet existed as no targeting filter", () => {
+      // The facet is additive: an old link has no `targeting` param, and the empty
+      // array it parses to IS the absence of the filter, so nothing narrows.
+      expect(parseCompanyFilters(new URLSearchParams("status=applied")).targeting).toEqual([]);
     });
   });
 
