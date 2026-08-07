@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/ui/toast";
@@ -19,6 +18,8 @@ import {
   type CompanyPerson,
 } from "@/lib/company-queries";
 import { activateContact, getFreshJobChangeContactIds } from "@/lib/queries";
+import { invalidateCompaniesList } from "@/lib/companies-list-cache";
+import { hasInAppBackHistory } from "@/lib/nav-history";
 import type { ContactTier } from "@/components/companies/pipeline/pipeline-layout";
 import { useOnboarding } from "@/components/onboarding/onboarding-context";
 import {
@@ -155,6 +156,10 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
       if (tier === "active") await activateContact(person.contact_id);
       else if (tier === "prospect") await promoteContactToProspect(person.contact_id);
       else await demoteContactToBench(person.contact_id);
+      // A tier move changes the current/former/bench split, and with it the
+      // company's contact counts, traction, and lead name on the list card.
+      // The list is unmounted here, so it is invalidated at the write (CAR-256).
+      if (user) invalidateCompaniesList(user.id);
       toastSuccess(
         tier === "active"
           ? `${person.name} added to your network`
@@ -246,12 +251,23 @@ export default function CompanyPipelinePage({ params }: { params: Promise<{ id: 
     <div className="min-h-screen bg-background">
       <Navigation />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link
-          href="/companies"
-          className="group inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface mb-4 -ml-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-surface-container-high"
+        <button
+          onClick={() => {
+            // router.back() returns to the exact history entry, which is what
+            // brings the companies list's filters and scroll position back with
+            // it; a Link to /companies is a forward push that drops both
+            // (CAR-256). Client-side route changes never set document.referrer,
+            // so the in-app trail decides whether there is anything to go back
+            // to. Same pattern as contacts/[id].
+            if (hasInAppBackHistory()) router.back();
+            else router.push("/companies");
+          }}
+          className="group inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface mb-4 -ml-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-surface-container-high cursor-pointer"
         >
-          <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" /> Companies
-        </Link>
+          {/* "Back", not "Companies": back() honestly returns wherever the user
+              came from, which may be the outreach page. */}
+          <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" /> Back
+        </button>
         {body()}
       </main>
     </div>

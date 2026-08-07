@@ -41,6 +41,7 @@ import {
   setScopeUntargeted,
   syncScopeStatus,
 } from "@/lib/pipeline-queries";
+import { invalidateCompaniesList } from "@/lib/companies-list-cache";
 
 const SAVE_DEBOUNCE_MS = 800;
 
@@ -200,12 +201,17 @@ export function usePipelineAutosave({
           }
         }
         setSaveStatus("saved");
+        // syncScopeStatus above writes target_companies.status, which is what
+        // the companies list badges and filters on. The list is unmounted while
+        // the user is here, so it cannot listen for this — the cache has to be
+        // dropped at the write (CAR-256).
+        if (userId) invalidateCompaniesList(userId);
       } catch (error) {
         console.error("Pipeline save failed", error);
         setSaveStatus("error");
       }
     });
-  }, [enqueue, resolveTargetId]);
+  }, [enqueue, resolveTargetId, userId]);
 
   const scheduleSave = useCallback(
     (scopeKey: string, cycle: number) => {
@@ -238,13 +244,17 @@ export function usePipelineAutosave({
         try {
           await work();
           setSaveStatus("saved");
+          // Targeting, cycle switches and cycle deletion all move
+          // target_companies rows the companies list reads. Same reasoning as
+          // in flush(): invalidate at the write, not from a mounted listener.
+          if (userId) invalidateCompaniesList(userId);
         } catch (error) {
           console.error("Pipeline save failed", error);
           setSaveStatus("error");
         }
       });
     },
-    [enqueue],
+    [enqueue, userId],
   );
 
   const actions = useMemo<PipelineActions>(
