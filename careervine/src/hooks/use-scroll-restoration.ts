@@ -58,11 +58,36 @@ export function useScrollRestoration({ pathname, search, ready }: UseScrollResto
   // Record the position continuously. rAF-throttled because `scroll` fires far
   // more often than sessionStorage should be written.
   useEffect(() => {
+    /**
+     * Is this scroll still about the page we are recording for?
+     *
+     * It is not, at the one moment that matters most. Navigating to a company
+     * makes Next scroll the outgoing page back to the top, and that scroll
+     * reaches this listener while the list is still mounted — so an unguarded
+     * listener overwrites the offset with 0 and destroys the very value the
+     * return trip is supposed to restore. It is the same 0 the cleanup below
+     * refuses, arriving through the door the cleanup does not cover.
+     *
+     * The live PATHNAME is the discriminator: by then the address bar is
+     * already on `/companies/<id>`. Guarding on the offset instead would be
+     * wrong in the other direction, since scrolling back to the top is a real
+     * thing a user does and must be recorded.
+     *
+     * Pathname only, deliberately not the query string. `search` here is
+     * `URLSearchParams.toString()`, which has no leading "?" and re-encodes
+     * (`Big Tech` as `Big+Tech`) where `window.location.search` may not, so
+     * comparing the two would mismatch on ordinary filters and silently switch
+     * recording off altogether. A filter change keeps the pathname anyway, and
+     * those scrolls are ours to record.
+     */
+    const stillOnThisView = () => window.location.pathname === pathname;
+
     let frame = 0;
     const onScroll = () => {
       if (frame !== 0) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
+        if (!stillOnThisView()) return;
         rememberScroll(pathname, search, window.scrollY);
       });
     };
@@ -70,11 +95,10 @@ export function useScrollRestoration({ pathname, search, ready }: UseScrollResto
     return () => {
       window.removeEventListener("scroll", onScroll);
       if (frame !== 0) window.cancelAnimationFrame(frame);
-      // Catch a scroll that happened inside the last un-fired frame. Guarded on
-      // a non-zero position deliberately: if Next has already scrolled the
-      // outgoing page to the top by the time this cleanup runs, writing that 0
-      // would erase the very position we are trying to keep.
-      if (window.scrollY > 0) rememberScroll(pathname, search, window.scrollY);
+      // Catch a scroll that landed inside the last un-fired frame.
+      if (stillOnThisView() && window.scrollY > 0) {
+        rememberScroll(pathname, search, window.scrollY);
+      }
     };
   }, [pathname, search]);
 }
