@@ -206,7 +206,11 @@ describe("next-action pill: reply-thread state and the waiting clock (CAR-253)",
         company={company({
           traction: "replied",
           traction_detail: { count: 1, at: daysAgo(2) },
-          lead_detail: { last_outreach_at: daysAgo(5), reply: { awaitingOurReply: true, lastMessageAt: daysAgo(2) } },
+          lead_detail: {
+            last_outreach_at: daysAgo(5),
+            reply: { awaitingOurReply: true, lastMessageAt: daysAgo(2), lastUnansweredReplyAt: daysAgo(2) },
+            last_conversation_at: null,
+          },
         })}
       />,
     );
@@ -219,12 +223,30 @@ describe("next-action pill: reply-thread state and the waiting clock (CAR-253)",
         company={company({
           traction: "replied",
           traction_detail: { count: 1, at: daysAgo(2) },
-          lead_detail: { last_outreach_at: daysAgo(5), reply: { awaitingOurReply: false, lastMessageAt: daysAgo(2) } },
+          lead_detail: {
+            last_outreach_at: daysAgo(5),
+            reply: { awaitingOurReply: false, lastMessageAt: daysAgo(2), lastUnansweredReplyAt: null },
+            last_conversation_at: null,
+          },
         })}
       />,
     );
     expect(screen.getByText("You had an email thread with Kelson (2 days ago)")).toBeTruthy();
     expect(screen.queryByText(/write back/)).toBeNull();
+  });
+
+  it("states the follow-up you already sent instead of prompting for it (CAR-266)", () => {
+    // The card reaches the new line through BOTH lead_detail fields: the
+    // outreach date orders against the lead's own conversation date.
+    render(
+      <CompanyCard
+        company={company({
+          lead_detail: { last_outreach_at: daysAgo(2), reply: null, last_conversation_at: daysAgo(14) },
+        })}
+      />,
+    );
+    expect(screen.getByText("You followed up with Kelson 2 days ago")).toBeTruthy();
+    expect(screen.queryByText(/Follow up with/)).toBeNull();
   });
 
   it("says how long you have been waiting instead of 'if it's been a while'", () => {
@@ -233,7 +255,7 @@ describe("next-action pill: reply-thread state and the waiting clock (CAR-253)",
         company={company({
           traction: "contacted",
           traction_detail: { count: 1, at: daysAgo(3) },
-          lead_detail: { last_outreach_at: daysAgo(3), reply: null },
+          lead_detail: { last_outreach_at: daysAgo(3), reply: null, last_conversation_at: null },
         })}
       />,
     );
