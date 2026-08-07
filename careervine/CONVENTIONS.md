@@ -409,8 +409,8 @@ unmeasured; the browser tier owns them.
 
 A third tier: real Chromium against a real `next build && next start`, backed by the same local
 Supabase stack the integration tier uses. It exists for the one thing neither other tier can
-express — whether a change the UI *claims* to have made actually persisted. Twelve flows live in
-`careervine/e2e/*.spec.ts`. Eleven are persistence-or-rendering flows; the twelfth,
+express — whether a change the UI *claims* to have made actually persisted. Thirteen flows live in
+`careervine/e2e/*.spec.ts`. Twelve are persistence-or-rendering flows; the thirteenth,
 `request-budget.spec.ts`, is a per-route ceiling on how many data requests a page load may
 make, which is the other thing only a real browser can count (CAR-229). Run it:
 
@@ -443,7 +443,7 @@ reads must be pinned to a real value rather than blanked.
 
 Authentication never drives the login form. `careervine/e2e/auth.setup.ts` provisions a tenant
 and mints the session through the app's real `/auth/confirm` route. One shared tenant,
-single-worker, so flows write to one database in file order. Five specs mint their own identity
+single-worker, so flows write to one database in file order. Six specs mint their own identity
 instead. A spec that mutates shared state restores it in `afterEach`, not `finally`; where the
 damage is wider than the restore, own a tenant instead. Read
 `careervine/e2e/helpers/tenant.ts` before adding a spec.
@@ -457,8 +457,8 @@ against could have occurred; `careervine/e2e/fixtures/test.ts` carries the seque
   `careervine/e2e/server-stubs/register.mjs` (header), `careervine/e2e/fixtures/test.ts` (header),
   `careervine/e2e/helpers/env-allowlist.ts` (header), `careervine/e2e/helpers/tenant.ts` (header),
   `careervine/e2e/helpers/ports.ts`, and `careervine/e2e/helpers/stack-env.ts` (header)
-- Counted: Twelve flows in `careervine/e2e/*.spec.ts`, pinned by
-  `careervine/src/__tests__/conventions-doc.test.ts` so a thirteenth cannot silently falsify this
+- Counted: Thirteen flows in `careervine/e2e/*.spec.ts`, pinned by
+  `careervine/src/__tests__/conventions-doc.test.ts` so a fourteenth cannot silently falsify this
   section.
 - Enforced: CI runs it as the separate `e2e` job with `failOnFlakyTests`. The deny-by-default
   stub layers are self-enforcing. `careervine/src/__tests__/e2e-env-allowlist.test.ts` fails when

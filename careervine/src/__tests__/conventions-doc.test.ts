@@ -96,9 +96,15 @@ const SYMBOL_CLAIMS: Array<[file: string, symbols: string[]]> = [
   ["careervine/src/__tests__/helpers/fake-fetch.ts", ["installFakeFetch", "unmatched"]],
 ];
 
+// Running off the end yields `undefined`, and the assertion then demands the
+// doc contain the literal "undefined flows" — a confusing failure for what is
+// really "add the next word". Extended past the current counts so the next
+// spec or schedule fails on the COUNT rather than on this table.
 const WORDS = [
   "Zero", "One", "Two", "Three", "Four", "Five", "Six",
   "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve",
+  "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
+  "Eighteen", "Nineteen", "Twenty",
 ];
 
 describe("CONVENTIONS.md", () => {
