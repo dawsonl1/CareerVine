@@ -77,6 +77,11 @@ side, a living pipeline on the other.
   on is folded into a collapsed "Former employees" group, so a company with years of
   scraped history still opens on the contacts you can reach inside it. Searching the
   roster still finds the people who left, without a click.
+- Each person's card says what actually happened, not a generic status: a logged
+  text exchange reads "Texted", a career fair reads "Career fair", and "Call done"
+  is reserved for conversations that really were calls. Someone you have both
+  called and texted wears one chip for each. The card also links straight to their
+  LinkedIn profile, alongside their email, location, and current employer.
 - Email a prospect in one click (with bounced and pattern-guessed addresses clearly
   flagged), promote bench contacts into outreach, and manage office locations
   without leaving the page.
@@ -144,6 +149,12 @@ after your call, a career fair asks you to follow up after the career fair, and 
 networking event names the event. A text exchange or an "Other" conversation gets
 no follow-up nudge at all: those cards simply tell you when you last spoke, so
 the app never pushes you to chase something that was never a meeting.
+
+And the card notices when the follow-up is already done. Send the thank-you
+email after a call and the prompt retires into "You followed up with Lance
+2 days ago", dated from your follow-up rather than the call. If they write to
+you after the conversation and you have not answered, the card skips straight to
+"Lance replied, write back", because responding is the follow-up.
 
 The next move on each card answers the same question with the same honesty.
 Waiting on someone reads "Waiting on Julian. You reached out 3 days ago", so the

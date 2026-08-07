@@ -93,7 +93,11 @@ describe("getContactStages — reply-thread state (CAR-253)", () => {
       { id: 2, thread: "t1", dir: "inbound", date: "2026-07-02T10:00:00Z" },
     ]);
     expect(s?.stage).toBe("replied");
-    expect(s?.replyThread).toEqual({ awaitingOurReply: true, lastMessageAt: "2026-07-02T10:00:00Z" });
+    expect(s?.replyThread).toEqual({
+      awaitingOurReply: true,
+      lastMessageAt: "2026-07-02T10:00:00Z",
+      lastUnansweredReplyAt: "2026-07-02T10:00:00Z",
+    });
   });
 
   it("clears once we have written back, and dates the thread at our message", async () => {
@@ -103,7 +107,7 @@ describe("getContactStages — reply-thread state (CAR-253)", () => {
       { id: 3, thread: "t1", dir: "outbound", date: "2026-07-03T10:00:00Z" },
     ]);
     expect(s?.stage).toBe("replied");
-    expect(s?.replyThread).toEqual({ awaitingOurReply: false, lastMessageAt: "2026-07-03T10:00:00Z" });
+    expect(s?.replyThread).toEqual({ awaitingOurReply: false, lastMessageAt: "2026-07-03T10:00:00Z", lastUnansweredReplyAt: null });
   });
 
   it("stays cleared when they reply AGAIN after our answer", async () => {
@@ -116,7 +120,7 @@ describe("getContactStages — reply-thread state (CAR-253)", () => {
       { id: 3, thread: "t1", dir: "outbound", date: "2026-07-03T10:00:00Z" },
       { id: 4, thread: "t1", dir: "inbound", date: "2026-07-04T10:00:00Z" },
     ]);
-    expect(s?.replyThread).toEqual({ awaitingOurReply: false, lastMessageAt: "2026-07-04T10:00:00Z" });
+    expect(s?.replyThread).toEqual({ awaitingOurReply: false, lastMessageAt: "2026-07-04T10:00:00Z", lastUnansweredReplyAt: null });
   });
 
   it("does not let a later email on a DIFFERENT thread answer this one", async () => {
@@ -139,7 +143,11 @@ describe("getContactStages — reply-thread state (CAR-253)", () => {
       { id: 4, thread: "t2", dir: "outbound", date: "2026-07-04T10:00:00Z" },
       { id: 5, thread: "t2", dir: "inbound", date: "2026-07-06T10:00:00Z" },
     ]);
-    expect(s?.replyThread).toEqual({ awaitingOurReply: true, lastMessageAt: "2026-07-06T10:00:00Z" });
+    expect(s?.replyThread).toEqual({
+      awaitingOurReply: true,
+      lastMessageAt: "2026-07-06T10:00:00Z",
+      lastUnansweredReplyAt: "2026-07-06T10:00:00Z",
+    });
   });
 
   it("ignores inbound mail that predates our first outreach", async () => {
@@ -165,6 +173,43 @@ describe("getContactStages — reply-thread state (CAR-253)", () => {
     const s = await replyThreadFor([{ id: 1, thread: "t1", dir: "outbound", date: "2026-07-01T10:00:00Z" }]);
     expect(s?.stage).toBe("contacted");
     expect(s?.replyThread).toBeNull();
+  });
+
+  it("dates the awaited reply at their LATEST message on the unanswered thread", async () => {
+    // Two unanswered replies on one thread. `awaitingOurReply` anchors on the
+    // first; `lastUnansweredReplyAt` reports the latest, because the call_done
+    // rung asks whether ANY unanswered reply postdates the conversation
+    // (CAR-266) and the latest is the one that decides it.
+    const s = await replyThreadFor([
+      { id: 1, thread: "t1", dir: "outbound", date: "2026-07-01T10:00:00Z" },
+      { id: 2, thread: "t1", dir: "inbound", date: "2026-07-02T10:00:00Z" },
+      { id: 3, thread: "t1", dir: "inbound", date: "2026-07-06T10:00:00Z" },
+    ]);
+    expect(s?.replyThread).toEqual({
+      awaitingOurReply: true,
+      lastMessageAt: "2026-07-06T10:00:00Z",
+      lastUnansweredReplyAt: "2026-07-06T10:00:00Z",
+    });
+  });
+
+  it("never lets an ANSWERED thread's later reply feed lastUnansweredReplyAt", async () => {
+    // t1 is answered (their second reply is a live exchange, CAR-253); t2 is
+    // the unanswered one. The field must report t2's reply, not t1's newer
+    // message — otherwise the finished conversation would keep promoting the
+    // write-back line on the companies card.
+    const s = await replyThreadFor([
+      { id: 1, thread: "t1", dir: "outbound", date: "2026-07-01T10:00:00Z" },
+      { id: 2, thread: "t1", dir: "inbound", date: "2026-07-02T10:00:00Z" },
+      { id: 3, thread: "t1", dir: "outbound", date: "2026-07-03T10:00:00Z" },
+      { id: 4, thread: "t1", dir: "inbound", date: "2026-07-09T10:00:00Z" },
+      { id: 5, thread: "t2", dir: "outbound", date: "2026-07-04T10:00:00Z" },
+      { id: 6, thread: "t2", dir: "inbound", date: "2026-07-05T10:00:00Z" },
+    ]);
+    expect(s?.replyThread).toEqual({
+      awaitingOurReply: true,
+      lastMessageAt: "2026-07-09T10:00:00Z",
+      lastUnansweredReplyAt: "2026-07-05T10:00:00Z",
+    });
   });
 
   it("keeps thread-less messages apart instead of merging them into one thread", async () => {

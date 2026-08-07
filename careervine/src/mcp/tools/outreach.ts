@@ -17,6 +17,11 @@ import {
   getOrCreateTargetCompany,
   getCompanyName,
   setStageOverride,
+  setCompanyStageForCompany,
+  updateCompanyResearch,
+  getCompanyPipeline,
+  logApplication,
+  logInterviewRound,
 } from "../lib/db";
 import { handler, contactRefShape, companyRefShape } from "../lib/tool-utils";
 
@@ -170,7 +175,7 @@ export function registerOutreachTools(server: McpServer): void {
     {
       title: "Get company detail",
       description:
-        "Full company picture: who works there now / used to (with roles, emails, stages, alum flags, adjacency score and why each person was kept), archived pipeline imports, offices with their location ids, target status + application dates, and the recruiting-intel note log. Rosters page with limit/offset, and `group` narrows to one of current/former/archived.",
+        "Full company picture: who works there now / used to (with roles, emails, stages, alum flags, adjacency score and why each person was kept), archived pipeline imports, offices with their location ids, and target status + application dates. NOTE: `target.notes` here are legacy target-record notes, NOT the recruiting-intel log that add_company_intel writes — call get_company_pipeline for those. Rosters page with limit/offset, and `group` narrows to one of current/former/archived.",
       inputSchema: {
         ...companyRefShape,
         group: z
@@ -275,7 +280,7 @@ export function registerOutreachTools(server: McpServer): void {
     {
       title: "Add company intel",
       description:
-        "Append a timestamped note to a company's recruiting-intel log (application windows, referral programs, team info). The company becomes a target automatically if it isn't one yet.",
+        "Append a note to a company's recruiting-intel log on its active pipeline cycle (application windows, referral programs, team info). The company becomes a target automatically if it isn't one yet. Read these back with get_company_pipeline, NOT get_company: the latter returns a different, legacy note table.",
       inputSchema: {
         ...companyRefShape,
         note: z.string().min(1),
@@ -292,6 +297,151 @@ export function registerOutreachTools(server: McpServer): void {
       await addPipelineNote(uid(), targetId, note);
       const companyName = (await getCompanyName(id)) ?? `company ${id}`;
       return { summary: `Intel logged for ${companyName}` };
+    }),
+  );
+
+  server.registerTool(
+    "get_company_pipeline",
+    {
+      title: "Get company recruiting pipeline",
+      description:
+        "The recruiting board for a company: every scope (company-wide and per-office), every application cycle, its stage, the researching programs and intel notes, the applications you submitted, and the interview rounds you sat. This is where add_company_intel's notes are readable. Returns an empty list when the company is not a target.",
+      inputSchema: companyRefShape,
+      annotations: { readOnlyHint: true },
+    },
+    handler(async ({ company_id, name }) => {
+      const id = await resolveCompanyId({ company_id, name });
+      const companyName = await getCompanyName(id);
+      const scopes = await getCompanyPipeline(id);
+      if (scopes.length === 0) {
+        return {
+          summary: `${companyName} is not a target company, so it has no pipeline yet. set_company_stage or update_company_target will start one.`,
+          company_id: id,
+          scopes: [],
+        };
+      }
+      const cycles = scopes.reduce((n, s) => n + s.cycles.length, 0);
+      return {
+        summary:
+          `${companyName}: ${scopes.length} scope${scopes.length === 1 ? "" : "s"}, ` +
+          `${cycles} cycle${cycles === 1 ? "" : "s"}`,
+        company_id: id,
+        scopes,
+      };
+    }),
+  );
+
+  server.registerTool(
+    "log_application",
+    {
+      title: "Log an application",
+      description:
+        "Record an application you submitted to a company, on its pipeline cycle. Appends to whatever is already there. Resume and cover-letter PDFs are browser uploads and cannot be attached from here.",
+      inputSchema: {
+        ...companyRefShape,
+        job_title: z.string().min(1),
+        location: z.string().optional(),
+        date_applied: z.string().optional().describe("YYYY-MM-DD"),
+        scope: z.string().optional().describe('Pipeline scope: "all" (default, company-wide) or an office location id'),
+        cycle_number: z.number().int().min(1).optional().describe("Defaults to the active cycle"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ company_id, name, job_title, location, date_applied, scope, cycle_number }) => {
+      const id = await resolveCompanyId({ company_id, name });
+      const companyName = await getCompanyName(id);
+      const { cycleNumber, applicationId } = await logApplication(id, scope ?? "all", cycle_number, {
+        jobTitle: job_title,
+        location,
+        dateApplied: date_applied,
+      });
+      return {
+        summary: `Logged "${job_title}" at ${companyName} on cycle ${cycleNumber}`,
+        company_id: id,
+        application_id: applicationId,
+      };
+    }),
+  );
+
+  server.registerTool(
+    "log_interview_round",
+    {
+      title: "Log an interview round",
+      description:
+        "Record an interview round on a company's pipeline cycle: when it was, who ran it, and free-form notes on how it went. Appends to whatever is already there.",
+      inputSchema: {
+        ...companyRefShape,
+        date: z.string().optional().describe("YYYY-MM-DD"),
+        interviewer: z.string().optional().describe("Plain name; not linked to a contact"),
+        notes: z.string().optional().describe("Free text: what was asked, how it went"),
+        scope: z.string().optional().describe('Pipeline scope: "all" (default) or an office location id'),
+        cycle_number: z.number().int().min(1).optional().describe("Defaults to the active cycle"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ company_id, name, date, interviewer, notes, scope, cycle_number }) => {
+      const id = await resolveCompanyId({ company_id, name });
+      const companyName = await getCompanyName(id);
+      const { cycleNumber, roundId } = await logInterviewRound(id, scope ?? "all", cycle_number, {
+        date,
+        interviewer,
+        notes,
+      });
+      return {
+        summary: `Logged an interview round at ${companyName} on cycle ${cycleNumber}`,
+        company_id: id,
+        round_id: roundId,
+      };
+    }),
+  );
+
+  server.registerTool(
+    "set_company_stage",
+    {
+      title: "Set company pipeline stage",
+      description:
+        "Move a company to a recruiting stage: researching, outreach_active, applied, interviewing, closed. This is the deliberate equivalent of dragging the stage on the company page, so it can move a company BACKWARDS to correct a mistake. The company becomes a target automatically if it is not one yet. Separate from the automatic advance that fires when someone who works there replies.",
+      inputSchema: {
+        ...companyRefShape,
+        stage: z.enum(["researching", "outreach_active", "applied", "interviewing", "closed"]),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ company_id, name, stage }) => {
+      const id = await resolveCompanyId({ company_id, name });
+      const companyName = await getCompanyName(id);
+      const { previousStage } = await setCompanyStageForCompany(id, stage);
+      return {
+        summary:
+          previousStage === stage
+            ? `${companyName} was already at ${stage}`
+            : `${companyName}: ${previousStage ?? "none"} → ${stage}`,
+        company_id: id,
+      };
+    }),
+  );
+
+  server.registerTool(
+    "update_company_target",
+    {
+      title: "Update company research fields",
+      description:
+        "Set a target company's application deadline, priority, program name, or application-window note. next_app_date is what the outreach queue orders by: a company with a date inside the boost window jumps to the front, so recording a deadline you found is how you steer your own queue. Only the fields you pass change. The company becomes a target automatically if it is not one yet.",
+      inputSchema: {
+        ...companyRefShape,
+        next_app_date: z.string().nullable().optional().describe("YYYY-MM-DD application deadline; null clears it"),
+        priority_score: z.number().int().nullable().optional().describe("Higher sorts first"),
+        program_name: z.string().nullable().optional(),
+        app_window_text: z.string().nullable().optional().describe("Free text when the window has no exact date"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ company_id, name, ...patch }) => {
+      const id = await resolveCompanyId({ company_id, name });
+      const companyName = await getCompanyName(id);
+      const { fields } = await updateCompanyResearch(id, patch);
+      if (fields.length === 0) throw new Error("Pass at least one field to change");
+      return { summary: `Updated ${companyName}: ${fields.join(", ")}`, company_id: id, fields };
     }),
   );
 

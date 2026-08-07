@@ -963,7 +963,139 @@ export async function removeEmailsFromContact(contactId: number) {
   if (error) throw error;
 }
 
+/**
+ * Attach an email to an EXISTING contact, keeping exactly one primary (CAR-265).
+ *
+ * Lives here rather than in src/mcp/lib/db.ts because that file is under a
+ * ratchet: new MCP queries go through a domain module so web and MCP share one
+ * implementation and one set of scoping guarantees (CAR-151).
+ *
+ * `contact_emails` carries no `user_id`, so this keys on `contactId` alone and
+ * CANNOT scope itself. The caller must prove ownership of that contact first;
+ * MCP does it with `assertContactOwned`. That is the same contract
+ * `addEmailToContact` already carries, except that one is only ever called on a
+ * contact just created for the operating user, and this one runs on pre-existing
+ * contacts, where the assertion is the ONLY thing standing in for RLS.
+ *
+ * Demotes before inserting, matching bulk-import's ordering, so the contact
+ * never holds two primaries even momentarily.
+ */
+export async function attachEmailToContact(
+  contactId: number,
+  email: string,
+  opts: { isPrimary?: boolean; source?: string } = {},
+): Promise<{ demotedPrimaries: number }> {
+  const address = email.trim().toLowerCase();
+  if (!address) throw new Error("email is required");
+
+  const existing = must(
+    // Bounded deliberately: a contact's address list is a handful of rows, and
+    // an unbounded read here would be a silent PostgREST truncation at 1000.
+    await db()
+      .from("contact_emails")
+      .select("id, email, is_primary")
+      .eq("contact_id", contactId)
+      .order("id")
+      .limit(200),
+  ) as Array<{ id: number; email: string | null; is_primary: boolean }> | null;
+  const rows = existing ?? [];
+  if (rows.some((r) => (r.email ?? "").trim().toLowerCase() === address)) {
+    throw new Error(`${address} is already on this contact`);
+  }
+
+  // The first address wins primary regardless of what was asked: a contact with
+  // addresses and no primary is a state the send path cannot resolve.
+  const isPrimary = opts.isPrimary ?? rows.length === 0;
+  let demoted = 0;
+  if (isPrimary) {
+    const stale = rows.filter((r) => r.is_primary).map((r) => r.id);
+    if (stale.length > 0) {
+      const { error } = await db().from("contact_emails").update({ is_primary: false }).in("id", stale);
+      if (error) throw error;
+      demoted = stale.length;
+    }
+  }
+
+  const { error: insErr } = await db().from("contact_emails").insert({
+    contact_id: contactId,
+    email: address,
+    is_primary: isPrimary,
+    ...(opts.source ? { source: opts.source } : {}),
+  });
+  if (insErr) throw insErr;
+  return { demotedPrimaries: demoted };
+}
+
+/**
+ * Unlink tags from a contact by NAME, scoped to the owner's own tags (CAR-265).
+ *
+ * Deletes the LINK, never the tag: a tag removed from one contact stays
+ * available to the rest of the network. The lookup carries
+ * `.eq("user_id", userId)` so a name can never resolve to another user's tag,
+ * which matters because `contact_tags` has no user_id of its own.
+ *
+ * Names not on the contact come back as misses rather than throwing — removing
+ * a tag that was already absent is the caller's intended end state.
+ */
+export async function removeContactTagsByName(
+  userId: string,
+  contactId: number,
+  tagNames: string[],
+): Promise<string[]> {
+  const removed: string[] = [];
+  for (const rawName of tagNames) {
+    const name = rawName.trim();
+    if (!name) continue;
+    const found = must(
+      await db().from("tags").select("id, name").eq("user_id", userId).ilike("name", escapeIlike(name)).limit(1),
+    ) as Array<{ id: number; name: string }> | null;
+    const tag = found?.[0];
+    if (!tag) continue;
+    const { error, count } = await db()
+      .from("contact_tags")
+      .delete({ count: "exact" })
+      .eq("contact_id", contactId)
+      .eq("tag_id", tag.id);
+    if (error) throw error;
+    if ((count ?? 0) > 0) removed.push(tag.name);
+  }
+  return removed;
+}
+
 // ── Contact Phones ──
+
+/** Attach a phone to an existing contact, keeping one primary. See `attachEmailToContact`. */
+export async function attachPhoneToContact(
+  contactId: number,
+  phone: string,
+  opts: { type?: string; isPrimary?: boolean } = {},
+): Promise<void> {
+  const value = phone.trim();
+  if (!value) throw new Error("phone is required");
+
+  const existing = must(
+    await db()
+      .from("contact_phones")
+      .select("id, is_primary")
+      .eq("contact_id", contactId)
+      .order("id")
+      .limit(200),
+  ) as Array<{ id: number; is_primary: boolean }> | null;
+  const rows = existing ?? [];
+  const isPrimary = opts.isPrimary ?? rows.length === 0;
+  if (isPrimary) {
+    const stale = rows.filter((r) => r.is_primary).map((r) => r.id);
+    if (stale.length > 0) {
+      const { error } = await db().from("contact_phones").update({ is_primary: false }).in("id", stale);
+      if (error) throw error;
+    }
+  }
+  const { error } = await db()
+    .from("contact_phones")
+    .insert({ contact_id: contactId, phone: value, type: opts.type ?? "mobile", is_primary: isPrimary });
+  if (error) throw error;
+}
+
 
 export async function addPhoneToContact(contactId: number, phone: string, type: string, isPrimary: boolean) {
   const { data, error } = await db()
@@ -980,7 +1112,6 @@ export async function removePhonesFromContact(contactId: number) {
   if (error) throw error;
 }
 
-// ── Tags ──
 
 export async function addTagToContact(contactId: number, tagId: number) {
   const { error } = await db().from("contact_tags").insert({ contact_id: contactId, tag_id: tagId });

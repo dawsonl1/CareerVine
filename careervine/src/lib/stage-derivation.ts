@@ -117,6 +117,64 @@ export const CONVERSATION_CHIP_LABELS: Record<"call_done" | "call_scheduled", { 
   call_scheduled: { one: "Conversation Scheduled", many: "Conversations Scheduled" },
 };
 
+// ── Per-kind chips on a single contact (CAR-267) ───────────────────────
+
+/**
+ * Chip labels naming what a single contact's conversation actually was.
+ *
+ * The company chip above aggregates, so it needs a superset word; a contact's
+ * own chip describes specific conversations and can say so — "Call done" was
+ * how a LinkedIn text exchange got presented as a phone call (the CAR-257
+ * symptom, one surface over).
+ */
+export const PAST_CONVERSATION_CHIP_LABELS: Record<ConversationKind, string> = {
+  call: "Call done",
+  "career-fair": "Career fair",
+  networking: "Networking event",
+  text: "Texted",
+  other: "Conversation",
+};
+
+/**
+ * Text and Other collapse to the neutral word, same reasoning as the
+ * next-action pill (CAR-257): you do not schedule a text exchange, so anything
+ * landing there is a mislabel and the generic word is the one that cannot be
+ * wrong about it.
+ */
+export const UPCOMING_CONVERSATION_CHIP_LABELS: Record<ConversationKind, string> = {
+  call: "Call scheduled",
+  "career-fair": "Career fair scheduled",
+  networking: "Networking event scheduled",
+  text: "Conversation scheduled",
+  other: "Conversation scheduled",
+};
+
+/**
+ * The chip labels for one contact's stage: per-kind labels for the two call
+ * stages (one chip per distinct conversation kind, recency-ordered by the
+ * caller), the plain stage label for everything else.
+ *
+ * A call stage with no conversation record behind it falls back to the stage
+ * label — that is the pure `stage_override` case, where the stage is asserted
+ * with no event to describe and "Call done" is exactly the claim the override
+ * makes. Deduped because two upcoming kinds can share one label.
+ */
+export function stageChipLabels(
+  stage: OutreachStage,
+  conversations?: {
+    past: { kinds: ConversationKind[] } | null;
+    upcoming: { kinds: ConversationKind[] } | null;
+  } | null,
+): string[] {
+  if (stage === "call_done" && conversations?.past?.kinds.length) {
+    return [...new Set(conversations.past.kinds.map((k) => PAST_CONVERSATION_CHIP_LABELS[k]))];
+  }
+  if (stage === "call_scheduled" && conversations?.upcoming?.kinds.length) {
+    return [...new Set(conversations.upcoming.kinds.map((k) => UPCOMING_CONVERSATION_CHIP_LABELS[k]))];
+  }
+  return [STAGE_LABELS[stage]];
+}
+
 export interface StageSignals {
   /** contacts.stage_override — wins over every derived signal. */
   stageOverride?: string | null;

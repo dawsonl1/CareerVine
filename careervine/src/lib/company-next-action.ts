@@ -65,7 +65,13 @@ export interface NextActionInput {
    * treating those as unknown would silence every real call on the list.
    */
   conversationKind: ConversationKind | null;
-  /** When that conversation happened, for the lines that state a date. */
+  /**
+   * When that conversation happened — for the lines that state a date, and the
+   * timestamp the two "what happened since the call" checks order against
+   * (CAR-266). The adapter feeds the LEAD's own latest conversation here, not
+   * the company-merged `traction_detail.at`, so the date, the name, the kind
+   * and the follow-up evidence all describe one person.
+   */
   conversationAt: string | null;
 }
 
@@ -84,6 +90,27 @@ function shortDate(dateStr: string): string {
 function firstName(name: string | null): string | null {
   return name?.trim().split(/\s+/)[0] || null;
 }
+
+/**
+ * "They replied, you owe them a response." Shared by the `replied` rung and the
+ * post-conversation promotion in the `call_done` rung (CAR-266) so the two
+ * cannot drift apart in wording or rank.
+ */
+function writeBackAction(lead: string | null): NextAction {
+  return {
+    text: lead ? `${lead} replied, write back` : "You have a reply, write back",
+    icon: "MailOpen",
+    tone: "active",
+    rank: 84,
+  };
+}
+
+/**
+ * The kinds whose past-conversation line is a follow-up PROMPT (see
+ * pastConversationAction). Only a prompt can be retired by the follow-up having
+ * happened — text and Other already render statements.
+ */
+const FOLLOW_UP_PROMPT_KINDS: ReadonlySet<ConversationKind> = new Set(["call", "career-fair", "networking"]);
 
 /**
  * The "you already had this conversation, now follow up" rung, worded for what
@@ -218,7 +245,7 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
   // where the last word was already ours (CAR-253). A null replyThread means
   // nobody computed it, and defaults to prompting — the cheap error.
   if (traction === "replied" && (replyThread?.awaitingOurReply ?? true)) {
-    return { text: lead ? `${lead} replied, write back` : "You have a reply, write back", icon: "MailOpen", tone: "active", rank: 84 };
+    return writeBackAction(lead);
   }
 
   // Mid-range deadline (8–21 days) — worth surfacing, below live threads.
@@ -226,9 +253,52 @@ export function deriveNextAction(input: NextActionInput, now: Date = new Date())
     return { text: `Apply in ${deadlineDays} days, closes ${shortDate(nextAppDate!)}`, icon: "CalendarClock", tone: "active", rank: 70 + (21 - deadlineDays) };
   }
 
-  // Conversation started but no live thread.
+  // Conversation started but no live thread. What happened SINCE the
+  // conversation decides the line (CAR-266): `call_done` is sticky, so reading
+  // only the conversation kept prompting "Follow up with Lance after your call"
+  // long after the thank-you email had gone out. Both checks need a dated
+  // conversation to order against; without one (a bare stage_override) the
+  // prompt stands, the same cheap-error default the replied rung uses.
   if (traction === "call_done") {
-    return pastConversationAction(conversation, lead, input.conversationAt, now);
+    const conversationAt = input.conversationAt;
+    // They wrote after the conversation and the thread is still ours to answer:
+    // responding IS the follow-up, so the write-back line replaces the nudge.
+    // Gated on the reply POSTDATING the conversation, because an unanswered
+    // scheduling reply from before a call was answered by the call itself —
+    // resurrecting it would undo CAR-253's point.
+    if (
+      conversationAt &&
+      replyThread?.awaitingOurReply &&
+      replyThread.lastUnansweredReplyAt &&
+      replyThread.lastUnansweredReplyAt > conversationAt
+    ) {
+      return writeBackAction(lead);
+    }
+    // You already followed up — any outbound touch after the conversation — so
+    // the prompt's task is done and it becomes a statement, ranked with the
+    // other ball-in-their-court states (answered thread 58, applied 62). The
+    // clause dates the follow-up, not the call. Strict `>` on purpose: a
+    // conversation double-logged as an interaction at the same instant must not
+    // read as a follow-up to itself. Known fuzz: a hand-logged meeting_date is
+    // a wall clock stored as UTC (CAR-206), so a same-day PRE-call email can
+    // compare as later in western timezones — the cost is retiring the prompt a
+    // few hours early, accepted.
+    if (
+      conversationAt &&
+      input.lastOutreachAt &&
+      input.lastOutreachAt > conversationAt &&
+      FOLLOW_UP_PROMPT_KINDS.has(conversation)
+    ) {
+      const when = formatTimeAgo(input.lastOutreachAt, now);
+      const who = lead ? ` with ${lead}` : "";
+      return {
+        text: when ? `You followed up${who} ${when}` : `You followed up${who}`,
+        icon: "MailCheck",
+        tone: "muted",
+        rank: 60,
+      };
+    }
+    return pastConversationAction(conversation, lead, conversationAt, now);
   }
 
   // Applied — nudge toward a human to back the application. With nobody current
@@ -341,7 +411,11 @@ export function nextActionForCompany(c: CompanySummary, now: Date = new Date()):
       lastOutreachAt: c.lead_detail?.last_outreach_at ?? null,
       replyThread: c.lead_detail?.reply ?? null,
       conversationKind: c.conversation?.kind ?? null,
-      conversationAt: c.traction_detail?.at ?? null,
+      // The lead's own conversation, falling back to the company-merged
+      // timestamp only when the lead has none to offer (a stage_override
+      // asserting call_done while someone else at the company had the real
+      // conversation) — there the date is still truer than nothing.
+      conversationAt: c.lead_detail?.last_conversation_at ?? c.traction_detail?.at ?? null,
     },
     now,
   );

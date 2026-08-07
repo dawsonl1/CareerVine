@@ -14,7 +14,7 @@ import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { getContactById } from "@/lib/queries";
 import type { Contact } from "@/lib/types";
 import { setStageOverride, type CompanyPerson } from "@/lib/company-queries";
-import { STAGE_LABELS, type OutreachStage } from "@/lib/stage-derivation";
+import { stageChipLabels, type OutreachStage } from "@/lib/stage-derivation";
 import { ExternalLink, GraduationCap, MapPin, Mail, AlertTriangle, Briefcase, Check } from "lucide-react";
 import { personaLabel } from "@/lib/persona-labels";
 import { sortEducation, sortExperiences } from "@/lib/experience-order";
@@ -98,11 +98,17 @@ export function PersonModal({ person, companyId, companyName, userId, onClose, o
                   <GraduationCap className="w-3 h-3" /> {alumBadgeLabel(affinity)}
                 </span>
               )}
-              {stage && (
-                <span className="px-2 py-0.5 rounded-full text-[11px] bg-surface-container-high text-on-surface-variant">
-                  {STAGE_LABELS[stage]}
-                </span>
-              )}
+              {stage &&
+                // One chip per distinct conversation kind behind a call stage
+                // (CAR-267): a text exchange reads "Texted", not "Call done".
+                stageChipLabels(stage, person.conversations).map((label) => (
+                  <span
+                    key={label}
+                    className="px-2 py-0.5 rounded-full text-[11px] bg-surface-container-high text-on-surface-variant"
+                  >
+                    {label}
+                  </span>
+                ))}
               {location && (
                 <span className="text-[11px] text-on-surface-variant flex items-center gap-1">
                   <MapPin className="w-3 h-3" /> {location}

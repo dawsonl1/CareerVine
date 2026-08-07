@@ -109,8 +109,8 @@ describe("deriveNextAction — live threads vs deadlines", () => {
  * after it retires the prompt permanently.
  */
 describe("deriveNextAction — a reply you already answered (CAR-253)", () => {
-  const unanswered = { awaitingOurReply: true, lastMessageAt: "2026-07-09T10:00:00Z" };
-  const answered = { awaitingOurReply: false, lastMessageAt: "2026-07-09T10:00:00Z" };
+  const unanswered = { awaitingOurReply: true, lastMessageAt: "2026-07-09T10:00:00Z", lastUnansweredReplyAt: "2026-07-09T10:00:00Z" };
+  const answered = { awaitingOurReply: false, lastMessageAt: "2026-07-09T10:00:00Z", lastUnansweredReplyAt: null };
 
   it("still says write back while the reply is unanswered", () => {
     const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: unanswered }, NOW);
@@ -129,7 +129,7 @@ describe("deriveNextAction — a reply you already answered (CAR-253)", () => {
     // Dawson's case verbatim: they wrote, we wrote back, they wrote again. The
     // data layer reports awaitingOurReply false (it anchors on the FIRST reply),
     // and the ladder must not re-issue the instruction on the newer message.
-    const theyRepliedAgain = { awaitingOurReply: false, lastMessageAt: "2026-07-10T10:00:00Z" };
+    const theyRepliedAgain = { awaitingOurReply: false, lastMessageAt: "2026-07-10T10:00:00Z", lastUnansweredReplyAt: null };
     const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: theyRepliedAgain }, NOW);
     expect(a.text).toBe("You had an email thread with Samuel (yesterday)");
   });
@@ -159,9 +159,9 @@ describe("deriveNextAction — a reply you already answered (CAR-253)", () => {
   });
 
   it("still speaks without a lead name or a usable date", () => {
-    expect(act({ traction: "replied", replyThread: { awaitingOurReply: false, lastMessageAt: null } }, NOW).text).toBe(
-      "You had an email thread",
-    );
+    expect(
+      act({ traction: "replied", replyThread: { awaitingOurReply: false, lastMessageAt: null, lastUnansweredReplyAt: null } }, NOW).text,
+    ).toBe("You had an email thread");
     expect(act({ traction: "replied", replyThread: answered }, NOW).text).toBe("You had an email thread (2 days ago)");
   });
 });
@@ -285,7 +285,11 @@ describe("nextActionForCompany adapter", () => {
       roster: [],
       traction: "replied",
       traction_detail: { count: 1, at: "2026-07-18T00:00:00Z" },
-      lead_detail: { last_outreach_at: null, reply: { awaitingOurReply: true, lastMessageAt: "2026-07-18T00:00:00Z" } },
+      lead_detail: {
+        last_outreach_at: null,
+        reply: { awaitingOurReply: true, lastMessageAt: "2026-07-18T00:00:00Z", lastUnansweredReplyAt: "2026-07-18T00:00:00Z" },
+        last_conversation_at: null,
+      },
       conversation: null,
     } satisfies CompanySummary;
     const a = nextActionForCompany(c, NOW);
@@ -408,6 +412,130 @@ describe("deriveNextAction — a conversation is not always a call (CAR-257)", (
   it("falls back to a generic subject when there is no lead to name", () => {
     const a = act({ traction: "call_done", leadName: null, conversationKind: "text", conversationAt: "2026-06-11T17:00:00Z" });
     expect(a.text).toBe("You texted someone here 1 month ago");
+  });
+});
+
+describe("deriveNextAction — recognizing the follow-up you already sent (CAR-266)", () => {
+  /**
+   * Brevium's card kept advising "Follow up with Lance after your call" after
+   * the thank-you email had already gone out. `call_done` is sticky, so the
+   * rung has to read what happened SINCE the conversation: an outbound touch
+   * after it retires the prompt into a statement, and an unanswered reply
+   * after it promotes straight to "write back".
+   */
+  const CALL_AT = "2026-07-08T17:00:00Z";
+  const done = (partial: Partial<NextActionInput> = {}) =>
+    act({
+      traction: "call_done",
+      leadName: "Lance Olsen",
+      conversationKind: "call",
+      conversationAt: CALL_AT,
+      ...partial,
+    });
+
+  it("turns the prompt into a statement dating the follow-up, not the call", () => {
+    const a = done({ lastOutreachAt: "2026-07-09T10:00:00Z" });
+    expect(a.text).toBe("You followed up with Lance 2 days ago");
+    expect(a.tone).toBe("muted");
+    expect(a.icon).toBe("MailCheck");
+  });
+
+  it("keeps the prompt when the only outreach predates the call", () => {
+    // The scheduling email that set the call up is not a follow-up to it.
+    expect(done({ lastOutreachAt: "2026-07-07T10:00:00Z" }).text).toBe("Follow up with Lance after your call");
+  });
+
+  it("keeps the prompt when the outreach timestamp EQUALS the conversation's", () => {
+    // A conversation double-logged as an interaction at the same instant must
+    // not read as a follow-up to itself.
+    expect(done({ lastOutreachAt: CALL_AT }).text).toBe("Follow up with Lance after your call");
+  });
+
+  it("keeps the prompt when either side has no usable date", () => {
+    expect(done({ lastOutreachAt: null }).text).toBe("Follow up with Lance after your call");
+    expect(done({ lastOutreachAt: "2026-07-09T10:00:00Z", conversationAt: null }).text).toBe(
+      "Follow up with Lance after your call",
+    );
+  });
+
+  it("retires the career-fair and networking prompts the same way", () => {
+    for (const kind of ["career-fair", "networking"] as const) {
+      const a = done({ conversationKind: kind, lastOutreachAt: "2026-07-09T10:00:00Z" });
+      expect(a.text).toBe("You followed up with Lance 2 days ago");
+    }
+  });
+
+  it("leaves the text and Other statements alone — they were never prompts", () => {
+    expect(done({ conversationKind: "text", lastOutreachAt: "2026-07-09T10:00:00Z" }).text).toBe(
+      "You texted Lance 3 days ago",
+    );
+    expect(done({ conversationKind: "other", lastOutreachAt: "2026-07-09T10:00:00Z" }).text).toBe(
+      "You connected with Lance 3 days ago",
+    );
+  });
+
+  it("still speaks without a lead, and drops a clause it cannot phrase in the past", () => {
+    expect(done({ leadName: null, lastOutreachAt: "2026-07-09T10:00:00Z" }).text).toBe("You followed up 2 days ago");
+    // A future Date: header satisfies the ordering gate but not the sentence.
+    expect(done({ lastOutreachAt: "2026-07-20T10:00:00Z" }).text).toBe("You followed up with Lance");
+  });
+
+  it("ranks the sent follow-up with the ball-in-their-court states", () => {
+    const followedUp = done({ lastOutreachAt: "2026-07-09T10:00:00Z" }).rank;
+    const answeredThread = act(
+      {
+        traction: "replied",
+        replyThread: { awaitingOurReply: false, lastMessageAt: "2026-07-09T10:00:00Z", lastUnansweredReplyAt: null },
+      },
+      NOW,
+    ).rank;
+    const applied = act({ status: "applied", currentCount: 1 }, NOW).rank;
+    const prompt = done({}).rank;
+    // Warmer than an answered email thread (a call happened), colder than an
+    // application that wants a referral, and never above the live prompt.
+    expect(followedUp).toBeGreaterThan(answeredThread);
+    expect(applied).toBeGreaterThan(followedUp);
+    expect(prompt).toBeGreaterThan(followedUp);
+  });
+
+  it("promotes to 'write back' when their unanswered reply postdates the call", () => {
+    const a = done({
+      lastOutreachAt: "2026-07-09T10:00:00Z",
+      replyThread: { awaitingOurReply: true, lastMessageAt: "2026-07-10T09:00:00Z", lastUnansweredReplyAt: "2026-07-10T09:00:00Z" },
+    });
+    // The reply outranks the sent follow-up: responding is the live move.
+    expect(a.text).toBe("Lance replied, write back");
+    expect(a.tone).toBe("active");
+    expect(a.rank).toBe(84);
+  });
+
+  it("promotes for a text or Other conversation too — an unanswered reply is actionable regardless", () => {
+    for (const kind of ["text", "other"] as const) {
+      const a = done({
+        conversationKind: kind,
+        replyThread: { awaitingOurReply: true, lastMessageAt: "2026-07-10T09:00:00Z", lastUnansweredReplyAt: "2026-07-10T09:00:00Z" },
+      });
+      expect(a.text).toBe("Lance replied, write back");
+    }
+  });
+
+  it("does NOT promote on an unanswered reply from before the call", () => {
+    // "Sure, Tuesday works" was answered by the call itself; resurrecting it
+    // would undo CAR-253. With a follow-up also sent, the statement wins.
+    const pre = { awaitingOurReply: true, lastMessageAt: "2026-07-05T09:00:00Z", lastUnansweredReplyAt: "2026-07-05T09:00:00Z" };
+    expect(done({ replyThread: pre }).text).toBe("Follow up with Lance after your call");
+    expect(done({ replyThread: pre, lastOutreachAt: "2026-07-09T10:00:00Z" }).text).toBe(
+      "You followed up with Lance 2 days ago",
+    );
+  });
+
+  it("does NOT promote off lastMessageAt alone when nothing is owed", () => {
+    // The latest message being ours (the thank-you) must not read as a reply.
+    const a = done({
+      lastOutreachAt: "2026-07-09T10:00:00Z",
+      replyThread: { awaitingOurReply: false, lastMessageAt: "2026-07-09T10:00:00Z", lastUnansweredReplyAt: null },
+    });
+    expect(a.text).toBe("You followed up with Lance 2 days ago");
   });
 });
 
