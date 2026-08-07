@@ -6,6 +6,10 @@ import { advanceCompaniesForContacts } from "@/lib/company-stage-advance";
  * it by hand, so Brevium sat on Researching after Lance Johnson replied and took
  * a call. These pin the two rules that keep the automation from doing harm:
  * it advances ONLY from researching, and it never moves anything backwards.
+ *
+ * CAR-243 adds the third: only the contact's CURRENT employer moves. Measured on
+ * production, dropping that filter meant one reply from a contact with a long
+ * resume advanced six companies they had already left.
  */
 
 interface Row {
@@ -16,13 +20,21 @@ interface Row {
   active_cycle: number;
 }
 
+/** An employment link. is_current defaults to true so pre-CAR-243 cases read the same. */
+interface Link {
+  contact_id: number;
+  company_id: number;
+  user_id: string;
+  is_current?: boolean;
+}
+
 /** Minimal PostgREST-shaped stub: records updates, filters like the real thing. */
 function stub({
   targets,
   links,
 }: {
   targets: Row[];
-  links: Array<{ contact_id: number; company_id: number; user_id: string }>;
+  links: Link[];
 }) {
   const updates: Array<{ table: string; patch: Record<string, unknown>; filters: Record<string, unknown> }> = [];
 
@@ -40,7 +52,15 @@ function stub({
         const wanted = filters["in:contact_id"] as number[];
         return {
           data: links
-            .filter((l) => wanted.includes(l.contact_id) && l.user_id === filters["eq:contacts.user_id"])
+            .filter(
+              (l) =>
+                wanted.includes(l.contact_id) &&
+                l.user_id === filters["eq:contacts.user_id"] &&
+                // Honour the filter only when the query actually sends it, so
+                // dropping `.eq("is_current", true)` from the source makes the
+                // former-employer tests below fail rather than silently pass.
+                (!("eq:is_current" in filters) || (l.is_current ?? true) === filters["eq:is_current"]),
+            )
             .map((l) => ({ company_id: l.company_id })),
           error: null,
         };
@@ -155,6 +175,35 @@ describe("advanceCompaniesForContacts", () => {
     });
     expect(await advanceCompaniesForContacts(client, USER, [7])).toEqual({ advanced: [] });
     expect(updates).toEqual([]);
+  });
+
+  it("NEVER advances a company the contact has already left (CAR-243)", async () => {
+    const { client, updates } = stub({
+      targets: [{ id: 10, company_id: 100, user_id: USER, status: "researching", active_cycle: 1 }],
+      links: [{ contact_id: 1, company_id: 100, user_id: USER, is_current: false }],
+    });
+
+    const result = await advanceCompaniesForContacts(client, USER, [1]);
+
+    expect(result.advanced).toEqual([]);
+    expect(updates).toEqual([]);
+  });
+
+  it("advances only the current employer when the contact has both (CAR-243)", async () => {
+    const { client } = stub({
+      targets: [
+        { id: 10, company_id: 100, user_id: USER, status: "researching", active_cycle: 1 },
+        { id: 11, company_id: 101, user_id: USER, status: "researching", active_cycle: 1 },
+      ],
+      links: [
+        { contact_id: 1, company_id: 100, user_id: USER, is_current: true },
+        { contact_id: 1, company_id: 101, user_id: USER, is_current: false },
+      ],
+    });
+
+    const result = await advanceCompaniesForContacts(client, USER, [1]);
+
+    expect(result.advanced).toEqual([10]);
   });
 
   it("dedupes repeated contact ids", async () => {

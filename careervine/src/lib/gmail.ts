@@ -7,7 +7,10 @@
  */
 
 import "server-only";
-import { advanceCompaniesForRepliedThreads } from "@/lib/company-stage-advance";
+import {
+  advanceCompaniesForContacts,
+  advanceCompaniesForRepliedThreads,
+} from "@/lib/company-stage-advance";
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import {
@@ -426,6 +429,26 @@ export async function syncEmailsForContact(
             } catch (err) {
               console.error("Failed to cancel follow-ups on synced reply:", err);
             }
+          }
+
+          // CAR-243: move this contact's current employer to Active outreach.
+          // THIS is the path replies actually arrive on, not the thread sweep
+          // where CAR-239 originally put the call. /api/gmail/sync runs
+          // syncAllContactEmails BEFORE syncThreadReplies, and this loop queries
+          // Gmail by the contact's own addresses — so it inserts the reply
+          // first, and syncThreadReplies (which only advances threads whose rows
+          // IT inserted) sees a duplicate and an empty set. The sweep's call
+          // stays for the one case this misses: a reply from an address we don't
+          // hold for the contact (CAR-227).
+          //
+          // Keyed on contactId rather than threadIds because we already know who
+          // replied — no thread-to-contact resolution needed. Error-tolerated
+          // like the cancel above: a stale pipeline stage must never fail a
+          // mailbox sync.
+          try {
+            await advanceCompaniesForContacts(supabase, userId, [contactId]);
+          } catch (err) {
+            console.error("Failed to advance company stage on synced reply:", err);
           }
 
           if (threadIds.length > 0) {
