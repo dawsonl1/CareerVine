@@ -183,3 +183,12 @@ someone holding several board seats no longer leads with an arbitrary one.
 Editing a contact holds their whole history, not a slice of it. Education is a list
 you can add to and remove from, the same as work experience, so a person with a
 bachelor's and an MBA keeps both. Saving used to leave only one of them.
+
+A contact's timeline is a way in, not just a summary. Every row opens: click a
+logged conversation and you get everything recorded on it, the attendees, the full
+notes, the private reminders you left yourself, its action items, the transcript and
+any files, with edit and delete right there instead of on another page. Interactions
+open to their full summary, an email opens to the message itself with a reply
+button, and a completed action can be reopened if it turns out not to be finished.
+Deleting a conversation keeps the action items that came out of it, and says so
+before you confirm rather than after.
