@@ -253,14 +253,27 @@ export async function grantCalendarScope(userId: string): Promise<void> {
  */
 export async function seedInboxMessage(
   userId: string,
-  opts: { gmailMessageId: string; subject: string; from?: string; snippet?: string; date?: string },
+  opts: {
+    gmailMessageId: string;
+    subject: string;
+    from?: string;
+    snippet?: string;
+    date?: string;
+    /**
+     * Override the thread. A flow whose assertion depends on a message the SEND
+     * stub produces has to land on that stub's fixed `SENT_THREAD_ID`, since
+     * stub responses are constant for the whole run and the database is what
+     * moves to meet them (see the e2e section of CONVENTIONS.md).
+     */
+    threadId?: string;
+  },
 ): Promise<void> {
   const svc = serviceClient();
   const { error } = await svc.from("email_messages").insert({
     user_id: userId,
     gmail_message_id: opts.gmailMessageId,
-    // Its own thread, so `buildThreads` yields one thread per seeded message.
-    thread_id: opts.gmailMessageId,
+    // Its own thread by default, so `buildThreads` yields one thread per seeded message.
+    thread_id: opts.threadId ?? opts.gmailMessageId,
     subject: opts.subject,
     from_address: opts.from ?? "sender@example.com",
     to_addresses: ["e2e-sender@gmail.com"],

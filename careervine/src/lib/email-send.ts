@@ -34,6 +34,7 @@ import "server-only";
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { sendEmail, getConnection, type ComposeEmailOptions } from "@/lib/gmail-send-core";
+import { reconcileThreadReadState } from "@/lib/email-read";
 import { EmailDirection, GmailLabel } from "@/lib/constants";
 import { trackServer, checkCompaniesEmailedMilestone } from "@/lib/analytics/server";
 import { must } from "@/lib/data/client";
@@ -169,6 +170,28 @@ export async function sendTrackedEmail(
       { onConflict: "email_message_id,contact_id", ignoreDuplicates: true }
     );
     if (linkError) console.error("Failed to link sent message to contacts:", linkError);
+  }
+
+  // Answering a thread is as strong a statement that you have dealt with it as
+  // opening it, so stop it counting toward the unread badge (CAR-276). Placed
+  // AFTER the cache upsert above on purpose: reconcileThreadReadState derives
+  // its cutoff from the thread's latest outbound row, which is the row that
+  // upsert just wrote. Running it earlier would find no reply to reconcile against.
+  //
+  // Every outbound path funnels through here, so this one call site covers the
+  // composer, MCP send_email, the scheduled-email cron, the follow-up cron and
+  // the follow-up confirm route. A new thread has nothing inbound on it, so cold
+  // outreach short-circuits on the first read.
+  //
+  // error-tolerated: the mail is already gone. A failed read-state reconcile must
+  // not turn a delivered send into an error the caller reports as a failure — the
+  // sync path re-derives the same invariant on the next pass.
+  if (result.threadId) {
+    try {
+      await reconcileThreadReadState(service, userId, [result.threadId], { syncGmail: true });
+    } catch (err) {
+      console.error("Failed to mark replied thread read:", err);
+    }
   }
 
   // Record an interaction so each matched contact's last_touch is updated and

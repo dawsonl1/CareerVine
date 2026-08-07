@@ -1544,8 +1544,6 @@ const DOUBLE_SUBMIT_BASELINE = {
     "generateFollowUps",
     "onClick~1315",
     "onClick~15va",
-    "onGenerate~4c2u",
-    "onSkip~rn7b",
     "runFollowUps",
     "saveDraft",
   ],
