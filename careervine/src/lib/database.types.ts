@@ -643,6 +643,7 @@ export type Database = {
           end_at: string
           google_event_id: string
           id: number
+          is_excluded: boolean
           is_private: boolean | null
           location: string | null
           meet_link: string | null
@@ -667,6 +668,7 @@ export type Database = {
           end_at: string
           google_event_id: string
           id?: number
+          is_excluded?: boolean
           is_private?: boolean | null
           location?: string | null
           meet_link?: string | null
@@ -691,6 +693,7 @@ export type Database = {
           end_at?: string
           google_event_id?: string
           id?: number
+          is_excluded?: boolean
           is_private?: boolean | null
           location?: string | null
           meet_link?: string | null
@@ -1666,6 +1669,7 @@ export type Database = {
           from_address: string | null
           gmail_message_id: string
           id: number
+          is_excluded: boolean
           is_hidden: boolean
           is_read: boolean | null
           is_simulated: boolean | null
@@ -1687,6 +1691,7 @@ export type Database = {
           from_address?: string | null
           gmail_message_id: string
           id?: number
+          is_excluded?: boolean
           is_hidden?: boolean
           is_read?: boolean | null
           is_simulated?: boolean | null
@@ -1708,6 +1713,7 @@ export type Database = {
           from_address?: string | null
           gmail_message_id?: string
           id?: number
+          is_excluded?: boolean
           is_hidden?: boolean
           is_read?: boolean | null
           is_simulated?: boolean | null
@@ -1774,6 +1780,7 @@ export type Database = {
           due_at: string | null
           id: number
           is_completed: boolean
+          is_excluded: boolean
           meeting_id: number | null
           priority: string | null
           related_action_item_id: number | null
@@ -1795,6 +1802,7 @@ export type Database = {
           due_at?: string | null
           id?: number
           is_completed?: boolean
+          is_excluded?: boolean
           meeting_id?: number | null
           priority?: string | null
           related_action_item_id?: number | null
@@ -1816,6 +1824,7 @@ export type Database = {
           due_at?: string | null
           id?: number
           is_completed?: boolean
+          is_excluded?: boolean
           meeting_id?: number | null
           priority?: string | null
           related_action_item_id?: number | null
@@ -1966,26 +1975,32 @@ export type Database = {
       interactions: {
         Row: {
           contact_id: number
+          email_message_id: number | null
           id: number
           interaction_date: string
           interaction_type: string
           interaction_type_detail: string | null
+          is_excluded: boolean
           summary: string | null
         }
         Insert: {
           contact_id: number
+          email_message_id?: number | null
           id?: number
           interaction_date: string
           interaction_type: string
           interaction_type_detail?: string | null
+          is_excluded?: boolean
           summary?: string | null
         }
         Update: {
           contact_id?: number
+          email_message_id?: number | null
           id?: number
           interaction_date?: string
           interaction_type?: string
           interaction_type_detail?: string | null
+          is_excluded?: boolean
           summary?: string | null
         }
         Relationships: [
@@ -1994,6 +2009,13 @@ export type Database = {
             columns: ["contact_id"]
             isOneToOne: false
             referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interactions_email_message_id_fkey"
+            columns: ["email_message_id"]
+            isOneToOne: false
+            referencedRelation: "email_messages"
             referencedColumns: ["id"]
           },
         ]
@@ -2102,6 +2124,7 @@ export type Database = {
           calendar_description: string | null
           calendar_event_id: string | null
           id: number
+          is_excluded: boolean
           meet_link: string | null
           meeting_date: string
           meeting_type: string | null
@@ -2120,6 +2143,7 @@ export type Database = {
           calendar_description?: string | null
           calendar_event_id?: string | null
           id?: number
+          is_excluded?: boolean
           meet_link?: string | null
           meeting_date: string
           meeting_type?: string | null
@@ -2138,6 +2162,7 @@ export type Database = {
           calendar_description?: string | null
           calendar_event_id?: string | null
           id?: number
+          is_excluded?: boolean
           meet_link?: string | null
           meeting_date?: string
           meeting_type?: string | null

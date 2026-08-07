@@ -123,6 +123,21 @@ export default function ContactDetailPage() {
    */
   const [detailEntry, setDetailEntry] = useState<TimelineEntry | null>(null);
 
+  /**
+   * Which timeline email threads the user has expanded (CAR-260). Held here for
+   * the same reason as `detailEntry` directly above: the tab is remounted by
+   * every `dataGeneration` bump, so a thread opened by the user would collapse
+   * under them the moment a background refresh landed.
+   */
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  const toggleThread = useCallback((threadId: string) => {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(threadId)) next.add(threadId);
+      return next;
+    });
+  }, []);
+
   const [gmailConn, setGmailConn] = useState<GmailConnection | null>(null);
   const [contactEmails, setContactEmails] = useState<EmailMessage[]>([]);
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
@@ -548,6 +563,8 @@ export default function ContactDetailPage() {
                     emailsLoadFailed={emailsLoadFailed}
                     onReloadEmails={loadContactEmails}
                     onEntryClick={setDetailEntry}
+                    expandedThreads={expandedThreads}
+                    onToggleThread={toggleThread}
                   />
                 )}
                 {activeTab === "emails" && (
