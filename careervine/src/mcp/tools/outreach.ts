@@ -33,7 +33,6 @@ import {
   updateCompanyTargetOutput,
   logApplicationOutput,
   logInterviewRoundOutput,
-  summaryOnlyOutput,
 } from "../lib/output-schemas";
 
 /**
@@ -475,7 +474,6 @@ export function registerOutreachTools(server: McpServer): void {
         stage: z.enum(STAGE_ORDER as [string, ...string[]]).optional(),
         clear: z.boolean().optional().describe("true removes the override"),
       },
-      outputSchema: summaryOnlyOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, stage, clear }) => {

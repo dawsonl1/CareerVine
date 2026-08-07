@@ -185,195 +185,45 @@ export const logInterviewRoundOutput = {
   round_id: z.string(),
 };
 
-
-// ── Contacts ─────────────────────────────────────────────────────────────
-
-export const searchContactsOutput = {
-  summary,
-  results: z.array(
-    z.object({
-      contact_id: z.number(),
-      name: z.string(),
-      headline: z.string().nullable(),
-      company: z.string().nullable(),
-      title: z.string().nullable(),
-      network_tier: z.string(),
-      outreach_stage: z.string().nullable().optional(),
-      last_touch_days_ago: z.number().nullable().optional(),
-      primary_email: z.object({}).passthrough().nullable().optional(),
-    }),
-  ),
-};
-
-/**
- * The dossier is a deep, mostly-optional bundle assembled per contact, so this
- * pins the envelope and the counted sections rather than every leaf. Tightening
- * the leaves would mean asserting the presence of data that legitimately varies
- * contact to contact, which is how a schema turns into an outage.
- */
-export const getContactDossierOutput = {
-  summary,
-  identity: z.object({}).passthrough(),
-  status: z.object({}).passthrough().optional(),
-  work_history: z.array(z.object({}).passthrough()).optional(),
-  education: z.array(z.object({}).passthrough()).optional(),
-  emails: z.array(z.object({}).passthrough()).optional(),
-  phones: z.array(z.object({}).passthrough()).optional(),
-  tags: z.array(z.string()).optional(),
-  notes: z.string().nullable().optional(),
-  open_action_items: z.array(z.object({}).passthrough()).optional(),
-  recent_completed_action_items: z.array(z.object({}).passthrough()).optional(),
-  interactions: z.object({ total: z.number(), shown: z.array(z.object({}).passthrough()) }).optional(),
-  meetings: z.object({ total: z.number(), shown: z.array(z.object({}).passthrough()) }).optional(),
-  email_history: z.object({ total: z.number(), shown: z.array(z.object({}).passthrough()) }).optional(),
-  pending_sends: z.object({}).passthrough().optional(),
-};
-
-export const addContactOutput = { summary, contact_id: z.number() };
-
-/** Tools whose only job is to report that a write happened. */
-export const summaryOnlyOutput = { summary };
-
-// ── Upkeep ───────────────────────────────────────────────────────────────
-
-export const logInteractionOutput = { summary, interaction_id: z.number() };
-
-export const createActionItemOutput = { summary, action_item_id: z.number() };
-
-export const listActionItemsOutput = {
-  summary,
-  items: z.array(
-    z.object({
-      action_item_id: z.number(),
-      title: z.string(),
-      description: z.string().nullable().optional(),
-      due_at: z.string().nullable().optional(),
-      direction: z.string().optional(),
-      age_days: z.number().nullable().optional(),
-      contacts: z.array(z.object({}).passthrough()).optional(),
-    }),
-  ),
-};
-
-export const listDueFollowupsOutput = {
-  summary,
-  contacts: z.array(z.object({}).passthrough()),
-};
-
-export const getNetworkHealthOutput = {
-  summary: summary.optional(),
-  tierCounts: z.object({}).passthrough().optional(),
-  onTrack: z.object({}).passthrough().optional(),
-  streakDays: z.number().optional(),
-  neglectedTotal: z.number().optional(),
-  neglectedContacts: z.array(z.object({}).passthrough()).optional(),
-  last30Days: z.object({}).passthrough().optional(),
-};
-
-// ── Email ────────────────────────────────────────────────────────────────
-//
-// `warnings` is always an array (possibly empty) on the compose paths, so it is
-// required; `gmail_url` is present only on the Gmail-drafts path, so it is not.
-
-export const createEmailDraftOutput = {
-  summary,
-  draft_id: z.union([z.string(), z.number()]),
-  gmail_url: z.string().optional(),
-  warnings: z.array(z.string()),
-};
-
-export const sendEmailOutput = {
-  summary,
-  delivery: z.string(),
-  message_id: z.string().nullable().optional(),
-  thread_id: z.string().nullable().optional(),
-  sends_remaining_today: z.number().optional(),
-  warnings: z.array(z.string()),
-};
-
-export const scheduleEmailOutput = {
-  summary,
-  scheduled_email_id: z.number(),
-  follow_up: z.object({}).passthrough().nullable().optional(),
-  warnings: z.array(z.string()),
-};
-
-export const createFollowUpSequenceOutput = {
-  summary,
-  follow_up_id: z.number(),
-  first_send_at: z.string().nullable().optional(),
-  warnings: z.array(z.string()),
-};
-
-export const listScheduledOutput = {
-  summary: summary.optional(),
-  scheduledEmails: z.array(z.object({}).passthrough()),
-  followUpSequences: z.array(z.object({}).passthrough()),
-};
-
-export const rescheduleFollowUpOutput = {
-  summary,
-  steps: z.array(z.object({}).passthrough()).optional(),
-};
-
-export const searchEmailHistoryOutput = {
-  summary,
-  results: z.array(z.object({}).passthrough()),
-};
-
-export const checkDeliveryOutput = {
-  summary,
-  newly_bounced: z.array(z.object({}).passthrough()),
-  already_known: z.array(z.object({}).passthrough()),
-  cancelled_follow_up_sequences: z.number(),
-  cancelled_scheduled_emails: z.number(),
-};
-
-export const getEmailThreadOutput = {
-  thread_id: z.string(),
-  total_cached: z.number(),
-  window_start: z.number(),
-  window_end: z.number(),
-  has_older: z.boolean(),
-  older_hint: z.string().nullable(),
-  preview_only: z.boolean().optional(),
-  messages: z.array(z.object({}).passthrough()),
-};
-
-// ── Calendar ─────────────────────────────────────────────────────────────
-
-export const listMeetingsOutput = {
-  summary,
-  events: z.array(z.object({}).passthrough()),
-};
-
-export const createMeetingOutput = {
-  summary,
-  google_event_id: z.string().nullable().optional(),
-  meet_link: z.string().nullable().optional(),
-  warnings: z.array(z.string()).optional(),
-};
-
 /**
  * Tools that deliberately ship WITHOUT an output schema, and why.
  *
- * EMPTY, and the ledger test keeps it honest either way: a tool that declares
- * no schema and is not named here fails, and a name here that no longer matches
- * a tool fails too. It exists as the escape hatch for a future tool whose
- * handler genuinely cannot be driven yet — not as a resting place.
+ * Not an oversight list and not permanent: every entry is a tool whose handler
+ * has no test fixture driving it yet, and rule 1 above says a schema without
+ * that coverage is a liability rather than a contract. `output-schemas.test.ts`
+ * fails if a tool is neither here nor schema-bearing, so this cannot rot into
+ * an invisible gap.
  */
 export const TOOLS_WITHOUT_OUTPUT_SCHEMA: Record<string, string> = {
-  // Each of these was DRIVEN and the drive did not reach a clean payload, so the
-  // schema would have been a guess. The reason is fixture depth in the handler's
-  // own dependencies, not "needs a Gmail fake" — that framing was wrong, and
-  // removing it is what took this file from 13 verified tools to 30.
-  get_contact_dossier: "assembles ~8 parallel reads; the bundle needs a fixture per section",
-  create_email_draft: "recipient resolution + send policy + Gmail draft in one path",
-  send_email: "same compose path as create_email_draft, plus the daily-cap read",
-  schedule_email: "compose path plus follow-up sequence insertion",
-  create_follow_up_sequence: "needs a cached outbound message to anchor the thread",
-  check_delivery: "reconciles Gmail bounce state against cached addresses",
-  add_company_intel: "addPipelineNote upserts a cycle and reads back its id",
-  update_action_item: "ownership read resolves through a shape the fixture does not yet produce",
-  create_meeting: "writes a Google Calendar event before the cache row",
+  // Gmail-backed: driving these needs a Gmail fake, not a query fixture.
+  create_email_draft: "needs a Gmail fake to drive",
+  send_email: "needs a Gmail fake to drive",
+  schedule_email: "needs a Gmail fake to drive",
+  create_follow_up_sequence: "needs a Gmail fake to drive",
+  list_scheduled: "needs a Gmail fake to drive",
+  cancel_scheduled: "needs a Gmail fake to drive",
+  reschedule_follow_up: "needs a Gmail fake to drive",
+  search_email_history: "needs a Gmail fake to drive",
+  check_delivery: "needs a Gmail fake to drive",
+  get_email_thread: "hydrates every message through live Gmail",
+  // Calendar-backed: same, via the Google Calendar client.
+  list_meetings: "needs a Calendar fake to drive",
+  create_meeting: "needs a Calendar fake to drive",
+  // Contact reads/writes whose fixtures land with the dossier harness.
+  search_contacts: "no driving fixture yet",
+  get_contact_dossier: "no driving fixture yet",
+  add_contact: "no driving fixture yet",
+  add_contact_note: "no driving fixture yet",
+  tag_contact: "no driving fixture yet",
+  set_network_status: "no driving fixture yet",
+  // Upkeep.
+  log_interaction: "no driving fixture yet",
+  create_action_item: "no driving fixture yet",
+  list_action_items: "no driving fixture yet",
+  update_action_item: "no driving fixture yet",
+  list_due_followups: "no driving fixture yet",
+  get_network_health: "no driving fixture yet",
+  // Outreach leftovers.
+  add_company_intel: "no driving fixture yet",
+  set_stage_override: "no driving fixture yet",
 };

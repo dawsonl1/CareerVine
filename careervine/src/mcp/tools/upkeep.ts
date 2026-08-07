@@ -14,13 +14,6 @@ import {
   getNetworkHealth,
 } from "../lib/db";
 import { handler, contactRefShape } from "../lib/tool-utils";
-import {
-  logInteractionOutput,
-  createActionItemOutput,
-  listActionItemsOutput,
-  listDueFollowupsOutput,
-  getNetworkHealthOutput,
-} from "../lib/output-schemas";
 import { dueDateKey } from "@/lib/due-date";
 import {
   CONVERSATION_TYPE_DETAIL_MAX_LENGTH,
@@ -54,7 +47,6 @@ export function registerUpkeepTools(server: McpServer): void {
         date: z.string().optional().describe("ISO timestamp; defaults to now"),
         summary: z.string().optional().describe("What was discussed"),
       },
-      outputSchema: logInteractionOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, type, detail, date, summary }) => {
@@ -89,7 +81,6 @@ export function registerUpkeepTools(server: McpServer): void {
         contact_ids: z.array(z.number().int()).optional(),
         contact_names: z.array(z.string()).optional(),
       },
-      outputSchema: createActionItemOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ title, description, due_at, direction, contact_ids, contact_names }) => {
@@ -119,7 +110,6 @@ export function registerUpkeepTools(server: McpServer): void {
         direction: z.enum(["todo", "waiting_on"]).optional(),
         ...contactRefShape,
       },
-      outputSchema: listActionItemsOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ due, direction, contact_id, name }) => {
@@ -182,7 +172,6 @@ export function registerUpkeepTools(server: McpServer): void {
       inputSchema: {
         limit: z.number().int().min(1).max(200).optional().describe("Max results (default 50)"),
       },
-      outputSchema: listDueFollowupsOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ limit }) => {
@@ -210,7 +199,6 @@ export function registerUpkeepTools(server: McpServer): void {
           .optional()
           .describe("How many neglected contacts to list (default 15). neglectedTotal always reports the real count."),
       },
-      outputSchema: getNetworkHealthOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ neglected_limit }) => getNetworkHealth(neglected_limit)),

@@ -55,13 +55,6 @@ import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
 import { sanitizeStoredEmailHtml } from "@/lib/ai/sanitize-email-html";
 import { markdownToHtml } from "../lib/markdown";
 import { handler, contactRefShape } from "../lib/tool-utils";
-import {
-  listScheduledOutput,
-  summaryOnlyOutput,
-  rescheduleFollowUpOutput,
-  searchEmailHistoryOutput,
-  getEmailThreadOutput,
-} from "../lib/output-schemas";
 
 /**
  * MCP bodies come straight from an LLM, and markdownToHtml passes raw HTML
@@ -558,7 +551,6 @@ export function registerEmailTools(server: McpServer): void {
       title: "List scheduled sends",
       description: "Pending scheduled emails and active follow-up sequences with their next send times.",
       inputSchema: {},
-      outputSchema: listScheduledOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async () => listScheduled()),
@@ -573,7 +565,6 @@ export function registerEmailTools(server: McpServer): void {
         scheduled_email_id: z.number().int().optional(),
         follow_up_id: z.number().int().optional(),
       },
-      outputSchema: summaryOnlyOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ scheduled_email_id, follow_up_id }) => {
@@ -615,7 +606,6 @@ export function registerEmailTools(server: McpServer): void {
             "Per-step local times keyed by sequence_number, for sequences whose steps should go at different times of day. A remaining step not named here keeps the time it already has. Provide this or send_time, not both.",
           ),
       },
-      outputSchema: rescheduleFollowUpOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ follow_up_id, send_time, step_times }) => {
@@ -664,7 +654,6 @@ export function registerEmailTools(server: McpServer): void {
         ...contactRefShape,
         limit: z.number().int().min(1).max(50).optional(),
       },
-      outputSchema: searchEmailHistoryOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ query, contact_id, name, limit }) => {
@@ -746,7 +735,6 @@ export function registerEmailTools(server: McpServer): void {
             "Return the window ENDING at this index in the thread's chronological order, for reading older messages. The response reports window_start, so pass that value back to step further into the past.",
           ),
       },
-      outputSchema: getEmailThreadOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ thread_id, limit, before_index }) => {

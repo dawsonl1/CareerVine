@@ -16,9 +16,6 @@ import {
 } from "../lib/db";
 import { resolveRecipient, type EmailRowLike } from "../lib/email-policy";
 import { handler, contactRefShape } from "../lib/tool-utils";
-import {
-  listMeetingsOutput,
-} from "../lib/output-schemas";
 import { parseCalendarAttendees } from "@/lib/calendar-attendees";
 
 /** Parse an ISO timestamp, requiring an explicit timezone offset so a naive
@@ -73,7 +70,6 @@ export function registerCalendarTools(server: McpServer): void {
         start: z.string().optional().describe("Custom range start (ISO)"),
         end: z.string().optional().describe("Custom range end (ISO)"),
       },
-      outputSchema: listMeetingsOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ range, start, end }) => {
