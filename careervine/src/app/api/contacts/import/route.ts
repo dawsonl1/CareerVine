@@ -12,7 +12,7 @@ import { handleOptions } from '@/lib/extension-auth';
 import { backfillEmailsForContact } from "@/lib/gmail";
 import { syncContactEmailHistoryIfPaid } from "@/lib/contact-email-history";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
-import { findOrCreateCompany, findOrCreateLocation, ensureCompanyLocation } from "@/lib/company-helpers";
+import { findOrCreateCompany, findOrCreateLocation, ensureCompanyLocation, ensureCompanyTargets } from "@/lib/company-helpers";
 import { addTagsToContact, downloadAndStorePhoto } from "@/lib/import-db-helpers";
 import { createContact, updateContact } from "@/lib/data/contacts";
 import type { QueryClient } from "@/lib/data/client";
@@ -207,7 +207,9 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
       .eq('source', 'extension');
     await supabase.from('contact_companies').delete().eq('contact_id', contactId).eq('source', 'extension');
     try {
-      await addExperienceToContact(supabase, contactId, profileData.experience, profileData.location, false);
+      const currentEmployerIds = await addExperienceToContact(supabase, contactId, profileData.experience, profileData.location, false);
+      // Hand-saved person => their CURRENT employer becomes a target (CAR-263).
+      await ensureCompanyTargets(supabase, userId, currentEmployerIds);
     } catch (err) {
       if (oldExp && oldExp.length > 0) {
         await supabase.from('contact_companies').insert(oldExp.map(({ id: _id, ...rest }) => rest));
@@ -302,7 +304,8 @@ async function createNewContact(supabase: SupabaseClient, profileData: ProfileDa
   }
 
   if (profileData.experience && profileData.experience.length > 0) {
-    await addExperienceToContact(supabase, (contact as ContactRow).id, profileData.experience, profileData.location);
+    const currentEmployerIds = await addExperienceToContact(supabase, (contact as ContactRow).id, profileData.experience, profileData.location);
+    await ensureCompanyTargets(supabase, userId, currentEmployerIds);
   }
 
   if (profileData.education && profileData.education.length > 0) {
@@ -335,11 +338,11 @@ async function addExperienceToContact(
   experience: ProfileExperience[],
   profileLocation?: ProfileLocation,
   skipDedup = false,
-) {
+): Promise<number[]> {
   const validExps = experience.filter(
     (exp): exp is ProfileExperience & { company: string } => Boolean(exp.company),
   );
-  if (validExps.length === 0) return;
+  if (validExps.length === 0) return [];
 
   // Consolidated find-or-create (escaped ilike — company names containing
   // % or _ no longer act as wildcards)
@@ -467,6 +470,15 @@ async function addExperienceToContact(
   if (toInsert.length > 0) {
     await supabase.from('contact_companies').insert(toInsert);
   }
+
+  // Employers the person works at NOW, for the caller to target (CAR-263). Read
+  // off `toInsert` rather than `validExps` so it reflects what was actually
+  // written: a row the dedup gate skipped is already on the contact, and a
+  // company findOrCreateCompany failed on never made it into companyMap.
+  //
+  // Returned rather than targeted here because targeting is per-USER and this
+  // helper only knows the contact; both callers have the user id.
+  return [...new Set(toInsert.filter((r) => r.is_current).map((r) => r.company_id))];
 }
 
 async function addEducationToContact(supabase: SupabaseClient, contactId: number, education: ProfileEducation[], skipDedup = false) {
