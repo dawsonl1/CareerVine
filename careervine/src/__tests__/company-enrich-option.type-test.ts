@@ -35,7 +35,8 @@ export async function enrichedByDefault(): Promise<void> {
   const lead: string | null = list[0].lead_contact_name;
   const detail: { count: number; at: string | null } | null = list[0].traction_detail;
   void detail;
-  const rank: number = nextActionForCompany(list[0]).rank;
+  // Null for a company the ladder has nothing to say about (CAR-246).
+  const rank: number = nextActionForCompany(list[0])?.rank ?? 0;
 
   void [noOpts, emptyOpts, targets, all, explicit, alum, lead, rank];
 }

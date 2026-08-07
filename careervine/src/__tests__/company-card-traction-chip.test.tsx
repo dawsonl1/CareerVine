@@ -79,4 +79,59 @@ describe("traction chip rendering (CAR-246)", () => {
       expect(screen.queryByText(label)).toBeNull();
     }
   });
+
+  it("renders no next-action pill when nobody currently works there", () => {
+    // The Qualtrics card: former contacts only. Both badges go quiet, and
+    // nothing takes their place (CAR-246).
+    render(
+      <CompanyCard
+        company={company({
+          current_count: 0,
+          former_count: 20,
+          lead_contact_name: null,
+          traction: null,
+          traction_detail: null,
+        })}
+      />,
+    );
+
+    expect(screen.getByText("20 former contacts")).toBeTruthy();
+    expect(screen.queryByText(/Find people who work here/)).toBeNull();
+    expect(screen.queryByText(/Follow up with/)).toBeNull();
+    expect(screen.queryByText(/Reach out/)).toBeNull();
+  });
+
+  it("still shows an imminent deadline with nobody currently there", () => {
+    // The over-reach guard, at the render layer: silence is for people-finding
+    // advice, never for a fact about the application.
+    // Built from LOCAL parts on purpose: `toISOString().slice(0, 10)` reports
+    // tomorrow's UTC date for any evening in a negative-offset zone, which
+    // silently turns "in 3 days" into "in 4 days" here. daysUntil parses
+    // `${date}T00:00:00` as local, so the string has to be local too.
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 3);
+    const soonLocal = `${soon.getFullYear()}-${String(soon.getMonth() + 1).padStart(2, "0")}-${String(soon.getDate()).padStart(2, "0")}`;
+    render(
+      <CompanyCard
+        company={company({
+          current_count: 0,
+          former_count: 20,
+          lead_contact_name: null,
+          traction: null,
+          traction_detail: null,
+          target: {
+            id: 1,
+            priority_score: null,
+            tier: null,
+            program_name: null,
+            app_window_text: null,
+            next_app_date: soonLocal,
+            status: "researching",
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/Apply in 3 days/)).toBeTruthy();
+  });
 });

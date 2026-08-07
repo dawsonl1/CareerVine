@@ -37,7 +37,7 @@ import { chunked, chunkedPaginated, paginateAll, escapeIlike } from "@/lib/data/
 import { must } from "@/lib/data/client";
 import { getUserSchool } from "@/lib/data/users";
 import { findOrCreateCompany } from "./company-helpers";
-import { nextActionForCompany } from "./company-next-action";
+import { nextActionForCompany, NO_ACTION_RANK } from "./company-next-action";
 import { isByuFamilySchool, schoolsMatch } from "@/lib/schools/affinity";
 import { sortExperiences } from "@/lib/experience-order";
 
@@ -1275,7 +1275,9 @@ export async function getCompanies(
   const nextRank = new Map<number, number>();
   if (sort === "next" && enrichedSummaries) {
     const now = new Date();
-    for (const c of enrichedSummaries) nextRank.set(c.id, nextActionForCompany(c, now).rank);
+    // A company the ladder has nothing to say about still needs a rank, or it
+    // would sort as undefined rather than last (CAR-246).
+    for (const c of enrichedSummaries) nextRank.set(c.id, nextActionForCompany(c, now)?.rank ?? NO_ACTION_RANK);
   }
   summaries.sort((a, b) => {
     switch (sort) {

@@ -86,8 +86,10 @@ function tractionChipText(stage: OutreachStage, detail: { count: number; at: str
  */
 export function CompanyCard({ company: c }: { company: CompanySummary }) {
   const affinity = useAlumniAffinity();
+  // Null when the ladder has nothing to say — the card shows no pill at all
+  // rather than filling the slot (CAR-246).
   const action = nextActionForCompany(c);
-  const ActionIcon = ACTION_ICONS[action.icon] ?? Sparkles;
+  const ActionIcon = action ? (ACTION_ICONS[action.icon] ?? Sparkles) : null;
   const knownTotal = c.current_count + c.former_count;
 
   return (
@@ -179,11 +181,13 @@ export function CompanyCard({ company: c }: { company: CompanySummary }) {
                 )}
               </div>
 
-              {/* The one next move */}
-              <div className={`mt-2 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 ${TONE_CHIP[action.tone]}`}>
-                <ActionIcon className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-xs font-medium">{action.text}</span>
-              </div>
+              {/* The one next move, when there is one */}
+              {action && ActionIcon && (
+                <div className={`mt-2 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 ${TONE_CHIP[action.tone]}`}>
+                  <ActionIcon className="w-3.5 h-3.5 shrink-0" />
+                  <span className="text-xs font-medium">{action.text}</span>
+                </div>
+              )}
 
               {/* Office scopes — only when location-level targets exist (§21.5) */}
               {c.office_scopes.length > 0 && (

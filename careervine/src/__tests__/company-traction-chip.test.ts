@@ -293,16 +293,20 @@ describe("traction chip count and recency (CAR-246)", () => {
     expect(c.traction_detail).toBeNull();
   });
 
-  it("replaces a departed contact's next action with the real one", async () => {
+  it("says nothing at all when every contact has left", async () => {
     // The Qualtrics shape: every contact has left, and the only history is a
     // call with one of them. The card used to read "Call done · Follow up with
-    // <name> after your call", which is advice about a person who no longer
-    // works there AND outranks the move that actually applies. Both the chip and
-    // the name go, and what is left is the honest instruction.
+    // <name> after your call" — advice about someone who no longer works there,
+    // which also outranked anything else the card could have said.
+    //
+    // The chip goes, the name goes, and nothing replaces them. An earlier cut
+    // fell through to "Find people who work here"; that is filler on a card
+    // whose own contact line already says there is nobody here, so the ladder
+    // returns null and the pill is not rendered.
     const c = (await summaries()).get(FORMER_ONLY)!;
 
     expect(c.current_count).toBe(0);
     expect(c.lead_contact_name).toBeNull();
-    expect(nextActionForCompany(c, new Date("2026-08-06T12:00:00")).text).toBe("Find people who work here");
+    expect(nextActionForCompany(c, new Date("2026-08-06T12:00:00"))).toBeNull();
   });
 });

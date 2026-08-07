@@ -180,7 +180,9 @@ describe("company traction reads current employees (CAR-244)", () => {
 
   it("surfaces the warm intro the former employee was suppressing", async () => {
     const c = (await summaries()).get(MIXED)!;
-    const { text } = action(c);
+    const a = action(c);
+    expect(a).not.toBeNull();
+    const text = a!.text;
 
     // Before the fix this read "Waiting on Person. Follow up if it's been a
     // while" — the rank-56 contacted branch outranking the warm intro at 44.
@@ -200,7 +202,9 @@ describe("company traction reads current employees (CAR-244)", () => {
     expect(c.traction).toBeNull();
     expect(c.traction_detail).toBeNull();
     expect(c.lead_contact_name).toBeNull();
-    expect(action(c).text).not.toMatch(/Waiting on/);
+    // Nothing to say at all now: no current contacts, no deadline, no pipeline
+    // state of its own.
+    expect(action(c)).toBeNull();
   });
 
   it("still counts current employees for the who-you-know fields", async () => {
