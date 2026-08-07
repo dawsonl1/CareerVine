@@ -73,6 +73,11 @@ export const POST = withApiHandler({
 
         const { data: existing } = await supabase
           .from("target_companies")
+          // deleted-exempt: this probe MUST see tombstones (CAR-271). Finding
+          // the row is what sends re-import down the update branch, which writes
+          // research fields only and leaves is_deleted alone. Filtering here
+          // would take the insert branch and re-create a company the user
+          // deleted, which is CAR-258's failure with a second flag.
           .select("id")
           .eq("user_id", user.id)
           .eq("company_id", company.id)

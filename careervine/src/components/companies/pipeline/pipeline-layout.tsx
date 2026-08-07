@@ -1309,6 +1309,7 @@ export function PipelineLayout({
   onSetTier,
   jobChangeIds,
   onOfficesChanged,
+  onDeleteCompany,
 }: {
   userId: string;
   companyId: number;
@@ -1330,6 +1331,8 @@ export function PipelineLayout({
   /** Bench contacts with an unactioned job-change event (plan 29 Q5 hint). */
   jobChangeIds: Set<number>;
   onOfficesChanged: () => void;
+  /** Delete the whole company profile (CAR-271). Owns its own confirm dialog. */
+  onDeleteCompany: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [manageOffices, setManageOffices] = useState(false);
@@ -1457,13 +1460,26 @@ export function PipelineLayout({
               className="[&_button]:h-10 [&_button]:text-sm"
             />
           </FieldRow>
-          <button
-            type="button"
-            onClick={() => setManageOffices((v) => !v)}
-            className="mt-1.5 text-xs text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline"
-          >
-            {manageOffices ? "Close office management" : "Manage offices"}
-          </button>
+          <div className="mt-1.5 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setManageOffices((v) => !v)}
+              className="text-xs text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline"
+            >
+              {manageOffices ? "Close office management" : "Manage offices"}
+            </button>
+            {/* Deliberately quiet, and deliberately last. It is the only
+                unrecoverable action on this page, so it should be findable
+                rather than prominent — nothing here should invite a stray
+                click. The confirm dialog carries the weight. */}
+            <button
+              type="button"
+              onClick={onDeleteCompany}
+              className="text-xs text-on-surface-variant hover:text-error underline-offset-2 hover:underline cursor-pointer"
+            >
+              Delete company
+            </button>
+          </div>
         </div>
       </div>
 

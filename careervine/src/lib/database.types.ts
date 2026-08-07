@@ -2675,6 +2675,7 @@ export type Database = {
           company_id: number
           created_at: string
           id: number
+          is_deleted: boolean
           is_targeted: boolean
           last_discovery_at: string | null
           location_id: number | null
@@ -2691,6 +2692,7 @@ export type Database = {
           company_id: number
           created_at?: string
           id?: number
+          is_deleted?: boolean
           is_targeted?: boolean
           last_discovery_at?: string | null
           location_id?: number | null
@@ -2707,6 +2709,7 @@ export type Database = {
           company_id?: number
           created_at?: string
           id?: number
+          is_deleted?: boolean
           is_targeted?: boolean
           last_discovery_at?: string | null
           location_id?: number | null

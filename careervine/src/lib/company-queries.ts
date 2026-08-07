@@ -1308,6 +1308,13 @@ export async function getCompanies(
             "id, company_id, location_id, is_targeted, priority_score, program_name, app_window_text, next_app_date, status, locations(city, state, country)",
           )
           .eq("user_id", userId)
+          // CAR-271. Two jobs, not one: it keeps a deleted company off the list,
+          // and it keeps its id out of `targetByCompany` below — which is what
+          // feeds p_extra_company_ids. selectCompanyIds WIDENS (it seeds the
+          // candidate set with every target id unconditionally), so a deleted
+          // company whose id reached that array would be re-admitted here no
+          // matter what the rpc's own filter did.
+          .eq("is_deleted", false)
           .order("id")
           .range(from, to),
       ),
@@ -1990,13 +1997,19 @@ export async function getCompanyDetail(
       .from("company_locations")
       .select("id, location_id, source, locations(city, state, country)")
       .eq("company_id", companyId),
+    // `is_targeted` moved out of the WHERE and into the projection (CAR-271).
+    // The deletion tombstone is this same company-wide row, so filtering it out
+    // here would make a deleted company indistinguishable from an untargeted
+    // one — and the two need opposite outcomes: untargeted still renders the
+    // page, deleted must 404. Reading both flags answers both questions in the
+    // read that was already happening, which matters because
+    // e2e/request-budget.spec.ts caps how many requests this page may make.
     db()
       .from("target_companies")
-      .select("id, priority_score, program_name, app_window_text, next_app_date, status")
+      .select("id, priority_score, program_name, app_window_text, next_app_date, status, is_targeted, is_deleted")
       .eq("user_id", userId)
       .eq("company_id", companyId)
       .is("location_id", null)
-      .eq("is_targeted", true)
       .maybeSingle(),
     // Employment rows for this company across the user's contacts.
     //
@@ -2023,6 +2036,16 @@ export async function getCompanyDetail(
   ]);
   if (companyRes.error) throw companyRes.error;
   if (!companyRes.data) return null;
+
+  // A company the user deleted reads as not-found, which is the same null the
+  // caller already handles for a company that does not exist (CAR-271). The
+  // check sits ahead of wave 2 deliberately: a deleted company skips six more
+  // reads rather than assembling a detail object nobody will render.
+  const targetScope = targetRes.data as (TargetInfo & { is_targeted: boolean; is_deleted: boolean }) | null;
+  if (targetScope?.is_deleted) return null;
+  // Untargeted is NOT deleted: the page still renders, it just has no target
+  // block. This is what the `is_targeted` filter used to express in the WHERE.
+  const activeTarget = targetScope?.is_targeted ? targetScope : null;
 
   const contactIds = [...new Set(rows.map((r) => r.contact_id))];
   const nonBench = new Map<number, { id: number; stage_override: string | null }>();
@@ -2112,13 +2135,13 @@ export async function getCompanyDetail(
         ),
       ),
       getContactStages(userId, [...nonBench.values()]),
-      targetRes.data
+      activeTarget
         ? (async () =>
             must(
               await db()
                 .from("target_company_notes")
                 .select("id, note, created_at, location_id, locations(city, state, country)")
-                .eq("target_company_id", (targetRes.data as TargetInfo).id)
+                .eq("target_company_id", activeTarget.id)
                 .order("created_at", { ascending: false }),
             ))()
         : Promise.resolve(null),
@@ -2286,8 +2309,8 @@ export async function getCompanyDetail(
 
   // Target notes (read in wave 2 above, assembled here).
   let target: CompanyDetail["target"] = null;
-  if (targetRes.data) {
-    const t = targetRes.data as TargetInfo;
+  if (activeTarget) {
+    const t = activeTarget as TargetInfo;
     const notes: CompanyNote[] = ((noteRows) ?? [])
       .map((n) => ({
         id: n.id,
@@ -2497,40 +2520,61 @@ export async function addCompanyManually(
     linkedin_url: normalized.linkedin_url,
   });
 
+  // deleted-exempt: must see tombstones (CAR-271). This is the Add company modal,
+  // the one explicit act that undoes a deletion. A filtered lookup would report
+  // the company as absent, take the addTargetCompany branch, and hit the partial
+  // unique index on a row it could not see.
   const { data: existingTarget, error: targetLookupError } = await db()
     .from("target_companies")
-    .select("id, is_targeted")
+    .select("id, is_targeted, is_deleted")
     .eq("user_id", userId)
     .eq("company_id", company.id)
     .is("location_id", null)
     .maybeSingle();
   if (targetLookupError) throw targetLookupError;
-  if (!existingTarget) await addTargetCompany(userId, company.id);
-  else if (!(existingTarget as { is_targeted: boolean }).is_targeted) {
-    await updateTargetCompanyTargeted((existingTarget as { id: number }).id, true);
+  const targetRow = existingTarget as { id: number; is_targeted: boolean; is_deleted: boolean } | null;
+  if (!targetRow) await addTargetCompany(userId, company.id);
+  else {
+    if (targetRow.is_deleted) await undeleteCompanyForUser(userId, company.id);
+    if (!targetRow.is_targeted) await updateTargetCompanyTargeted(targetRow.id, true);
   }
 
   if (normalized.location) {
     await addCompanyOfficeLocation(company.id, normalized.location);
   }
 
-  return { companyId: company.id, companyName: company.name, alreadyTargeted: Boolean(existingTarget) };
+  // A deleted company is being re-added, not re-found: reporting it as already
+  // targeted would tell the user their add did nothing, when it just undid a
+  // deletion.
+  return {
+    companyId: company.id,
+    companyName: company.name,
+    alreadyTargeted: Boolean(targetRow) && !targetRow!.is_deleted,
+  };
 }
 
 export async function addTargetCompany(userId: string, companyId: number) {
   // A soft-untargeted company-wide row may already exist (CAR-6 keeps
   // pipeline data on un-target) — revive it instead of violating the
   // partial unique index.
+  //
+  // deleted-exempt: this lookup MUST see tombstones (CAR-271). Adding a company
+  // by hand is the single explicit act that undoes a deletion, and it is the
+  // reason there is no "cannot be re-added" dead end: typing a name into the Add
+  // company modal and pressing Add has to produce that company. Filtering here
+  // would take the insert branch instead and violate the partial unique index.
+  // Note this is the ONE path that clears the flag — nothing automatic does.
   const { data: existing, error: lookupError } = await db()
     .from("target_companies")
-    .select("id, is_targeted")
+    .select("id, is_targeted, is_deleted")
     .eq("user_id", userId)
     .eq("company_id", companyId)
     .is("location_id", null)
     .maybeSingle();
   if (lookupError) throw lookupError;
   if (existing) {
-    const row = existing as { id: number; is_targeted: boolean };
+    const row = existing as { id: number; is_targeted: boolean; is_deleted: boolean };
+    if (row.is_deleted) await undeleteCompanyForUser(userId, companyId);
     if (!row.is_targeted) await updateTargetCompanyTargeted(row.id, true);
     return { id: row.id };
   }
@@ -2570,6 +2614,107 @@ export async function updateTargetCompanyTargeted(targetId: number, isTargeted: 
 export async function removeTargetCompany(targetId: number) {
   const { error } = await db().from("target_companies").delete().eq("id", targetId);
   if (error) throw error;
+}
+
+/**
+ * Delete a company profile for one user, permanently (CAR-271).
+ *
+ * Not a row delete, and it cannot be one. `companies` is a GLOBAL table: no
+ * user_id, `SELECT USING (true)` for everyone, no DELETE policy at all, and
+ * three FKs pointing at it with no ON DELETE clause. Deleting the row is refused
+ * by RLS, would raise 23503 for any company with an employment row, and would
+ * remove the company from every other tenant. So deletion is a per-user
+ * tombstone — which is also what makes it survive a bundle resync.
+ *
+ * The tombstone is the company-wide `target_companies` row, created here when
+ * the company only ever appeared through contacts. That placement is what closes
+ * the two resurrection vectors STRUCTURALLY rather than by remembering, because
+ * both of them key on row existence:
+ *
+ *   * `ensureCompanyTargets` inserts only companies MISSING a row, so an
+ *     imported contact cannot re-target this company.
+ *   * `/api/target-companies/bulk-import` takes its update branch on an existing
+ *     row and writes research fields only.
+ *
+ * Both carry a `deleted-exempt:` comment saying they must keep seeing tombstones.
+ *
+ * Office scopes are marked too, so every read can filter with a plain
+ * `.eq("is_deleted", false)` instead of having to ask whether some OTHER row for
+ * the same company is the tombstone.
+ *
+ * DELIBERATELY NOT DESTROYED: the contacts who work here (they stay searchable
+ * and still read "works at X"), the global company row, and this row's own
+ * pipeline cycles and notes. Nothing in the UI can bring those back — there is
+ * no restore surface — but destroying them would make a mis-click cost real
+ * research for no benefit the user asked for. Re-adding the company by hand
+ * through the Add company modal is the one path that clears the flag.
+ */
+/**
+ * Clear a company's tombstone (CAR-271).
+ *
+ * Not a restore surface, and there is no UI that calls it as one. Its only
+ * caller is `addTargetCompany`, i.e. the user deliberately naming this company
+ * in the Add company modal — which is an unambiguous statement that they want it
+ * back, and which must not silently no-op. Nothing automatic may reach this:
+ * that is CAR-258's rule, and it is the whole point of the feature.
+ *
+ * Clears every scope for the company, mirroring what deletion marked, so an
+ * office pipeline the user had before the delete is not left invisible.
+ */
+async function undeleteCompanyForUser(userId: string, companyId: number): Promise<void> {
+  const { error } = await db()
+    .from("target_companies")
+    .update({ is_deleted: false, updated_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("company_id", companyId);
+  if (error) throw error;
+}
+
+export async function deleteCompanyForUser(userId: string, companyId: number): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  // deleted-exempt: the probe must see a tombstone, because deleting a company
+  // twice has to be idempotent rather than an error.
+  const { data: companyWide, error: probeError } = await db()
+    .from("target_companies")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("company_id", companyId)
+    .is("location_id", null)
+    .maybeSingle();
+  if (probeError) throw probeError;
+
+  // Mark every scope that already exists, company-wide and per-office alike, so
+  // every read can filter with a plain `.eq("is_deleted", false)` rather than
+  // having to ask whether some OTHER row for this company is the tombstone.
+  const { error: markError } = await db()
+    .from("target_companies")
+    .update({ is_deleted: true, updated_at: nowIso })
+    .eq("user_id", userId)
+    .eq("company_id", companyId);
+  if (markError) throw markError;
+
+  if (companyWide) return;
+
+  // No company-wide row existed, so the company reached the list purely through
+  // contacts who work there. The tombstone has to be minted, because a company
+  // with no row is exactly what every recreate path treats as "not seen yet".
+  const { error: insertError } = await db()
+    .from("target_companies")
+    .insert({ user_id: userId, company_id: companyId, is_targeted: false, is_deleted: true });
+  // 23505 = a concurrent write created the company-wide row between the update
+  // and this insert. Losing that race is fine on its own, but the winner's row
+  // is NOT flagged, so the tombstone still has to be applied to it.
+  if (insertError) {
+    if ((insertError as { code?: string }).code !== "23505") throw insertError;
+    const { error: retryError } = await db()
+      .from("target_companies")
+      .update({ is_deleted: true, updated_at: nowIso })
+      .eq("user_id", userId)
+      .eq("company_id", companyId)
+      .is("location_id", null);
+    if (retryError) throw retryError;
+  }
 }
 
 // `updateTargetCompany(targetId, patch)` was deleted here (CAR-255).

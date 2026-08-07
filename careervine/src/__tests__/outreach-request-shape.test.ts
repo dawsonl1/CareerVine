@@ -248,7 +248,11 @@ function route(q: RecordedQuery): unknown | undefined {
     case "target_companies": {
       // getCompanyDetail's single-row target read, vs getCompanies' scope sweep.
       if (q.resolution === "maybeSingle") {
-        return { id: 90001, priority_score: 9, tier: "A", program_name: null, app_window_text: null, next_app_date: null, status: "researching" };
+        // is_targeted and is_deleted are read from the ROW now rather than
+        // filtered in the WHERE (CAR-271): the deletion tombstone is this same
+        // company-wide row, so an untargeted company and a deleted one have to
+        // be told apart in TS, and they need opposite outcomes.
+        return { id: 90001, priority_score: 9, tier: "A", program_name: null, app_window_text: null, next_app_date: null, status: "researching", is_targeted: true, is_deleted: false };
       }
       return companyIds.map((companyId, i) => ({
         id: 90000 + i,

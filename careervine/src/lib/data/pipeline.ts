@@ -8,6 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import { db, must } from "./client";
+import { paginateAll } from "./postgrest";
 
 /**
  * The five recruiting stages. A type, not a runtime array: the only caller is
@@ -66,6 +67,11 @@ export async function setCompanyStage(
       .select("id, active_cycle, status")
       .eq("id", targetCompanyId)
       .eq("user_id", userId)
+      // A deleted company is not a stage that can be moved (CAR-271). Callers
+      // reach this through getOrCreateTargetCompany, which already refuses, so
+      // this is depth rather than the only lock — but the id is a caller-supplied
+      // integer and the client here is service-role.
+      .eq("is_deleted", false)
       .maybeSingle(),
   ) as { id: number; active_cycle: number | null; status: string | null } | null;
   if (!target) throw new Error(`No target company with id ${targetCompanyId}`);
@@ -127,7 +133,11 @@ export async function updateTargetResearch(
     .from("target_companies")
     .update({ ...fields, updated_at: new Date().toISOString() }, { count: "exact" })
     .eq("id", targetCompanyId)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    // Deleted companies take no research writes (CAR-271). Expressed as a
+    // predicate rather than a prior read so the zero count already means "not
+    // yours, or gone" and the existing error covers both.
+    .eq("is_deleted", false);
   if (error) throw error;
   // No returning read: the count is the ownership signal, and a zero here means
   // the row is not this user's rather than that the write silently did nothing.
@@ -161,6 +171,8 @@ export async function addPipelineNote(
       .select("id, active_cycle")
       .eq("id", targetCompanyId)
       .eq("user_id", userId)
+      // No notes onto a deleted company (CAR-271).
+      .eq("is_deleted", false)
       .maybeSingle(),
   );
   if (!target) throw new Error(`No target company with id ${targetCompanyId}`);
@@ -196,4 +208,43 @@ export async function addPipelineNote(
     .from("pipeline_notes")
     .insert({ id: randomUUID(), cycle_id: cycleId, body, position });
   if (error) throw error;
+}
+
+/**
+ * Company ids this user has deleted (CAR-271).
+ *
+ * The tombstone for a deleted company is its company-wide `target_companies`
+ * row. `companies` itself is global and holds no per-user state, so any code
+ * resolving a company by NAME or by a caller-supplied id is searching a table
+ * that cannot know the caller deleted it. This turns those tombstones back into
+ * something such a resolver can filter on.
+ *
+ * Fetched as a set rather than probed per candidate on purpose: it is a handful
+ * of rows, and having the whole set lets a resolver DROP a deleted company from
+ * its ambiguity candidates rather than merely reject it afterwards, so "Acme"
+ * does not report an ambiguity against a company the user removed.
+ *
+ * Paged rather than read in one shot. One row per deleted company sounds small,
+ * and normally is, but decluttering a bundle-sized network is exactly the
+ * workflow that produces these rows, and PostgREST truncates at 1000 with
+ * `error: null`. A silent truncation here fails OPEN: the missing ids read as
+ * "not deleted", and the company the user removed resolves again.
+ */
+export async function deletedCompanyIds(userId: string): Promise<Set<number>> {
+  // deleted-exempt: this read IS the tombstone lookup. Filtering is_deleted to
+  // false here would return every company EXCEPT the deleted ones, i.e. the
+  // exact inverse of what every caller wants.
+  const rows = await paginateAll<{ company_id: number }>(async (from, to) =>
+    must(
+      await db()
+        .from("target_companies")
+        .select("company_id")
+        .eq("user_id", userId)
+        .is("location_id", null)
+        .eq("is_deleted", true)
+        .order("company_id")
+        .range(from, to),
+    ),
+  );
+  return new Set(rows.map((r) => r.company_id));
 }

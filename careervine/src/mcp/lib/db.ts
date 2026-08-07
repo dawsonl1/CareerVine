@@ -45,6 +45,7 @@ import {
   snoozeContact,
 } from "@/lib/data/follow-ups";
 import {
+  deletedCompanyIds,
   setCompanyStage,
   updateTargetResearch,
   type TargetCompanyStage,
@@ -1433,27 +1434,40 @@ export async function cacheCalendarEvent(input: {
 
 /** Resolve a company by id or name (name search is user-graph agnostic; ambiguity throws). */
 export async function resolveCompanyId(ref: { company_id?: number; name?: string }): Promise<number> {
+  // `companies` is global and carries no per-user state, so every resolution
+  // below searches a table that cannot know the caller deleted something. This
+  // is what turns the user's tombstones back into a scoping predicate for the
+  // MCP surface, which runs service-role where RLS would not (CAR-271).
+  const deleted = await deletedCompanyIds(uid());
   if (ref.company_id != null) {
     const { data } = await db().from("companies").select("id").eq("id", ref.company_id).maybeSingle();
     if (!data) throw new Error(`No company with id ${ref.company_id}`);
+    // Same message as a company that does not exist. The company row is global
+    // and still very much there, but for this user it is gone, and saying so any
+    // other way would leak that another tenant has it.
+    if (deleted.has(ref.company_id)) throw new Error(`No company with id ${ref.company_id}`);
     return ref.company_id;
   }
   const name = ref.name?.trim();
   if (!name) throw new Error("Provide company_id or name");
-  const { data: exact } = await db()
+  const notDeleted = (rows: Array<{ id: number; name: string }> | null | undefined) =>
+    (rows ?? []).filter((c) => !deleted.has(c.id));
+  const { data: exactRaw } = await db()
     .from("companies")
     .select("id, name")
     .ilike("name", escapeIlike(name))
     .limit(10);
-  if (exact?.length === 1) return (exact[0] as { id: number }).id;
-  if ((exact?.length ?? 0) > 1) throw companyAmbiguity(name, exact as Array<{ id: number; name: string }>);
-  const { data: fuzzy } = await db()
+  const exact = notDeleted(exactRaw as Array<{ id: number; name: string }> | null);
+  if (exact.length === 1) return exact[0].id;
+  if (exact.length > 1) throw companyAmbiguity(name, exact);
+  const { data: fuzzyRaw } = await db()
     .from("companies")
     .select("id, name")
     .ilike("name", `%${escapeIlike(name)}%`)
     .limit(10);
-  if (fuzzy?.length === 1) return (fuzzy[0] as { id: number }).id;
-  if ((fuzzy?.length ?? 0) > 1) throw companyAmbiguity(name, fuzzy as Array<{ id: number; name: string }>);
+  const fuzzy = notDeleted(fuzzyRaw as Array<{ id: number; name: string }> | null);
+  if (fuzzy.length === 1) return fuzzy[0].id;
+  if (fuzzy.length > 1) throw companyAmbiguity(name, fuzzy);
   throw new Error(`No company matches "${name}"`);
 }
 
@@ -1468,11 +1482,20 @@ export async function getOrCreateTargetCompany(
 ): Promise<number> {
   let lookup = db()
     .from("target_companies")
-    .select("id")
+    .select("id, is_deleted")
     .eq("user_id", uid())
     .eq("company_id", companyId);
   lookup = locationId == null ? lookup.is("location_id", null) : lookup.eq("location_id", locationId);
   const { data } = await lookup.maybeSingle();
+  // The tombstone IS a target row, so the lookup finds it and would hand back an
+  // id that every caller then writes intel and stage changes onto (CAR-271).
+  // Every tool path reaches here through resolveCompanyId, which already
+  // refuses; this is the second lock, on the function that would otherwise be
+  // the one to quietly resurrect a deleted company. Read from the projection, so
+  // it costs no extra query.
+  if ((data as { is_deleted?: boolean } | null)?.is_deleted) {
+    throw new Error(`No company with id ${companyId}`);
+  }
   if (data) return (data as { id: number }).id;
   const { data: created, error } = await db()
     .from("target_companies")
@@ -1499,6 +1522,9 @@ export async function addTargetCompanyNote(targetCompanyId: number, note: string
     .select("id")
     .eq("id", targetCompanyId)
     .eq("user_id", uid())
+    // No intel onto a company the user deleted (CAR-271). Folded into the
+    // ownership predicate so the existing not-found error covers both cases.
+    .eq("is_deleted", false)
     .maybeSingle();
   if (targetErr) throw targetErr;
   if (!target) throw new Error(`No target company with id ${targetCompanyId}`);

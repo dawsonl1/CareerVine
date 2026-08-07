@@ -109,7 +109,11 @@ export async function loadPipeline(userId: string, companyId: number): Promise<L
     .from("target_companies")
     .select("id, location_id, is_targeted, active_cycle, status")
     .eq("user_id", userId)
-    .eq("company_id", companyId);
+    .eq("company_id", companyId)
+    // A deleted company has no pipeline to load. Returning its cycles would
+    // render the whole recruiting board for a company the user removed, since
+    // the page loads this independently of getCompanyDetail (CAR-271).
+    .eq("is_deleted", false);
   if (targetsError) throw targetsError;
 
   const targets = (targetRows ?? []) as Pick<
@@ -205,14 +209,20 @@ async function ensureScopeRow(
   seed: { status?: PipelineStage } | undefined,
   setTargeted: boolean,
 ): Promise<number> {
+  // deleted-exempt: reads is_deleted rather than filtering on it (CAR-271).
+  // Filtering would hide the tombstone, send this down the insert branch, and
+  // hit the partial unique index on a row it could not see. Autosave should
+  // never reach a deleted company anyway — the page 404s first — so this is the
+  // backstop for a request already in flight when the delete landed.
   let query = db()
     .from("target_companies")
-    .select("id, is_targeted")
+    .select("id, is_targeted, is_deleted")
     .eq("user_id", userId)
     .eq("company_id", companyId);
   query = locationId == null ? query.is("location_id", null) : query.eq("location_id", locationId);
   const { data: existing, error: lookupError } = await query.maybeSingle();
   if (lookupError) throw lookupError;
+  if (existing?.is_deleted) throw new Error("This company was deleted");
 
   if (existing) {
     if (setTargeted && !existing.is_targeted) {

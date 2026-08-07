@@ -138,6 +138,9 @@ async function fetchOfficeScopes(
     .select("location_id, is_targeted, status, next_app_date, app_window_text")
     .eq("user_id", userId)
     .eq("company_id", companyId)
+    // Deleting a company marks every one of its scope rows, office rows
+    // included, so this plain filter is sufficient (CAR-271).
+    .eq("is_deleted", false)
     .not("location_id", "is", null);
   if (error) throw error;
   const map = new Map<string, OfficeScopeRow>();

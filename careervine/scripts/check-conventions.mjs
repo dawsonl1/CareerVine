@@ -2652,6 +2652,16 @@ const EXHAUSTIVE_SWEEP_ALLOWLIST = {
     "fetchCompanyCounts:rpc:company_network_counts",
     "getCompanies:target_companies",
   ],
+  // CAR-271. The whole sweep genuinely is the answer: callers need to know
+  // whether an ARBITRARY resolved company is one the user deleted, and the
+  // resolvers this feeds (`resolveCompanyId`, by name and by caller-supplied id)
+  // have no id list to narrow by — the candidates are whatever the name matched.
+  //
+  // Cheap in a way the other entries here are not: the predicate is
+  // `is_deleted = true` against a partial index built for exactly it, so the
+  // read is one row per company the user actually deleted, not one per company.
+  // On an account that has deleted nothing it is a single empty page.
+  "src/lib/data/pipeline.ts": ["deletedCompanyIds:target_companies"],
   // The pending set is shared by the web action list and MCP's listActionItems,
   // both of which narrow in memory; completed items are the full history.
   "src/lib/data/action-items.ts": [
@@ -2958,6 +2968,100 @@ const EXCLUSION_OPT_OUT = /\/\/\s*exclusion-exempt:/;
       "  If the read genuinely should see struck rows (sync bookkeeping, real reply\n" +
       "  threading, abuse controls), say so where it happens:\n" +
       "    // exclusion-exempt: <reason>",
+  );
+}
+
+// ── (q) reads that must honor target_companies.is_deleted ────────────────
+//
+// CAR-271 lets a user delete a company profile. `companies` is a global table
+// with no DELETE policy, so deletion is a per-user tombstone: the company-wide
+// `target_companies` row, flagged `is_deleted`. Every scope row for the company
+// is flagged, so a plain `.eq("is_deleted", false)` is always sufficient.
+//
+// This guard exists for the same reason (p) does, and the risk here is worse in
+// one specific way: the tombstone is a row that LOOKS like an ordinary target.
+// A read that forgets the filter does not merely over-count something — it puts
+// the company the user deleted back on the page, which is the entire failure the
+// feature was built to prevent. It also has real money attached: the discovery
+// cron selects from this table and bills per page scraped.
+//
+// A separate hatch spelling from (p)'s `exclusion-exempt:` on purpose. The two
+// flags mean different things and guard different tables, and one comment
+// silently satisfying both rules is how a filter goes missing.
+//
+// NOT a freeze at zero, and the exemptions are load-bearing rather than
+// grudging. Three reads MUST see tombstones, because finding the row is what
+// makes them skip:
+//
+//   * ensureCompanyTargets (company-helpers.ts) — a missing row is what it
+//     inserts, so a filtered read here re-targets a deleted company on the next
+//     contact import.
+//   * /api/target-companies/bulk-import — a found row is what sends it down the
+//     research-fields-only update branch.
+//   * addTargetCompany / addCompanyManually — the explicit re-add, the one path
+//     allowed to clear the flag.
+//
+//     // deleted-exempt: <reason>
+
+const DELETED_OPT_OUT = /\/\/\s*deleted-exempt:/;
+
+{
+  const violations = [];
+  const files = [...walk("src/lib", []), ...walk("src/app", []), ...walk("src/mcp", [])];
+  for (const file of files) {
+    const r = rel(file);
+    if (isTestFile(r)) continue;
+    const sf = parse(file);
+
+    for (const node of collect(sf)) {
+      if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) continue;
+      if (node.expression.name.text !== "from") continue;
+
+      const arg = node.arguments[0];
+      if (!arg || !ts.isStringLiteralLike(arg)) continue;
+
+      let chain = node;
+      while (
+        chain.parent &&
+        (ts.isPropertyAccessExpression(chain.parent) || ts.isCallExpression(chain.parent))
+      ) {
+        chain = chain.parent;
+      }
+      const text = chain.getText(sf);
+
+      // Reads only, matching (p): a write picks its own rows by id.
+      if (!/\.select\s*\(/.test(text)) continue;
+      if (/\.(insert|update|upsert|delete)\s*\(/.test(text)) continue;
+
+      const direct = arg.text === "target_companies";
+      const embedded = text.includes("target_companies!inner(");
+      if (!direct && !embedded) continue;
+
+      if (text.includes("is_deleted")) continue;
+
+      const stmt = ts.findAncestor(node, ts.isStatement);
+      const hatch =
+        text +
+        "\n" +
+        annotationAbove(sf, node) +
+        "\n" +
+        (stmt ? leadingComments(sf, stmt) + "\n" + annotationAbove(sf, stmt) : "");
+      if (DELETED_OPT_OUT.test(hatch)) continue;
+
+      violations.push(`${r}:${lineOf(sf, node)}: ${oneLine(text)}`);
+    }
+  }
+
+  report(
+    "read of target_companies that ignores is_deleted",
+    violations,
+    "CAR-271: a deleted company's tombstone IS a target_companies row, so this read\n" +
+      "  would surface a company the user deleted. Add the filter:\n" +
+      '    .eq("is_deleted", false)\n' +
+      "  If the read genuinely must SEE tombstones (the recreate-guard probes in\n" +
+      "  ensureCompanyTargets and bulk-import, or the explicit re-add), say so where\n" +
+      "  it happens:\n" +
+      "    // deleted-exempt: <reason>",
   );
 }
 

@@ -506,6 +506,11 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     addPipelineNote: { kind: "scoped" },
     setCompanyStage: { kind: "mcp-covered", coveredBy: "setCompanyStageForCompany", touches: "pipeline_cycles" },
     updateTargetResearch: { kind: "mcp-covered", coveredBy: "updateCompanyResearch", touches: "target_companies" },
+    // CAR-271. Reads the caller's own company tombstones, scoped by an explicit
+    // .eq("user_id", userId) — which is the ONLY tenant boundary here, since MCP
+    // drives this under the service client. resolveCompanyId consumes it to stop
+    // a deleted company resolving by name or by a caller-supplied id.
+    deletedCompanyIds: { kind: "scoped" },
   },
   "@/lib/data/client": {
     setDataClient: { kind: "context" },

@@ -112,6 +112,12 @@ export async function selectDiscoveryCompanies(
       .select("company_id, last_discovery_at, priority_score, companies!inner(id, name, linkedin_url, linkedin_company_id)")
       .eq("user_id", userId)
       .eq("is_targeted", true)
+      // A tombstone keeps whatever is_targeted it had when the user deleted the
+      // company, so is_targeted alone would leave a deleted company in this
+      // sweep, and this one SPENDS MONEY: each page scraped is billed
+      // (DISCOVERY_PAGE_COST_USD). Deleting a company has to stop the bill
+      // (CAR-271).
+      .eq("is_deleted", false)
       .not("companies.linkedin_url", "is", null),
   );
 
