@@ -4,8 +4,8 @@
  * Decides which target companies enter the company-by-company flow and
  * in what order:
  *  - target companies only, status != 'closed'
- *  - must have ≥1 contactable person (active/prospect current or former;
- *    bench never qualifies a company)
+ *  - must have ≥1 active/prospect person who works there NOW (bench never
+ *    qualifies a company, and neither does a former employee — CAR-259)
  *  - companies with a real next_app_date within the boost window jump to
  *    the front (soonest first) — a deadline beats generic priority
  *  - then priority score desc (nulls last), then name
@@ -17,7 +17,10 @@ export const APP_DATE_BOOST_DAYS = 30;
 
 export interface OutreachQueueResult<T extends CompanyBaseSummary = CompanySummary> {
   queue: T[];
-  /** Target companies excluded for having nobody contactable (incl. bench-only). */
+  /**
+   * Target companies excluded for having nobody there to reach: no current
+   * employees at all, only bench people, or a roster who have all since left.
+   */
   skippedCount: number;
 }
 
@@ -39,7 +42,15 @@ export function buildOutreachQueue<T extends CompanyBaseSummary>(
   const cutoff = boostCutoff.toISOString().slice(0, 10);
 
   const targets = summaries.filter((c) => c.target && c.target.status !== "closed");
-  const queue = targets.filter((c) => c.current_count + c.former_count > 0);
+  // CURRENT employees only (CAR-259). This used to read
+  // `current_count + former_count > 0`, so a company whose entire roster had
+  // moved on still got its own screen in the walkthrough, presented as outreach
+  // to do — 53 of Dawson's 182 queued companies, Qualtrics among them with 20
+  // contacts and not one of them still there. Former employees stay reachable
+  // everywhere else (the company roster's Former group, contact search); they
+  // just stop generating a "here is who to email about a job HERE" prompt,
+  // because there is no job here to email them about.
+  const queue = targets.filter((c) => c.current_count > 0);
   const skippedCount = targets.length - queue.length;
 
   const isBoosted = (c: CompanyBaseSummary) => {

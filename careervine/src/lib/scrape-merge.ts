@@ -100,13 +100,53 @@ export interface EmploymentMergeOptions {
   currentCollisionStrategy?: CurrentCollisionStrategy;
 }
 
-/** Natural key: same company + title + start month = the same stint. */
+/**
+ * Natural key: same company + title + start month = the same stint.
+ *
+ * MATCHING key, deliberately excluding end_month. end_month is the field most
+ * likely to change between two scrapes of the same person ("Present" becomes
+ * "Oct 2025" the day they leave), and the merge has to recognise that as the
+ * SAME stint so it updates the row instead of inserting a second one. Including
+ * end_month here would make every departure look like a new job.
+ *
+ * Do NOT use this to decide whether two rows are duplicates — see
+ * `employmentRowKey` (CAR-261). Measured on production: keying uniqueness this
+ * way would have destroyed Cody Wang's two separate AWS internships (ending
+ * Aug 2015 and Aug 2016) and Kirk Smith's two Revetize stints, because they
+ * differ ONLY in end_month.
+ */
 export function employmentKey(e: {
   company_id: number;
   title: string | null;
   start_month: string | null;
 }): string {
   return `${e.company_id}|${(e.title ?? "").trim().toLowerCase()}|${(e.start_month ?? "").trim().toLowerCase()}`;
+}
+
+/**
+ * IDENTITY key: two rows sharing it are the same row written twice (CAR-261).
+ *
+ * Mirrors `contact_companies_natural_key_idx`
+ * (contact_id, company_id, title, start_month, end_month) NULLS NOT DISTINCT,
+ * minus contact_id, which every caller has already fixed. Use it to collapse a
+ * payload before insert so the database never has to reject anything.
+ *
+ * Wider than `employmentKey` by exactly one column, and that column is the whole
+ * point: this key preserves two stints that differ only in when they ended,
+ * where the matching key intentionally conflates them.
+ *
+ * Case-folded and trimmed while the index is not. That asymmetry is fine in this
+ * direction: the code catches strictly more than the database, so a payload that
+ * gets past this still cannot violate the constraint.
+ */
+export function employmentRowKey(e: {
+  company_id: number;
+  title: string | null;
+  start_month: string | null;
+  end_month: string | null;
+}): string {
+  const norm = (v: string | null) => (v ?? "").trim().toLowerCase();
+  return `${e.company_id}|${norm(e.title)}|${norm(e.start_month)}|${norm(e.end_month)}`;
 }
 
 /** Build the field patch for an existing row matched to an incoming row by natural key. */
@@ -144,11 +184,30 @@ export function computeEmploymentMerge(
   const policy: MergePolicy = opts.policy ?? "pipeline";
   const strategy: CurrentCollisionStrategy = opts.currentCollisionStrategy ?? "insert";
 
-  // Dedupe incoming on the natural key (defensive against actor glitches)
-  const incomingByKey = new Map<string, IncomingEmploymentRow>();
+  // Dedupe incoming (defensive against actor glitches), then bucket by matching
+  // key. The two keys do different jobs and CAR-261 needs both:
+  //
+  //   * `employmentRowKey` (identity, includes end_month) decides what is an
+  //     exact repeat. Deduping on the narrow key instead silently dropped a real
+  //     second stint from any payload listing two roles that differ only in when
+  //     they ended — Cody Wang's two AWS internships, measured in production.
+  //   * `employmentKey` (matching, excludes end_month) is what every pass below
+  //     looks rows up by, because an existing row's end_month drifts the moment
+  //     the person leaves and that must update the row, not add a job.
+  //
+  // So the map stays keyed narrow, and a bucket holds the identity-distinct
+  // siblings sharing that key. Bucket[0] is the match candidate; the rest are
+  // genuinely different stints and fall through to inserts in Pass D.
+  const incomingByKey = new Map<string, IncomingEmploymentRow[]>();
+  const seenRowKeys = new Set<string>();
   for (const row of incoming) {
+    const rowKey = employmentRowKey(row);
+    if (seenRowKeys.has(rowKey)) continue;
+    seenRowKeys.add(rowKey);
     const key = employmentKey(row);
-    if (!incomingByKey.has(key)) incomingByKey.set(key, row);
+    const bucket = incomingByKey.get(key);
+    if (bucket) bucket.push(row);
+    else incomingByKey.set(key, [row]);
   }
 
   const plan: EmploymentMergePlan = { inserts: [], updates: [], deleteIds: [] };
@@ -158,11 +217,12 @@ export function computeEmploymentMerge(
   // Pass A: exact natural-key matches (same company + title + start month).
   for (const row of existing) {
     const key = employmentKey(row);
-    const match = incomingByKey.get(key);
-    if (!match || matchedKeys.has(key)) continue;
+    const bucket = incomingByKey.get(key);
+    if (!bucket || matchedKeys.has(key)) continue;
     matchedKeys.add(key);
     consumedExistingIds.add(row.id);
-    plan.updates.push(buildMatchUpdate(row, match, scrapedAt));
+    // bucket[0] is the match candidate; siblings are distinct stints (CAR-261).
+    plan.updates.push(buildMatchUpdate(row, bucket[0], scrapedAt));
   }
 
   // Pass B: reconcile an unmatched CURRENT existing row with an unmatched
@@ -171,15 +231,15 @@ export function computeEmploymentMerge(
     for (const row of existing) {
       if (consumedExistingIds.has(row.id) || !row.is_current) continue;
       let matchKey: string | undefined;
-      for (const [key, inc] of incomingByKey) {
+      for (const [key, bucket] of incomingByKey) {
         if (matchedKeys.has(key)) continue;
-        if (inc.is_current && inc.company_id === row.company_id) {
+        if (bucket[0].is_current && bucket[0].company_id === row.company_id) {
           matchKey = key;
           break;
         }
       }
       if (!matchKey) continue;
-      const inc = incomingByKey.get(matchKey)!;
+      const inc = incomingByKey.get(matchKey)![0];
       matchedKeys.add(matchKey);
       consumedExistingIds.add(row.id);
 
@@ -229,9 +289,13 @@ export function computeEmploymentMerge(
   }
 
   // Pass D: unmatched incoming rows are fresh inserts.
-  for (const [key, row] of incomingByKey) {
-    if (!matchedKeys.has(key)) {
-      plan.inserts.push({ ...row, source: "scraped", scraped_at: scrapedAt });
+  //
+  // When a key WAS matched, bucket[0] became the update and its siblings still
+  // need inserting — they are separate stints that no existing row claimed
+  // (CAR-261). Skipping them is what silently lost a second internship.
+  for (const [key, bucket] of incomingByKey) {
+    for (let i = matchedKeys.has(key) ? 1 : 0; i < bucket.length; i++) {
+      plan.inserts.push({ ...bucket[i], source: "scraped", scraped_at: scrapedAt });
     }
   }
 

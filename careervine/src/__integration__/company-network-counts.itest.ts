@@ -101,38 +101,42 @@ interface RoleRow {
   company: string;
   person: string;
   isCurrent: boolean;
-  /** Distinct per (person, company): contact_companies_unique_idx is keyed
-   *  (contact_id, company_id, start_date), so two roles need two dates. */
-  startDate: string;
+  /** Distinct per (person, company): contact_companies_natural_key_idx is keyed
+   *  (contact_id, company_id, title, start_month, end_month) NULLS NOT DISTINCT
+   *  (CAR-261), so a person's two roles at one company need two start months.
+   *  This is `start_month`, the text column the app actually populates — the old
+   *  index keyed on `start_date`, which is NULL on every production row and so
+   *  never enforced anything. */
+  startMonth: string;
 }
 
 const ROLES: RoleRow[] = [
   // acme carries every subtlety at once.
-  { company: "acme", person: "boomeranger", isCurrent: false, startDate: "2016-01-01" },
-  { company: "acme", person: "boomeranger", isCurrent: true, startDate: "2021-01-01" },
-  { company: "acme", person: "bench-current", isCurrent: true, startDate: "2020-01-01" },
-  { company: "acme", person: "bench-former", isCurrent: false, startDate: "2019-01-01" },
-  { company: "acme", person: "former-once", isCurrent: false, startDate: "2018-01-01" },
-  { company: "acme", person: "prospect-current", isCurrent: true, startDate: "2022-01-01" },
-  { company: "acme", person: "prospect-former", isCurrent: false, startDate: "2017-01-01" },
+  { company: "acme", person: "boomeranger", isCurrent: false, startMonth: "2016-01-01" },
+  { company: "acme", person: "boomeranger", isCurrent: true, startMonth: "2021-01-01" },
+  { company: "acme", person: "bench-current", isCurrent: true, startMonth: "2020-01-01" },
+  { company: "acme", person: "bench-former", isCurrent: false, startMonth: "2019-01-01" },
+  { company: "acme", person: "former-once", isCurrent: false, startMonth: "2018-01-01" },
+  { company: "acme", person: "prospect-current", isCurrent: true, startMonth: "2022-01-01" },
+  { company: "acme", person: "prospect-former", isCurrent: false, startMonth: "2017-01-01" },
 
   // Same contact, two FORMER roles at one company → one person, not two.
-  { company: "twice-former-co", person: "twice-former", isCurrent: false, startDate: "2015-01-01" },
-  { company: "twice-former-co", person: "twice-former", isCurrent: false, startDate: "2019-06-01" },
+  { company: "twice-former-co", person: "twice-former", isCurrent: false, startMonth: "2015-01-01" },
+  { company: "twice-former-co", person: "twice-former", isCurrent: false, startMonth: "2019-06-01" },
 
-  { company: "bench-only-co", person: "bench-only", isCurrent: true, startDate: "2021-01-01" },
+  { company: "bench-only-co", person: "bench-only", isCurrent: true, startMonth: "2021-01-01" },
 
   // The same prospect works at two companies: counts are per-company, so this
   // catches an aggregation that leaked a person across company boundaries.
-  { company: "prospect-only-co", person: "prospect-current", isCurrent: true, startDate: "2023-01-01" },
+  { company: "prospect-only-co", person: "prospect-current", isCurrent: true, startMonth: "2023-01-01" },
 
-  { company: "active-only-co", person: "active-current", isCurrent: true, startDate: "2021-01-01" },
+  { company: "active-only-co", person: "active-current", isCurrent: true, startMonth: "2021-01-01" },
 
-  { company: "former-only-co", person: "former-a", isCurrent: false, startDate: "2014-01-01" },
-  { company: "former-only-co", person: "former-b", isCurrent: false, startDate: "2015-01-01" },
-  { company: "former-only-co", person: "former-c", isCurrent: false, startDate: "2016-01-01" },
+  { company: "former-only-co", person: "former-a", isCurrent: false, startMonth: "2014-01-01" },
+  { company: "former-only-co", person: "former-b", isCurrent: false, startMonth: "2015-01-01" },
+  { company: "former-only-co", person: "former-c", isCurrent: false, startMonth: "2016-01-01" },
 
-  { company: "target-with-contacts-co", person: "target-employee", isCurrent: true, startDate: "2022-01-01" },
+  { company: "target-with-contacts-co", person: "target-employee", isCurrent: true, startMonth: "2022-01-01" },
 
   // target-empty-co deliberately has no roles.
 ];
@@ -350,7 +354,7 @@ beforeAll(async () => {
       contact_id: contactIdByKey.get(r.person)!,
       company_id: companyIdByKey.get(r.company)!,
       is_current: r.isCurrent,
-      start_date: r.startDate,
+      start_month: r.startMonth,
       title: `${r.person} @ ${r.company}`,
     })),
   );
@@ -363,7 +367,7 @@ beforeAll(async () => {
       contact_id: foreign.id,
       company_id: companyIdByKey.get("acme")!,
       is_current: true,
-      start_date: "2021-06-01",
+      start_month: "Jun 2021",
       title: "outsider @ acme",
     },
   ]);

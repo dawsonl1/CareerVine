@@ -1171,8 +1171,24 @@ interface GetCompaniesCommonOptions {
   minContacts?: number;
 }
 
-/** The default call: the who-you-know pass runs and every field is a real value. */
+/**
+ * The default call: the who-you-know pass runs and every field is a real value.
+ *
+ * `scope` excludes "all" here (CAR-262). The pass has always been skipped for
+ * that scope, whose company set is unbounded — 7,433 companies in production —
+ * but the RETURN TYPE still claimed enriched, so the five fields came back as
+ * `0`/`null` while typed as real values. MCP `list_companies(targets_only:false)`
+ * read them straight out and told its caller every company had no traction and
+ * no alumni, indistinguishable from genuinely having none. An agent acting on
+ * that would happily re-email someone contacted last week.
+ *
+ * Excluding it here means an "all" search must pass `enrich: false` and receive
+ * `CompanyBaseSummary`, where those fields are structurally ABSENT rather than
+ * plausibly zero — the same contract `enrich: false` has always had. Use
+ * getCompanyDetail for real traction on one company.
+ */
 export interface GetCompaniesEnrichedOptions extends GetCompaniesCommonOptions {
+  scope?: Exclude<CompanyScope, "all">;
   sort?: CompanySort;
   /** Omit (or pass true) to run the enrichment pass. */
   enrich?: true;
@@ -1218,11 +1234,22 @@ export async function getCompanies(
         `Use enrich:true, or sort by priority / next_app_date / name.`,
     );
   }
-  // Whether the pass RUNS, which is not the same question as whether its five
-  // fields are emitted. `all` has always skipped the pass while still returning
-  // the fields as 0/null, and callers (MCP list_companies) read them that way,
-  // so that shape is preserved verbatim; only `enrich: false` drops the keys.
+  // Whether the pass runs, which used to be a DIFFERENT question from whether
+  // its five fields were emitted. `all` skipped the pass and still emitted them
+  // as 0/null, so an "unbounded, too expensive to compute" answer was
+  // indistinguishable from "measured, and it is zero" (CAR-262). The enriched
+  // overload no longer accepts `scope: "all"`, so the two questions are now the
+  // same one and the fields are absent exactly when they were not computed.
   const runEnrichment = enrich && scope !== "all";
+  if (enrich && scope === "all") {
+    // Unreachable from TypeScript (the overload excludes it) and kept for the
+    // callers types cannot see: the MCP tool layer builds these options from
+    // JSON. Fail loudly rather than emit a page of confident zeroes.
+    throw new Error(
+      'getCompanies: scope "all" cannot be enriched — its company set is unbounded. ' +
+        "Pass enrich:false with an explicit sort, or use getCompanyDetail for one company.",
+    );
+  }
 
   // All scope rows, including soft-untargeted containers: the program name
   // lives on the company-wide row even when only offices are targeted.
@@ -1817,6 +1844,17 @@ export interface CompanyPerson {
   selection_reason: string | null;
   last_scraped_at: string | null;
   linkedin_url: string | null;
+  /**
+   * The contact's own outreach stage, populated for FORMER employees too.
+   *
+   * It says nothing about whether they still work at the company whose page you
+   * are on — that lives in which array they arrived in (`current` vs `former`),
+   * never on this field. So never build a company-level claim by concatenating
+   * the two rosters and reading `stage`: an email to somebody who left in 2016
+   * then reads as traction at the company you are trying to get into. That was
+   * CAR-255 on the pipeline panel and CAR-244 on the list traction chip, from
+   * this same field, two years apart in the codebase.
+   */
   stage: OutreachStage | null;
   email: { address: string; source: string; bounced: boolean } | null;
   /** Most recent logged interaction (offline touchpoints live on the contact). */
@@ -2501,16 +2539,27 @@ export async function removeTargetCompany(targetId: number) {
   if (error) throw error;
 }
 
-export async function updateTargetCompany(
-  targetId: number,
-  patch: Partial<Pick<TargetInfo, "priority_score" | "program_name" | "app_window_text" | "next_app_date" | "status">>,
-) {
-  const { error } = await db()
-    .from("target_companies")
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq("id", targetId);
-  if (error) throw error;
-}
+// `updateTargetCompany(targetId, patch)` was deleted here (CAR-255).
+//
+// It had no callers anywhere in the repo, and it was the last writer of
+// `target_companies.status` carrying none of the gates the real ones do: no
+// `is_current` employment check and no forward-only `status = 'researching'`
+// re-assertion, so wiring it up would have re-opened the defect CAR-255 closed.
+// Its `.eq("id", targetId)` was also the only predicate on the update, and this
+// module runs under the MCP service client too (see setCompanyQueriesClient),
+// where RLS does not backstop a missing owner check the way it does for the
+// browser-client callers.
+//
+// The status writers that remain: `advanceCompaniesForContacts` in
+// company-stage-advance.ts (automatic, reply-driven, and gated on is_current +
+// user_id + status) and `syncScopeStatus` in pipeline-queries.ts (the user
+// moving the stage by hand, under RLS).
+//
+// Merge note: CAR-251 independently pruned `"tier"` from this function's patch
+// type when it dropped `target_companies.tier`. Both branches were maintaining
+// dead code — deleting it satisfies that cleanup too, and `tier` must not
+// reappear here in any form.
+
 
 export async function addTargetCompanyNote(targetCompanyId: number, note: string, locationId?: number | null) {
   const { error } = await db()
