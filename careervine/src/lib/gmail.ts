@@ -32,6 +32,7 @@ import { must } from "@/lib/data/client";
 import { paginateAll } from "@/lib/data/postgrest";
 import { extractFailedRecipients, needsFullFetch } from "@/lib/bounce-parse";
 import { cancelFollowUpsForRepliedThreads } from "@/lib/follow-up-helpers";
+import { reconcileThreadReadState } from "@/lib/email-read";
 import { sendBounceAlert, type BounceAlertOutcome } from "@/lib/notify/send-bounce-alert";
 import type { BounceAlertItem } from "@/lib/notify/bounce-alert";
 
@@ -476,6 +477,27 @@ export async function syncEmailsForContact(
                 ai_assisted: attributed.get(r.thread_id as string) ?? false,
               });
             }
+          }
+        }
+
+        // CAR-276: an outbound row this pass just ingested is news that the user
+        // answered this thread from OUTSIDE CareerVine — Gmail, their phone.
+        // Gmail cleared UNREAD on its own side at that moment, but our inbound
+        // row was written `false` when it first synced, and the update branch
+        // below deliberately never revisits is_read, so without this the thread
+        // stays bold and badge-counted forever.
+        //
+        // DB-only, no syncGmail: Gmail is the side that already agrees.
+        // Error-tolerated like the cancel and advance above — reconciling a
+        // display flag must never fail the user's mailbox sync.
+        const outboundThreadIds = inserted
+          .filter((r) => r.direction === EmailDirection.Outbound)
+          .map((r) => r.thread_id);
+        if (outboundThreadIds.length > 0) {
+          try {
+            await reconcileThreadReadState(supabase, userId, outboundThreadIds);
+          } catch (err) {
+            console.error("Failed to reconcile read state on synced reply:", err);
           }
         }
       }
@@ -1553,6 +1575,10 @@ export async function syncThreadReplies(
   // batches and drained once at the end, so a user with replies on ten threads
   // pays one cancel pass rather than ten.
   const repliedThreadIds = new Set<string>();
+  // Threads this sweep newly saw one of OUR messages on (CAR-276) — i.e. the
+  // user answered from Gmail or their phone. Drained once at the end for the
+  // same reason repliedThreadIds is.
+  const answeredThreadIds = new Set<string>();
 
   for (let i = 0; i < candidateIds.length; i += 20) {
     const batch = candidateIds.slice(i, i + 20);
@@ -1629,7 +1655,10 @@ export async function syncThreadReplies(
         );
       if (linkError) console.error("[threadReplies] junction link failed:", linkError);
 
-      if (isOutbound) continue;
+      if (isOutbound) {
+        answeredThreadIds.add(msg.threadId);
+        continue;
+      }
 
       // Past the outbound guard and the NDR skip above, this row IS a reply.
       repliedThreadIds.add(msg.threadId);
@@ -1716,6 +1745,18 @@ export async function syncThreadReplies(
       await advanceCompaniesForRepliedThreads(supabase, userId, repliedThreadIds);
     } catch (err) {
       console.error("[threadReplies] company stage advance failed:", err);
+    }
+  }
+
+  // CAR-276: our own message turning up here means the user answered the thread
+  // somewhere else, so stop it counting toward the unread badge. DB-only —
+  // whichever client sent it already cleared UNREAD on Gmail's side.
+  // Error-tolerated on the same terms as the two sweeps above.
+  if (answeredThreadIds.size > 0) {
+    try {
+      await reconcileThreadReadState(supabase, userId, answeredThreadIds);
+    } catch (err) {
+      console.error("[threadReplies] read-state reconcile failed:", err);
     }
   }
 
