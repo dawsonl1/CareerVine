@@ -129,7 +129,16 @@ than a label: "3 Contacted (2 days ago)", "2 Calls Done (2 weeks ago)", "1 Call
 Scheduled (in 3 days)". You can see at a glance how much has happened at a
 company and whether it has gone cold, without opening it. Only people who
 currently work there count toward it, so a conversation with someone who has
-since moved on never makes a company look warmer than it is.
+since moved on never makes a company look warmer than it is. The badge says
+"Call" only when the conversations behind it really were calls: a career fair, a
+networking event or a text exchange reads "1 Conversation" instead.
+
+The next move follows the same rule, because what you should do after a
+conversation depends on what kind it was. A coffee chat asks you to follow up
+after your call, a career fair asks you to follow up after the career fair, and a
+networking event names the event. A text exchange or an "Other" conversation gets
+no follow-up nudge at all: those cards simply tell you when you last spoke, so
+the app never pushes you to chase something that was never a meeting.
 
 The next move on each card answers the same question with the same honesty.
 Waiting on someone reads "Waiting on Julian. You reached out 3 days ago", so the

@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { STATUS_LABELS, STATUS_STYLES } from "@/components/companies/company-filter-bar";
-import { STAGE_LABELS, STAGE_CHIP_LABELS, type OutreachStage } from "@/lib/stage-derivation";
+import {
+  STAGE_LABELS,
+  STAGE_CHIP_LABELS,
+  CONVERSATION_CHIP_LABELS,
+  type OutreachStage,
+} from "@/lib/stage-derivation";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { nextActionForCompany, type NextActionTone } from "@/lib/company-next-action";
 import type { CompanySummary } from "@/lib/company-queries";
@@ -28,6 +33,7 @@ import {
   UserPlus,
   Clock,
   Search,
+  CircleEllipsis,
   type LucideIcon,
 } from "lucide-react";
 import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
@@ -56,6 +62,11 @@ const ACTION_ICONS: Record<string, LucideIcon> = {
   UserPlus,
   Clock,
   Search,
+  // The conversation-type rungs (CAR-257) — same icons the type pickers use,
+  // so a career fair looks the same wherever it is named.
+  Briefcase,
+  Users,
+  CircleEllipsis,
 };
 
 // The next-action chip carries the card's emphasis; three tiers, all on-brand
@@ -79,10 +90,22 @@ function pluralize(n: number, one: string, many: string): string {
  * or over MCP — so it renders the plain label instead of claiming "0 Replies".
  * A count with no usable timestamp (a referral with no linked meeting) keeps the
  * count and drops the time clause.
+ *
+ * The two call stages drop the word "Call" entirely unless every conversation
+ * behind the count was one (CAR-257): a LinkedIn text exchange logged as a
+ * conversation used to read "1 Call Done".
  */
-function tractionChipText(stage: OutreachStage, detail: { count: number; at: string | null } | null): string {
+function tractionChipText(
+  stage: OutreachStage,
+  detail: { count: number; at: string | null } | null,
+  conversation: CompanySummary["conversation"],
+): string {
   if (!detail || detail.count === 0) return STAGE_LABELS[stage];
-  const { one, many } = STAGE_CHIP_LABELS[stage];
+  const notAllCalls = conversation != null && !conversation.allCalls;
+  const { one, many } =
+    notAllCalls && (stage === "call_done" || stage === "call_scheduled")
+      ? CONVERSATION_CHIP_LABELS[stage]
+      : STAGE_CHIP_LABELS[stage];
   const counted = pluralize(detail.count, one, many);
   const when = formatRelativeTime(detail.at);
   return when ? `${counted} (${when})` : counted;
@@ -251,7 +274,7 @@ export function CompanyCard({
             <div className="flex items-center gap-2 shrink-0">
               {c.traction && c.traction !== "not_contacted" && (
                 <span className="hidden sm:inline-flex px-2.5 py-0.5 rounded-full text-xs bg-tertiary-container text-on-tertiary-container whitespace-nowrap">
-                  {tractionChipText(c.traction, c.traction_detail)}
+                  {tractionChipText(c.traction, c.traction_detail, c.conversation)}
                 </span>
               )}
               <ChevronRight className="w-4 h-4 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity" />

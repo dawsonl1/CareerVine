@@ -22,6 +22,7 @@ function company(overrides: Partial<CompanySummary> & { name: string }): Company
     traction: null,
     traction_detail: null,
     lead_detail: null,
+    conversation: null,
     target: {
       id: 1,
       priority_score: 50,
