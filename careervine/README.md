@@ -69,6 +69,10 @@ side, a living pipeline on the other.
   year's run doesn't muddy this year's.
 - Everything saves as you type, with no save buttons, and your pipeline stage flows
   straight into the Companies dashboard so priorities stay honest.
+- The roster leads with the people who actually work there. Everyone who has moved
+  on is folded into a collapsed "Former employees" group, so a company with years of
+  scraped history still opens on the contacts you can reach inside it. Searching the
+  roster still finds the people who left, without a click.
 - Email a prospect in one click (with bounced and pattern-guessed addresses clearly
   flagged), promote bench contacts into outreach, and manage office locations
   without leaving the page.
