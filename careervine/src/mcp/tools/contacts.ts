@@ -24,12 +24,6 @@ import {
 } from "../lib/db";
 import { buildDossier } from "../lib/dossier";
 import { handler, contactRefShape } from "../lib/tool-utils";
-import {
-  updateContactOutput,
-  addContactDetailOutput,
-  untagContactOutput,
-  deferFollowUpOutput,
-} from "../lib/output-schemas";
 import { dateKeyOf, daysBetweenDateKeys, todayDateKey } from "@/lib/calendar-day";
 import { primaryCurrentRole } from "@/lib/experience-order";
 import { searchContacts } from "@/lib/contact-search";
@@ -257,7 +251,6 @@ export function registerContactTools(server: McpServer): void {
       description:
         "Edit a contact's own fields: industry, LinkedIn URL, headline, how you met, follow-up cadence, preferred contact method, intro goal. Only the fields you pass are changed. Network tier is set_network_status, notes are add_contact_note, outreach stage is set_stage_override.",
       inputSchema: updateContactSchema,
-      outputSchema: updateContactOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, ...patch }) => {
@@ -275,7 +268,6 @@ export function registerContactTools(server: McpServer): void {
       description:
         "Add an email address to an existing contact. The first address becomes primary automatically; marking a later one primary demotes the old one so the contact never has two.",
       inputSchema: addContactEmailSchema,
-      outputSchema: addContactDetailOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, email, is_primary, source }) => {
@@ -296,7 +288,6 @@ export function registerContactTools(server: McpServer): void {
       title: "Add contact phone",
       description: "Add a phone number to an existing contact.",
       inputSchema: addContactPhoneSchema,
-      outputSchema: addContactDetailOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, phone, type, is_primary }) => {
@@ -313,7 +304,6 @@ export function registerContactTools(server: McpServer): void {
       description:
         "Unlink tags from a contact. The tags themselves stay in the workspace for other contacts. Names not on the contact are reported back rather than treated as an error.",
       inputSchema: untagContactSchema,
-      outputSchema: untagContactOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, tags }) => {
@@ -338,7 +328,6 @@ export function registerContactTools(server: McpServer): void {
       description:
         "Snooze a contact's follow-up until a date, or permanently stop suggesting a FIRST outreach to them. Both also set a three-week suggestion cooldown. Use this instead of leaving a due follow-up overdue.",
       inputSchema: deferFollowUpSchema,
-      outputSchema: deferFollowUpOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ contact_id, name, until, skip_first_outreach }) => {
