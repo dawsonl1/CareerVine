@@ -24,6 +24,16 @@ import {
   logInterviewRound,
 } from "../lib/db";
 import { handler, contactRefShape, companyRefShape } from "../lib/tool-utils";
+import {
+  listCompaniesOutput,
+  listOutreachQueueOutput,
+  getCompanyOutput,
+  getCompanyPipelineOutput,
+  setCompanyStageOutput,
+  updateCompanyTargetOutput,
+  logApplicationOutput,
+  logInterviewRoundOutput,
+} from "../lib/output-schemas";
 
 /**
  * " showing 51-75 of 300" — the phrase every paged tool here appends.
@@ -93,6 +103,7 @@ export function registerOutreachTools(server: McpServer): void {
         limit: z.number().int().min(1).max(200).optional().describe("Max queue entries to return (default 25)"),
         offset: z.number().int().min(0).optional().describe("Skip this many entries (for paging deeper)"),
       },
+      outputSchema: listOutreachQueueOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ limit, offset }) => {
@@ -131,6 +142,7 @@ export function registerOutreachTools(server: McpServer): void {
         limit: z.number().int().min(1).max(200).optional().describe("Max results (default 50)"),
         offset: z.number().int().min(0).optional().describe("Skip this many companies (for paging deeper)"),
       },
+      outputSchema: listCompaniesOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ targets_only, search, limit, offset }) => {
@@ -185,6 +197,7 @@ export function registerOutreachTools(server: McpServer): void {
         limit: z.number().int().min(1).max(200).optional().describe("Max people per roster (default 50)"),
         offset: z.number().int().min(0).optional().describe("Skip this many people in each roster returned"),
       },
+      outputSchema: getCompanyOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ company_id, name, group, limit, offset }) => {
@@ -307,6 +320,7 @@ export function registerOutreachTools(server: McpServer): void {
       description:
         "The recruiting board for a company: every scope (company-wide and per-office), every application cycle, its stage, the researching programs and intel notes, the applications you submitted, and the interview rounds you sat. This is where add_company_intel's notes are readable. Returns an empty list when the company is not a target.",
       inputSchema: companyRefShape,
+      outputSchema: getCompanyPipelineOutput,
       annotations: { readOnlyHint: true },
     },
     handler(async ({ company_id, name }) => {
@@ -345,6 +359,7 @@ export function registerOutreachTools(server: McpServer): void {
         scope: z.string().optional().describe('Pipeline scope: "all" (default, company-wide) or an office location id'),
         cycle_number: z.number().int().min(1).optional().describe("Defaults to the active cycle"),
       },
+      outputSchema: logApplicationOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ company_id, name, job_title, location, date_applied, scope, cycle_number }) => {
@@ -377,6 +392,7 @@ export function registerOutreachTools(server: McpServer): void {
         scope: z.string().optional().describe('Pipeline scope: "all" (default) or an office location id'),
         cycle_number: z.number().int().min(1).optional().describe("Defaults to the active cycle"),
       },
+      outputSchema: logInterviewRoundOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ company_id, name, date, interviewer, notes, scope, cycle_number }) => {
@@ -405,6 +421,7 @@ export function registerOutreachTools(server: McpServer): void {
         ...companyRefShape,
         stage: z.enum(["researching", "outreach_active", "applied", "interviewing", "closed"]),
       },
+      outputSchema: setCompanyStageOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ company_id, name, stage }) => {
@@ -434,6 +451,7 @@ export function registerOutreachTools(server: McpServer): void {
         program_name: z.string().nullable().optional(),
         app_window_text: z.string().nullable().optional().describe("Free text when the window has no exact date"),
       },
+      outputSchema: updateCompanyTargetOutput,
       annotations: { readOnlyHint: false },
     },
     handler(async ({ company_id, name, ...patch }) => {
