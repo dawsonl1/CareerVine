@@ -14,11 +14,14 @@
  * facet, not a sibling control. Two controls over the same dimension read as
  * overlapping — the user cannot see that one ORs and the other ANDs.
  *
- * Every facet reads a field `getCompanies` already returns, so nothing here implies
- * a query change.
+ * Most facets read a field `getCompanies` already returns. The location facet
+ * (CAR-251) is the exception and the reason that used to say "every": it reads
+ * `offices`, an office-registry join added to `getCompanies` for it. Its value
+ * grammar, option tree and scoped counts live in `company-location-filter.ts`.
  */
 
 import type { CompanySummary } from "./company-queries";
+import { matchesLocation, parseLocationSelection } from "./company-location-filter";
 import { STAGE_ORDER, type OutreachStage } from "./stage-derivation";
 
 export const TARGET_STATUSES = [
@@ -53,19 +56,47 @@ export type ContactsFilter = (typeof CONTACTS_FILTERS)[number];
 export const ALUMNI_FILTERS = ["with", "without"] as const;
 export type AlumniFilter = (typeof ALUMNI_FILTERS)[number];
 
+/**
+ * Whether the company is one the user targets (CAR-252).
+ *
+ * The page loads `scope: "in_play"` — targets UNION companies with a current
+ * non-bench contact — so the list genuinely holds both kinds, and `untargeted` is
+ * the "who do I know that I haven't targeted yet" view that nothing else reaches.
+ * `target` follows `CompanySummary.target`, which `deriveCompanyTarget` leaves null
+ * both when no target_companies row exists and when every scope row is
+ * soft-untargeted, so "Not a target" agrees with the company card either way.
+ *
+ * ON THE OVERLAP WITH THE STATUS CHIPS, which the header above makes a live
+ * concern: `target_companies.status` is CHECK-pinned to the five TARGET_STATUSES,
+ * so selecting every status chip already yields exactly `target`. That is NOT the
+ * CAR-248 defect. There the two controls combined DIFFERENTLY (one ANDed, one
+ * ORed) with nothing on screen to say which; here both OR within themselves and
+ * AND across, so "Target company" + "Applied" behaves as it reads. And the value
+ * that motivates the facet, `untargeted`, is unreachable from the chips at all —
+ * `target` is its mandatory partner, because a facet only satisfies "select
+ * everything = select nothing" when its values cover the dimension.
+ */
+export const TARGETING_FILTERS = ["target", "untargeted"] as const;
+export type TargetingFilter = (typeof TARGETING_FILTERS)[number];
+
 export interface CompanyFilters {
-  /** Free-text query — matched against name, program name, and tier label. */
+  /** Free-text query — matched against name and program name. */
   q: string;
   /** Target statuses to include; empty = any. */
   statuses: TargetStatus[];
   /** Derived outreach stages to include; empty = any. */
   traction: OutreachStage[];
-  /** Tier labels to include; empty = any. */
-  tiers: string[];
+  /**
+   * Office locations to include; empty = any. Values are `c:<location_id>`,
+   * `s:<state>` or `none` — see `company-location-filter.ts`.
+   */
+  locations: string[];
   /** Contact-presence values to include; empty (or all three) = any. */
   contacts: ContactsFilter[];
   /** Alumni-presence sides to include; empty (or both) = any. */
   alumni: AlumniFilter[];
+  /** Target-vs-not sides to include; empty (or both) = any. */
+  targeting: TargetingFilter[];
   /** Only companies with an alum of the user's school in a product role. */
   productAlum: boolean;
 }
@@ -74,9 +105,10 @@ export const EMPTY_COMPANY_FILTERS: CompanyFilters = {
   q: "",
   statuses: [],
   traction: [],
-  tiers: [],
+  locations: [],
   contacts: [],
   alumni: [],
+  targeting: [],
   productAlum: false,
 };
 
@@ -84,15 +116,17 @@ const VALID_STATUSES = new Set<string>(TARGET_STATUSES);
 const VALID_STAGES = new Set<string>(STAGE_ORDER);
 const VALID_CONTACTS = new Set<string>(CONTACTS_FILTERS);
 const VALID_ALUMNI = new Set<string>(ALUMNI_FILTERS);
+const VALID_TARGETING = new Set<string>(TARGETING_FILTERS);
 
 export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
   return (
     f.q.trim() !== "" ||
     f.statuses.length > 0 ||
     f.traction.length > 0 ||
-    f.tiers.length > 0 ||
+    f.locations.length > 0 ||
     f.contacts.length > 0 ||
     f.alumni.length > 0 ||
+    f.targeting.length > 0 ||
     f.productAlum
   );
 }
@@ -112,33 +146,29 @@ export function filterCompanies(rows: CompanySummary[], f: CompanyFilters): Comp
   const q = f.q.trim().toLowerCase();
   const statuses = new Set<string>(f.statuses);
   const traction = new Set<string>(f.traction);
-  const tiers = new Set<string>(f.tiers);
+  // Parsed once for the whole sweep, not per row: the selection is a fixed
+  // input and re-parsing it 2,000 times per keystroke is pure waste.
+  const location = parseLocationSelection(f.locations);
   return rows.filter((c) => {
     if (q) {
-      const haystacks = [c.name, c.target?.program_name, c.target?.tier];
+      const haystacks = [c.name, c.target?.program_name];
       if (!haystacks.some((h) => h != null && h.toLowerCase().includes(q))) return false;
     }
     if (statuses.size > 0 && (!c.target || !statuses.has(c.target.status))) return false;
     if (traction.size > 0 && (c.traction === null || !traction.has(c.traction))) return false;
-    if (tiers.size > 0 && (c.target?.tier == null || !tiers.has(c.target.tier))) return false;
+    if (!matchesLocation(c, location)) return false;
     if (f.contacts.length > 0 && !f.contacts.some((side) => matchesContacts(c, side))) return false;
     if (f.alumni.length > 0) {
       const withAlumni = c.alum_count > 0;
       if (!f.alumni.some((side) => (side === "with" ? withAlumni : !withAlumni))) return false;
     }
+    if (f.targeting.length > 0) {
+      const isTarget = c.target != null;
+      if (!f.targeting.some((side) => (side === "target" ? isTarget : !isTarget))) return false;
+    }
     if (f.productAlum && c.product_alum_count === 0) return false;
     return true;
   });
-}
-
-/** Distinct tier labels present in the data, for the tier dropdown. */
-export function distinctTiers(rows: CompanySummary[]): string[] {
-  const tiers = new Set<string>();
-  for (const c of rows) {
-    const t = c.target?.tier?.trim();
-    if (t) tiers.add(t);
-  }
-  return [...tiers].sort((a, b) => a.localeCompare(b));
 }
 
 /** Per-status row counts (before status filtering), for chip labels. */
@@ -174,7 +204,8 @@ export function statusChipCounts(
 
 // ── URL param round-trip ────────────────────────────────────────────────
 // Scheme: ?q=stripe&status=applied,interviewing&traction=replied,call_done
-//          &tier=Big+Tech&tier=Utah&contacts=none&alumni=with&product_alum=1
+//          &loc=c:412&loc=s:Utah&contacts=none&alumni=with&targeting=untargeted
+//          &product_alum=1
 //
 // Param names stay SINGULAR, so every link shared before the facets went
 // multi-value still parses: one value lands as a one-element array, and the
@@ -184,11 +215,21 @@ export function statusChipCounts(
 // Two more retired spellings are MIGRATED rather than dropped, because unlike
 // `any` they carried a real filter (CAR-248) — see `migrateLegacyContacts`.
 //
-// Enum facets are comma-joined (the scheme `status` already used). `tier` is
-// REPEATED instead, and never split: a tier label is free text and may itself
-// contain a comma, so splitting would turn the pre-existing link for a tier named
-// "Foo, Bar" into two tiers that match nothing. Parsing accepts both forms
-// everywhere; only the emitted shape differs.
+// The retired `tier` param (CAR-251) is NOT migrated, and that is the deliberate
+// difference from those two: `Big Tech` was never a place, so there is no
+// location value it could become. It falls through to no location filter, which
+// is the honest reading of a link whose facet no longer exists.
+//
+// Enum facets are comma-joined (the scheme `status` already used). `loc` is
+// REPEATED instead, and never split, for the same reason its `tier` predecessor
+// was: a state group is free text and may contain a comma, so splitting would
+// turn a link for "Washington, D.C." into two values that match nothing.
+// Parsing accepts both forms everywhere; only the emitted shape differs.
+//
+// `loc` is not validated against the loaded data. A city id for a company the
+// current view does not include is simply a value nothing matches, which is the
+// honest result for a shared link — silently dropping it would show the
+// recipient an unfiltered list that looks like the sender's.
 
 /** Repeated and/or comma-joined param → deduped list of values that pass `valid`. */
 function parseList<T extends string>(params: URLSearchParams, key: string, valid: Set<string>): T[] {
@@ -223,22 +264,26 @@ function migrateLegacyContacts(params: URLSearchParams, parsed: ContactsFilter[]
 }
 
 export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
-  // Tiers are free text (a user-defined label), so there is no value list to
-  // validate against — only blanks are dropped.
-  const tiers = params
-    .getAll("tier")
+  // Location values carry ids and free-text state names, so there is no value
+  // list to validate against — only blanks are dropped.
+  const locations = params
+    .getAll("loc")
     .map((s) => s.trim())
     .filter((s) => s !== "");
   return {
     q: params.get("q") ?? "",
     statuses: parseList<TargetStatus>(params, "status", VALID_STATUSES),
     traction: parseList<OutreachStage>(params, "traction", VALID_STAGES),
-    tiers: [...new Set(tiers)],
+    locations: [...new Set(locations)],
     contacts: migrateLegacyContacts(
       params,
       parseList<ContactsFilter>(params, "contacts", VALID_CONTACTS),
     ),
     alumni: parseList<AlumniFilter>(params, "alumni", VALID_ALUMNI),
+    // New in CAR-252, so there is no legacy spelling to fold in: every link shared
+    // before it carries no `targeting` param and parses to [], which is exactly the
+    // absence of the filter.
+    targeting: parseList<TargetingFilter>(params, "targeting", VALID_TARGETING),
     productAlum: params.get("product_alum") === "1",
   };
 }
@@ -264,9 +309,10 @@ export function serializeCompanyFilters(f: CompanyFilters, base: URLSearchParams
   setOrDelete("q", f.q.trim() || null);
   setList("status", f.statuses);
   setList("traction", f.traction);
-  setRepeated("tier", f.tiers);
+  setRepeated("loc", f.locations);
   setList("contacts", f.contacts);
   setList("alumni", f.alumni);
+  setList("targeting", f.targeting);
   // Retired in CAR-248. Deleted rather than merely not written: `parse` has
   // already folded it into `contacts`, so leaving it on the URL would apply it a
   // second time on the next read and re-narrow a filter the user just widened.

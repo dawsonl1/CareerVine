@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { LocationMultiSelect } from "@/components/companies/location-multi-select";
+import type { LocationGroupOption } from "@/lib/company-location-filter";
 import {
   EMPTY_COMPANY_FILTERS,
   hasActiveCompanyFilters,
@@ -9,6 +11,7 @@ import {
   type AlumniFilter,
   type CompanyFilters,
   type ContactsFilter,
+  type TargetingFilter,
   type TargetStatus,
 } from "@/lib/company-filters";
 import { STAGE_LABELS, STAGE_ORDER, type OutreachStage } from "@/lib/stage-derivation";
@@ -45,8 +48,10 @@ interface CompanyFilterBarProps {
   /** Current filter state with `q` reflecting the live input. */
   filters: CompanyFilters;
   onFiltersChange: (filters: CompanyFilters) => void;
-  /** Distinct tier labels present in the loaded data. */
-  tierOptions: string[];
+  /** State-grouped office locations present in the loaded data. */
+  locationGroups: LocationGroupOption[];
+  /** Companies with no office row at all, for the "No location set" row. */
+  noLocationCount: number;
   /**
    * Per-status company counts, with every other active facet already applied
    * (`statusChipCounts`), so a count reads as "what I get if I click this".
@@ -63,9 +68,10 @@ function secondaryActiveCount(f: CompanyFilters): number {
   return (
     (f.productAlum ? 1 : 0) +
     (f.traction.length > 0 ? 1 : 0) +
-    (f.tiers.length > 0 ? 1 : 0) +
+    (f.locations.length > 0 ? 1 : 0) +
     (f.contacts.length > 0 ? 1 : 0) +
-    (f.alumni.length > 0 ? 1 : 0)
+    (f.alumni.length > 0 ? 1 : 0) +
+    (f.targeting.length > 0 ? 1 : 0)
   );
 }
 
@@ -84,7 +90,8 @@ function ChipCheck({ on }: { on: boolean }) {
 export default function CompanyFilterBar({
   filters,
   onFiltersChange,
-  tierOptions,
+  locationGroups,
+  noLocationCount,
   statusCounts,
 }: CompanyFilterBarProps) {
   const affinity = useAlumniAffinity();
@@ -138,8 +145,8 @@ export default function CompanyFilterBar({
         </button>
       </div>
 
-      {/* Secondary tier: warmth + traction/tier/contacts/alumni, collapsed by default.
-          Toggle chips first, then the multi-select facets. */}
+      {/* Secondary tier: warmth + target/traction/tier/contacts/alumni, collapsed by
+          default. Toggle chips first, then the multi-select facets. */}
       {open && (
         <div className="flex flex-wrap items-center gap-2 border-t border-outline-variant pt-3">
           {/* Hidden, not disabled, without affinity (CAR-213): the filter
@@ -157,6 +164,25 @@ export default function CompanyFilterBar({
             </button>
           )}
 
+          {/* First of the selects, and deliberately: it is the coarsest cut in the
+              row, and it qualifies the status chips directly above it. The list is
+              `in_play` (targets plus anyone you know somewhere), so "Not a target"
+              is the only way to see the companies you know people at but have not
+              picked up yet — the status chips cannot express it, since every one of
+              them narrows to a target already (CAR-252). */}
+          <MultiSelect
+            ariaLabel="Filter by target company"
+            anyLabel="Any company"
+            values={filters.targeting}
+            onChange={(v) => onFiltersChange({ ...filters, targeting: v as TargetingFilter[] })}
+            options={[
+              { value: "target", label: "Target company" },
+              { value: "untargeted", label: "Not a target" },
+            ]}
+            className="text-sm"
+            triggerClassName={SELECT_TRIGGER}
+          />
+
           <MultiSelect
             ariaLabel="Filter by traction"
             anyLabel="Any traction"
@@ -167,13 +193,17 @@ export default function CompanyFilterBar({
             triggerClassName={SELECT_TRIGGER}
           />
 
-          {tierOptions.length >= 2 && (
-            <MultiSelect
-              ariaLabel="Filter by tier"
-              anyLabel="Any tier"
-              values={filters.tiers}
-              onChange={(v) => onFiltersChange({ ...filters, tiers: v })}
-              options={tierOptions.map((t) => ({ value: t, label: t }))}
+          {/* Unlike the tier dropdown this replaces, there is no ">= 2 values"
+              gate. Tier was hidden for almost everyone because one ops script
+              was its only writer; offices are populated by the scrape importer
+              and the add-company form, so the control is meaningful for any
+              user with a single located company. */}
+          {(locationGroups.length > 0 || noLocationCount > 0) && (
+            <LocationMultiSelect
+              values={filters.locations}
+              onChange={(v) => onFiltersChange({ ...filters, locations: v })}
+              groups={locationGroups}
+              noLocationCount={noLocationCount}
               className="text-sm"
               triggerClassName={SELECT_TRIGGER}
             />

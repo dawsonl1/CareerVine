@@ -14,6 +14,10 @@ function input(partial: Partial<NextActionInput>): NextActionInput {
     productAlumCount: 0,
     recruiterCount: 0,
     leadName: null,
+    lastOutreachAt: null,
+    replyThread: null,
+    conversationKind: null,
+    conversationAt: null,
     ...partial,
   };
 }
@@ -95,6 +99,113 @@ describe("deriveNextAction — live threads vs deadlines", () => {
   });
 });
 
+/**
+ * "<name> replied, write back" used to fire on `traction === "replied"` alone,
+ * and that stage is sticky — once someone has ever written back it stays true
+ * forever. So the card kept issuing a standing instruction on threads whose
+ * last word was already ours (CAR-253).
+ *
+ * The rule is per-thread and anchored on their FIRST reply: anything we sent
+ * after it retires the prompt permanently.
+ */
+describe("deriveNextAction — a reply you already answered (CAR-253)", () => {
+  const unanswered = { awaitingOurReply: true, lastMessageAt: "2026-07-09T10:00:00Z" };
+  const answered = { awaitingOurReply: false, lastMessageAt: "2026-07-09T10:00:00Z" };
+
+  it("still says write back while the reply is unanswered", () => {
+    const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: unanswered }, NOW);
+    expect(a.text).toBe("Samuel replied, write back");
+    expect(a.rank).toBe(84);
+  });
+
+  it("switches to a past-tense line once we have written back, and dates it", () => {
+    const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: answered }, NOW);
+    expect(a.text).toBe("You had an email thread with Samuel (2 days ago)");
+    expect(a.text).not.toMatch(/write back/i);
+    expect(a.tone).toBe("muted");
+  });
+
+  it("stays past-tense after they reply AGAIN, because we already answered once", () => {
+    // Dawson's case verbatim: they wrote, we wrote back, they wrote again. The
+    // data layer reports awaitingOurReply false (it anchors on the FIRST reply),
+    // and the ladder must not re-issue the instruction on the newer message.
+    const theyRepliedAgain = { awaitingOurReply: false, lastMessageAt: "2026-07-10T10:00:00Z" };
+    const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: theyRepliedAgain }, NOW);
+    expect(a.text).toBe("You had an email thread with Samuel (yesterday)");
+  });
+
+  it("drops the answered thread down beside 'waiting on them', not up with live replies", () => {
+    const owed = act({ traction: "replied", replyThread: unanswered }, NOW).rank;
+    const done = act({ traction: "replied", replyThread: answered }, NOW).rank;
+    const waiting = act({ traction: "contacted" }, NOW).rank;
+    const cold = act({ currentCount: 2, alumCount: 1 }, NOW).rank;
+    expect(owed).toBeGreaterThan(done);
+    expect(done).toBeGreaterThan(waiting);
+    // Still momentum, so it beats an untouched warm intro.
+    expect(waiting).toBeGreaterThan(cold);
+  });
+
+  it("lets a mid-range deadline outrank an answered thread", () => {
+    const a = act({ traction: "replied", replyThread: answered, nextAppDate: "2026-07-21" }, NOW);
+    expect(a.text).toMatch(/^Apply in \d+ days/);
+  });
+
+  it("assumes a write-back is owed when nothing is known about the thread", () => {
+    // A stage_override of "replied" has no message behind it. Prompting for a
+    // response we may not owe costs a glance; staying quiet about one we do owe
+    // costs the reply.
+    const a = act({ traction: "replied", leadName: "Samuel Diaz", replyThread: null }, NOW);
+    expect(a.text).toBe("Samuel replied, write back");
+  });
+
+  it("still speaks without a lead name or a usable date", () => {
+    expect(act({ traction: "replied", replyThread: { awaitingOurReply: false, lastMessageAt: null } }, NOW).text).toBe(
+      "You had an email thread",
+    );
+    expect(act({ traction: "replied", replyThread: answered }, NOW).text).toBe("You had an email thread (2 days ago)");
+  });
+});
+
+/**
+ * "Follow up if it's been a while" handed the reader the judgment and none of
+ * the evidence (CAR-253). The date was already in hand.
+ */
+describe("deriveNextAction — how long you have been waiting (CAR-253)", () => {
+  it("says how long ago you reached out", () => {
+    const a = act({ traction: "contacted", leadName: "Julian Ross", lastOutreachAt: "2026-07-08T10:00:00Z" }, NOW);
+    expect(a.text).toBe("Waiting on Julian. You reached out 3 days ago");
+  });
+
+  it("names today and yesterday rather than counting them", () => {
+    expect(act({ traction: "contacted", leadName: "Julian Ross", lastOutreachAt: "2026-07-11T09:00:00Z" }, NOW).text).toBe(
+      "Waiting on Julian. You reached out today",
+    );
+    expect(act({ traction: "contacted", leadName: "Julian Ross", lastOutreachAt: "2026-07-10T09:00:00Z" }, NOW).text).toBe(
+      "Waiting on Julian. You reached out yesterday",
+    );
+  });
+
+  it("dates the no-lead variant too", () => {
+    expect(act({ traction: "contacted", lastOutreachAt: "2026-07-08T10:00:00Z" }, NOW).text).toBe(
+      "No reply yet. You reached out 3 days ago",
+    );
+  });
+
+  it("keeps the old copy when the touch carries no usable date", () => {
+    // An interaction logged without a date, or an email whose Date: header did
+    // not parse. Better vague than wrong.
+    expect(act({ traction: "contacted", leadName: "Julian Ross" }, NOW).text).toBe(
+      "Waiting on Julian. Follow up if it's been a while",
+    );
+    expect(act({ traction: "contacted" }, NOW).text).toBe("No reply yet. Follow up");
+  });
+
+  it("drops the clause rather than claiming you reached out in the future", () => {
+    const a = act({ traction: "contacted", leadName: "Julian Ross", lastOutreachAt: "2026-07-20T10:00:00Z" }, NOW);
+    expect(a.text).toBe("Waiting on Julian. Follow up if it's been a while");
+  });
+});
+
 describe("deriveNextAction — warm intros", () => {
   it("prefers an alum reach-out and names them", () => {
     const a = act({ currentCount: 3, alumCount: 1, leadName: "Mark Lee" }, NOW);
@@ -164,15 +275,18 @@ describe("nextActionForCompany adapter", () => {
       target: {
         id: 1,
         priority_score: 90,
-        tier: "Tier 1",
         program_name: null,
         app_window_text: null,
         next_app_date: null,
         status: "outreach_active",
       },
       office_scopes: [],
+      offices: [],
+      roster: [],
       traction: "replied",
       traction_detail: { count: 1, at: "2026-07-18T00:00:00Z" },
+      lead_detail: { last_outreach_at: null, reply: { awaitingOurReply: true, lastMessageAt: "2026-07-18T00:00:00Z" } },
+      conversation: null,
     } satisfies CompanySummary;
     const a = nextActionForCompany(c, NOW);
     expect(a).not.toBeNull();
@@ -217,5 +331,114 @@ describe("deriveNextAction — nothing to say (CAR-246)", () => {
 
   it("still speaks when someone currently works there", () => {
     expect(deriveNextAction(input({ currentCount: 1 }), NOW)).not.toBeNull();
+  });
+});
+
+describe("deriveNextAction — a conversation is not always a call (CAR-257)", () => {
+  /**
+   * Lucid Software's card advised "Follow up with Spencer after your call" off
+   * a meeting titled "LinkedIn chat" (`meeting_type: "text"`). Every logged
+   * conversation became `call_done`, and this rung read that as a phone call.
+   *
+   * `conversationKind` now carries the CAR-242 type down here. The two states
+   * that matter most are the ends: Text and Other must not produce a follow-up
+   * NUDGE at all, and an untyped conversation must still produce the original
+   * one, because a Google-synced calendar event carries no type and really is
+   * a call.
+   */
+  const done = (kind: NextActionInput["conversationKind"], at: string | null = "2026-06-11T17:00:00Z") =>
+    act({ traction: "call_done", leadName: "Spencer Hintze", conversationKind: kind, conversationAt: at });
+
+  it("keeps 'after your call' for a coffee chat", () => {
+    // CAR-242 made Coffee Chat the 1:1 bucket regardless of medium, so phone
+    // and video calls arrive here and nowhere else.
+    expect(done("call").text).toBe("Follow up with Spencer after your call");
+  });
+
+  it("keeps 'after your call' when no type was recorded", () => {
+    // The Google-synced case: calendar_events has no type column at all.
+    // Silencing these would be a far worse regression than the bug being fixed.
+    expect(done(null).text).toBe("Follow up with Spencer after your call");
+  });
+
+  it("names the career fair instead of a call", () => {
+    const a = done("career-fair");
+    expect(a.text).toBe("Follow up with Spencer after the career fair");
+    expect(a.text).not.toMatch(/call/i);
+    expect(a.rank).toBe(done("call").rank);
+  });
+
+  it("names the networking event instead of a call", () => {
+    const a = done("networking");
+    expect(a.text).toBe("Follow up with Spencer after the networking event");
+    expect(a.text).not.toMatch(/call/i);
+  });
+
+  it("states the fact for a text chat instead of nudging a follow-up", () => {
+    const a = done("text", "2026-06-11T17:00:00Z");
+    expect(a.text).toBe("You texted Spencer 1 month ago");
+    expect(a.text).not.toMatch(/follow up/i);
+    expect(a.tone).toBe("muted");
+  });
+
+  it("states the fact for Other instead of nudging a follow-up", () => {
+    const a = done("other", "2026-06-11T17:00:00Z");
+    expect(a.text).toBe("You connected with Spencer 1 month ago");
+    expect(a.text).not.toMatch(/follow up|call/i);
+    expect(a.tone).toBe("muted");
+  });
+
+  it("drops the time clause rather than inventing one when the date is missing", () => {
+    expect(done("text", null).text).toBe("You texted Spencer");
+  });
+
+  it("ranks a text or Other below every real move, and a real follow-up above them", () => {
+    // Nothing to do, so it must not win the "What's next" sort. The warm-intro
+    // band bottoms out at 34 ("Reach out, you know N people here"); a past-due
+    // deadline sits at 22.
+    const bareReachOut = act({ currentCount: 3, leadName: null }).rank;
+    const pastDue = act({ currentCount: 0, nextAppDate: "2026-06-01" }).rank;
+    for (const kind of ["text", "other"] as const) {
+      expect(done(kind).rank).toBeLessThan(bareReachOut);
+      expect(done(kind).rank).toBeGreaterThan(pastDue);
+      expect(done("call").rank).toBeGreaterThan(done(kind).rank);
+    }
+  });
+
+  it("falls back to a generic subject when there is no lead to name", () => {
+    const a = act({ traction: "call_done", leadName: null, conversationKind: "text", conversationAt: "2026-06-11T17:00:00Z" });
+    expect(a.text).toBe("You texted someone here 1 month ago");
+  });
+});
+
+describe("deriveNextAction — a scheduled conversation is not always a call (CAR-257)", () => {
+  // The same defect one rung earlier: a career fair on the calendar used to
+  // read "Prep for your call".
+  const soon = (kind: NextActionInput["conversationKind"]) =>
+    act({ traction: "call_scheduled", leadName: "Spencer Hintze", conversationKind: kind });
+
+  it("keeps 'your call' for a coffee chat and for an untyped event", () => {
+    expect(soon("call").text).toBe("Prep for your call with Spencer");
+    expect(soon(null).text).toBe("Prep for your call with Spencer");
+  });
+
+  it("preps for the event itself, not a call", () => {
+    expect(soon("career-fair").text).toBe("Prep for the career fair, Spencer will be there");
+    expect(soon("networking").text).toBe("Prep for the networking event, Spencer will be there");
+    expect(soon("career-fair").text).not.toMatch(/call/i);
+  });
+
+  it("uses the neutral 'conversation' for a scheduled text or Other", () => {
+    // You do not schedule a text exchange, so anything landing here is a
+    // mislabel; a generic word is the one wording that cannot be wrong.
+    expect(soon("text").text).toBe("Prep for your conversation with Spencer");
+    expect(soon("other").text).toBe("Prep for your conversation with Spencer");
+  });
+
+  it("keeps every kind at the same rank as the call it replaces", () => {
+    const call = soon("call").rank;
+    for (const kind of ["career-fair", "networking", "text", "other"] as const) {
+      expect(soon(kind).rank).toBe(call);
+    }
   });
 });
