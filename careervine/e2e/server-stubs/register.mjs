@@ -58,6 +58,7 @@
  */
 import fs from "node:fs";
 import nodePath from "node:path";
+import nodeHttp from "node:http";
 import { setupServer } from "msw/node";
 import { http as mswHttp, HttpResponse, passthrough } from "msw";
 import {
@@ -390,6 +391,43 @@ const server = setupServer(
 );
 
 server.listen();
+
+/**
+ * Answer "which run do I belong to?" over HTTP, from this process's memory
+ * (CAR-273).
+ *
+ * The on-disk receipt above proves the stub layer armed in SOME process. It
+ * cannot prove that process is the one serving the port, and the difference is
+ * not academic: a second worktree's server armed, wrote the receipt, then failed
+ * to `listen` with EADDRINUSE, and Playwright ran the suite against the first
+ * worktree's build with the receipt sitting there looking healthy.
+ *
+ * A nonce that has to come back over the socket cannot be satisfied that way.
+ * Whoever answers `BASE_URL` either holds this run's nonce in memory or does
+ * not.
+ *
+ * Patched onto `emit` rather than added as a route under `src/app/`: a real
+ * route would ship in the production bundle, and this must exist only where the
+ * preload is loaded. Intercepting at `emit` also answers before Next's handler
+ * ever sees the request, so it works no matter how the app is routed.
+ */
+const armingNonce = process.env.E2E_ARMING_NONCE;
+if (armingNonce) {
+  const ARMING_ENDPOINT = "/__e2e__/arming";
+  const originalEmit = nodeHttp.Server.prototype.emit;
+  nodeHttp.Server.prototype.emit = function patchedEmit(event, ...args) {
+    if (event === "request") {
+      const [req, res] = args;
+      // Compared against the pathname only: a query string must not defeat it.
+      if (req?.url && req.url.split("?")[0] === ARMING_ENDPOINT) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ nonce: armingNonce, pid: process.pid }));
+        return true;
+      }
+    }
+    return originalEmit.call(this, event, ...args);
+  };
+}
 
 // The arming receipt, visible in Playwright's webServer output and in CI logs.
 // Expect several — one per Node process the webServer command starts.

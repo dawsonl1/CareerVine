@@ -24,10 +24,41 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { STUB_LOG_PATH, STUB_ARMED_PATH } from "./helpers/ports";
+import { ARMING_ENDPOINT, BASE_URL, E2E_PORT, STUB_LOG_PATH, STUB_ARMED_PATH } from "./helpers/ports";
+import { acquireStackLock } from "./helpers/stack-lock";
+import { stackEnv } from "./helpers/stack-env";
 
-export default function globalSetup(): void {
+const REPO_ROOT = path.resolve(__dirname, "..", "..");
+
+export default async function globalSetup(): Promise<void> {
   fs.mkdirSync(path.dirname(STUB_LOG_PATH), { recursive: true });
+
+  // 0. Is another run already using this Supabase stack?
+  //
+  // Before any tenant exists, because the corruption this prevents is two runs
+  // deleting each other's tenants: `tenant.teardown.ts` sweeps by PREFIX, so it
+  // takes every `itest-e2e-*` row, not only the one its own run created. A
+  // tenant vanishing mid-run is indistinguishable from a bug in the code under
+  // test, which is why this refuses rather than queues.
+  const stack = stackEnv();
+  const lock = acquireStackLock(stack.dbUrl, REPO_ROOT);
+  if (!lock.ok) {
+    const holder = lock.heldBy;
+    throw new Error(
+      "[e2e] another E2E run is already using this local Supabase stack" +
+        (holder ? `:\n  pid ${holder.pid}, started ${holder.startedAt}\n  ${holder.root}` : ".") +
+        "\nEvery worktree shares one local stack, and tenant.teardown.ts deletes every " +
+        "itest-e2e-* tenant, so two runs would delete each other's data mid-flight. " +
+        "Deriving a per-worktree port does not help with that.\n" +
+        "Wait for that run to finish, or stop it and re-run.",
+    );
+  }
+  if (lock.stolenFrom) {
+    console.log(
+      `[e2e] took over a stale stack lock from dead pid ${lock.stolenFrom.pid} ` +
+        `(${lock.stolenFrom.root}).`,
+    );
+  }
 
   // 1. Did the stub layer arm in the server this run is about to test?
   //
@@ -46,6 +77,50 @@ export default function globalSetup(): void {
         "pinned environment — was never applied. That server is unstubbed and may be built " +
         "against production credentials.\n" +
         "Stop whatever is on the port and re-run so Playwright starts its own server.",
+    );
+  }
+
+  // 1b. Is the server ANSWERING THE PORT the one that armed? (CAR-273)
+  //
+  // The receipt above is a file. It proves the stub layer armed in some process
+  // of this run; it cannot prove that process is the one serving. Observed for
+  // real: a second worktree's server armed, wrote the receipt, then failed to
+  // listen with EADDRINUSE, and `reuseExistingServer` handed the suite to the
+  // FIRST worktree's build with the receipt sitting there looking healthy. The
+  // run then failed on a spec asserting a cache that branch does not have —
+  // this same class, reported as a code bug.
+  //
+  // A nonce that has to come back over the socket cannot be satisfied by a
+  // different process. `register.mjs` answers it from memory.
+  const nonce = process.env.E2E_ARMING_NONCE;
+  if (!nonce) {
+    throw new Error(
+      "[e2e] E2E_ARMING_NONCE is unset in the Playwright process. playwright.config.ts " +
+        "assigns it at module scope; something is running global-setup without that config.",
+    );
+  }
+
+  let served: { nonce?: string; pid?: number } | null = null;
+  let reason = "";
+  try {
+    const res = await fetch(`${BASE_URL}${ARMING_ENDPOINT}`);
+    if (res.ok) served = (await res.json()) as { nonce?: string; pid?: number };
+    else reason = `it answered ${res.status}`;
+  } catch (err) {
+    reason = `the request failed: ${(err as Error).message}`;
+  }
+
+  if (served?.nonce !== nonce) {
+    throw new Error(
+      `[e2e] the server on ${BASE_URL} is NOT the one this run started.\n` +
+        (served?.nonce
+          ? `  it belongs to a different run (nonce ${served.nonce}, pid ${served.pid})`
+          : `  it did not answer ${ARMING_ENDPOINT} — ${reason || "no response body"}`) +
+        "\nThat server has none of this run's build, MSW layer or pinned env, so every " +
+        "result would describe someone else's code. The usual cause is a second checkout " +
+        `running the tier at the same time: this worktree derives port ${E2E_PORT}, and ` +
+        "something else got there first.\n" +
+        "Stop whatever is on the port and re-run.",
     );
   }
 

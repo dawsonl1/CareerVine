@@ -7,9 +7,44 @@
  * back), and `e2e/server-stubs/register.mjs` (raw Node inside the server, which
  * gets `E2E_STUB_LOG` handed to it as a string in the webServer env).
  */
+import crypto from "node:crypto";
 import path from "node:path";
 
-export const E2E_PORT = Number(process.env.E2E_PORT ?? 3100);
+/** The checkout this file belongs to — different per worktree, by construction. */
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+
+/**
+ * A port in [3100, 3199] derived from the checkout path.
+ *
+ * Every worktree used to default to 3100, which is how CAR-273 happened: a
+ * second worktree's server armed the stub layer, failed to `listen` with
+ * EADDRINUSE, and Playwright — having already seen the port busy under
+ * `reuseExistingServer` — ran 21 tests against the FIRST worktree's build.
+ *
+ * Deriving the port removes the collision rather than detecting it. It does NOT
+ * make concurrent runs safe on its own: the local Supabase stack is shared and
+ * `tenant.teardown.ts` sweeps by prefix, so two runs still delete each other's
+ * tenants on different ports. `e2e/helpers/stack-lock.ts` is what covers that.
+ */
+function derivePort(root: string): number {
+  const digest = crypto.createHash("sha256").update(root).digest();
+  return 3100 + (digest.readUInt16BE(0) % 100);
+}
+
+export const E2E_PORT = Number(process.env.E2E_PORT ?? derivePort(REPO_ROOT));
+
+/** Exported for the unit test; not used at runtime. */
+export const __derivePortForTest = derivePort;
+
+/**
+ * Where the stub layer answers "which run do I belong to?".
+ *
+ * Served from inside `register.mjs` by patching the HTTP server, NOT by a route
+ * under `src/app/`: a real route would ship in the production bundle, and this
+ * has to exist only where the preload is loaded. See `global-setup.ts` for what
+ * the answer proves that the on-disk receipt cannot.
+ */
+export const ARMING_ENDPOINT = "/__e2e__/arming";
 
 /**
  * `localhost`, not `127.0.0.1`, and this is load-bearing.

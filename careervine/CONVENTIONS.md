@@ -424,6 +424,20 @@ confirmations on, so signup sends a real email the flow reads back, and without 
 fails outright. `supabase/templates/` is the single source of truth for both the local stack and
 production.
 
+**One run at a time per local Supabase stack, enforced (CAR-273).** Every worktree shares one
+stack, and `careervine/e2e/tenant.teardown.ts` deletes by PREFIX, so two concurrent runs delete
+each other's tenants mid-flight. `careervine/e2e/helpers/stack-lock.ts` takes a lock in
+`os.tmpdir()` keyed on the stack's DB URL and refuses a second run by name; a crashed holder's
+lock is taken over on a dead pid, so nothing wedges permanently. The port is separately derived
+per checkout in `careervine/e2e/helpers/ports.ts`, so two worktrees do not collide on 3100 — but
+that only fixes the port, which is why the lock exists.
+
+The arming receipt is verified **over HTTP**, not just on disk. `global-setup` fetches
+`/__e2e__/arming`, which `register.mjs` answers from the serving process's own memory with this
+run's nonce. A file can only prove the stub layer armed in SOME process: CAR-273 was a second
+worktree's server arming, writing the receipt, then failing to bind, after which the suite ran
+against the first worktree's build with the receipt looking healthy.
+
 Third parties are intercepted in two places and the split is not optional, because the calls
 that matter are made server-side where `page.route()` cannot see them.
 `careervine/e2e/server-stubs/register.mjs` runs MSW inside the server; the `networkGuard`
