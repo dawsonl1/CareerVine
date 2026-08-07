@@ -6,6 +6,10 @@
  * `aria-activedescendant` names which option is active. Arrow keys move that
  * pointer, Enter/Space commit, Escape and Tab close.
  *
+ * The popover + keyboard machinery lives in `useListboxPopover` (listbox-popover.ts),
+ * shared with `MultiSelect`. Everything below the "why" notes in this header is
+ * implemented there; this file is the single-select rendering and nothing else.
+ *
  * Portal target (CAR-198). The option list renders through a portal so it escapes
  * parent `overflow: hidden` containers, and inside a Modal it portals to that
  * dialog's own surface rather than to `document.body`. A list on the body sits
@@ -41,17 +45,10 @@
 
 "use client";
 
-import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Check } from "lucide-react";
-import { useModalPortalContainer } from "@/components/ui/modal";
+import { useListboxPopover } from "@/components/ui/listbox-popover";
 
 export interface SelectOption {
   value: string;
@@ -77,126 +74,23 @@ interface SelectProps {
 }
 
 export function Select({ value, onChange, options, placeholder = "Select…", required, className, triggerClassName, ariaLabel }: SelectProps) {
-  const [open, setOpen] = useState(false);
-  /** Which option `aria-activedescendant` points at. -1 while nothing is active. */
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const [pos, setPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const dropRef = useRef<HTMLDivElement>(null);
-  const baseId = useId();
-  const listboxId = `${baseId}-listbox`;
-  const optionId = (index: number) => `${baseId}-option-${index}`;
-  const portalContainer = useModalPortalContainer();
-
-  const updatePos = useCallback(() => {
-    if (btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    }
-  }, []);
-
-  const close = useCallback(() => {
-    setOpen(false);
-    setActiveIndex(-1);
-  }, []);
-
-  const openAt = useCallback((index: number) => {
-    if (options.length === 0) return;
-    updatePos();
-    setActiveIndex(Math.min(Math.max(index, 0), options.length - 1));
-    setOpen(true);
-    // Guaranteed rather than assumed: Safari does not focus a button on click, and
-    // every keyboard path below reads `document.activeElement === btnRef.current`.
-    btnRef.current?.focus();
-  }, [options.length, updatePos]);
-
-  const commit = useCallback((index: number) => {
-    const option = options[index];
-    if (!option) return;
-    onChange(option.value);
-    close();
-    btnRef.current?.focus();
-  }, [options, onChange, close]);
-
-  /** Index of the committed value, or 0 so an opening keypress lands somewhere sane. */
+  /** Index of the committed value, or -1 so an opening keypress lands somewhere sane. */
   const selectedIndex = options.findIndex((o) => o.value === value);
 
-  // Close on outside click, dismiss on Escape, reposition on scroll/resize.
-  useEffect(() => {
-    if (!open) return;
-    updatePos();
+  const onCommit = useCallback((index: number) => {
+    const option = options[index];
+    if (option) onChange(option.value);
+  }, [options, onChange]);
 
-    const handleOutside = (e: MouseEvent) => {
-      if (
-        btnRef.current && !btnRef.current.contains(e.target as Node) &&
-        dropRef.current && !dropRef.current.contains(e.target as Node)
-      ) {
-        close();
-      }
-    };
-    const handleEscapeCapture = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // Only claim Escape while this trigger holds focus. Without the check a list
-      // left open under a newer layer would swallow that layer's Escape.
-      if (document.activeElement !== btnRef.current) return;
-      e.stopPropagation();
-      close();
-    };
-
-    document.addEventListener("mousedown", handleOutside);
-    document.addEventListener("keydown", handleEscapeCapture, true);
-    window.addEventListener("scroll", updatePos, true);
-    window.addEventListener("resize", updatePos);
-    return () => {
-      document.removeEventListener("mousedown", handleOutside);
-      document.removeEventListener("keydown", handleEscapeCapture, true);
-      window.removeEventListener("scroll", updatePos, true);
-      window.removeEventListener("resize", updatePos);
-    };
-  }, [open, updatePos, close]);
-
-  // Keep the active option in view when arrow keys walk past the list's edges.
-  useEffect(() => {
-    if (!open || activeIndex < 0) return;
-    dropRef.current?.children[activeIndex]?.scrollIntoView?.({ block: "nearest" });
-  }, [open, activeIndex]);
-
-  const handleKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
-    const last = options.length - 1;
-
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        if (!open) openAt(selectedIndex >= 0 ? selectedIndex : 0);
-        else setActiveIndex((i) => (i >= last ? 0 : i + 1));
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        if (!open) openAt(selectedIndex >= 0 ? selectedIndex : last);
-        else setActiveIndex((i) => (i <= 0 ? last : i - 1));
-        break;
-      case "Home":
-        if (!open) return;
-        e.preventDefault();
-        setActiveIndex(0);
-        break;
-      case "End":
-        if (!open) return;
-        e.preventDefault();
-        setActiveIndex(last);
-        break;
-      case "Enter":
-      case " ":
-        e.preventDefault();
-        if (!open) openAt(selectedIndex >= 0 ? selectedIndex : 0);
-        else commit(activeIndex);
-        break;
-      case "Tab":
-        // Not prevented: the list closes and focus moves on, as a native select does.
-        if (open) close();
-        break;
-    }
-  };
+  const {
+    open, activeIndex, setActiveIndex, pos, btnRef, dropRef, listboxId, optionId,
+    portalContainer, toggleOpen, close, commit, handleKeyDown,
+  } = useListboxPopover({
+    optionCount: options.length,
+    selectedIndex,
+    onCommit,
+    closeOnCommit: true,
+  });
 
   const selectedLabel = options.find((o) => o.value === value)?.label;
 
@@ -228,7 +122,7 @@ export function Select({ value, onChange, options, placeholder = "Select…", re
         aria-controls={open ? listboxId : undefined}
         aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         aria-label={ariaLabel}
-        onClick={() => (open ? close() : openAt(selectedIndex >= 0 ? selectedIndex : 0))}
+        onClick={toggleOpen}
         onKeyDown={handleKeyDown}
         onBlur={close}
         className={`w-full h-14 px-4 bg-white text-left text-foreground rounded-[4px] border border-outline cursor-pointer focus:outline-none focus-visible:border-primary focus-visible:border-2 transition-colors text-sm flex items-center justify-between gap-2 ${triggerClassName ?? ""}`}

@@ -16,12 +16,12 @@ import { AddCompanyModal } from "@/components/companies/add-company-modal";
 import { getCompanies, type CompanySummary, type CompanySort } from "@/lib/company-queries";
 import {
   EMPTY_COMPANY_FILTERS,
-  countByStatus,
   distinctTiers,
   filterCompanies,
   hasActiveCompanyFilters,
   parseCompanyFilters,
   serializeCompanyFilters,
+  statusChipCounts,
   type CompanyFilters,
 } from "@/lib/company-filters";
 import { Building2, Send, Plus, Search, X } from "lucide-react";
@@ -115,8 +115,14 @@ function CompaniesPage() {
     () => filterCompanies(companies, { ...urlFilters, q: deferredQ }),
     [companies, urlFilters, deferredQ],
   );
+  // Over the whole list, not `visible`: options that disappear as you filter make
+  // the dropdown feel broken, and a tier you just deselected has to stay reachable.
   const tierOptions = useMemo(() => distinctTiers(companies), [companies]);
-  const statusCounts = useMemo(() => countByStatus(companies), [companies]);
+  // Chip counts follow every other facet (CAR-245), so each one predicts its own click.
+  const statusCounts = useMemo(
+    () => statusChipCounts(companies, { ...urlFilters, q: deferredQ }),
+    [companies, urlFilters, deferredQ],
+  );
   const filtersActive = hasActiveCompanyFilters(liveFilters);
 
   // Same load-vs-resync split the outreach page uses (section f). `companies` is

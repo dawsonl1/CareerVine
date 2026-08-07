@@ -26,13 +26,17 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.resolve(HERE, "..");
 
 /** Components whose trigger is a button with no associable label. */
-const GUARDED = ["Select", "MonthYearPicker"];
+const GUARDED = ["Select", "MonthYearPicker", "MultiSelect"];
 
 /**
  * The files that *define* these components, plus tests. `state-select.tsx` is not
  * exempt: it wraps `Select` and has to pass a name down like any other caller.
  */
-const EXEMPT = ["components/ui/select.tsx", "components/ui/month-year-picker.tsx"];
+const EXEMPT = [
+  "components/ui/select.tsx",
+  "components/ui/month-year-picker.tsx",
+  "components/ui/multi-select.tsx",
+];
 
 /**
  * The opening tag starting at `start`, or null if it never closes.
@@ -113,9 +117,10 @@ describe("Select and MonthYearPicker accessible names", () => {
 
   it("extracts plausible opening tags", () => {
     // If the depth scanner ever mis-terminates, the tags go junk and every ariaLabel
-    // assertion turns meaningless. Every one of these components takes `value`, so a
-    // tag without it means the scan, not the call site, is wrong.
-    const malformed = sites.filter((s) => !/\bvalue=/.test(s.tag));
+    // assertion turns meaningless. Every one of these components takes `value` (or
+    // `values`, for the multi-select), so a tag without either means the scan, not
+    // the call site, is wrong.
+    const malformed = sites.filter((s) => !/\bvalues?=/.test(s.tag));
     expect(malformed.map((s) => `${s.file}:${s.line}`)).toEqual([]);
   });
 
