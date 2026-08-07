@@ -795,18 +795,29 @@ export async function findOrCreateCompany(name: string) {
 /**
  * Link a company to a contact with job details (title, is_current)
  *
+ * Idempotent on the natural key (CAR-261). `contact_companies` gained a real
+ * unique index on (contact_id, company_id, title, start_month, end_month)
+ * NULLS NOT DISTINCT; the one it replaced keyed on `start_date`, a column NULL
+ * on all 88,204 production rows, so it never rejected anything and the
+ * manual-add form happily wrote the same role twice.
+ *
+ * Re-adding a role the contact already has is a no-op rather than a 23505 every
+ * caller would have to decode. Returns nothing: all three callers
+ * (contacts/page.tsx, contact-edit-modal.tsx, mcp/lib/db.ts createContactFull)
+ * already discarded the row, and reading it back after a skipped upsert would
+ * cost a second round trip for a value nobody reads.
+ *
  * @param contactCompany - Junction table row data
- * @returns Promise<ContactCompany> - The created link
- * @throws Error if insertion fails
+ * @throws Error if the write fails for any reason other than already existing
  */
 export async function addCompanyToContact(contactCompany: Database["public"]["Tables"]["contact_companies"]["Insert"]) {
-  const { data, error } = await db()
+  const { error } = await db()
     .from("contact_companies")
-    .insert(contactCompany)
-    .select()
-    .single();
+    .upsert(contactCompany, {
+      onConflict: "contact_id,company_id,title,start_month,end_month",
+      ignoreDuplicates: true,
+    });
   if (error) throw error;
-  return data;
 }
 
 /**

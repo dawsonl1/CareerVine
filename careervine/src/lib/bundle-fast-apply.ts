@@ -36,6 +36,7 @@ import { parseBundleProspectPayload, payloadToMappedPerson } from "./bundle-payl
 import { readProspectResolution } from "./bundle-resolve";
 import { isAlumniOnlyProspect } from "@/lib/schools/affinity";
 import { buildContactInsertRow, educationDedupeKey, type ImportChunkOptions } from "./bulk-import";
+import { employmentRowKey } from "./scrape-merge";
 import { addTagsToContacts, isValidImportEmail } from "./import-db-helpers";
 import { chunkList } from "@/lib/data/postgrest";
 import { createContacts } from "@/lib/data/contacts";
@@ -247,8 +248,23 @@ export async function runFastApplyStep(
   for (const p of pending) {
     const contactId = p.contactId!;
 
+    // Same dedupe discipline the education loop below already had (CAR-261).
+    // This path blind-inserts in batches, so an unfiltered payload put every
+    // repeated role straight into the table; with the natural-key index in place
+    // it would now fail the whole batch instead.
+    const empKeys = new Set<string>();
     for (const emp of p.mapped.employment) {
-      // resolved_company_id is guaranteed by readProspectResolution.
+      // resolved_company_id is guaranteed by readProspectResolution. The push
+      // below has always relied on that; the row literal is structurally typed
+      // and so never had to say it out loud, while this call signature does.
+      const empKey = employmentRowKey({
+        company_id: emp.resolved_company_id!,
+        title: emp.title,
+        start_month: emp.start_month,
+        end_month: emp.end_month,
+      });
+      if (empKeys.has(empKey)) continue;
+      empKeys.add(empKey);
       const isRemote =
         emp.workplace_type === "remote" ||
         Boolean((emp.location_raw ? normalizeLocation(emp.location_raw) : null)?.isRemote);
