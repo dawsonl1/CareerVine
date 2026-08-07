@@ -37,9 +37,12 @@ const OVERRIDE = 14; // stage_override with no underlying event
 const FORMER_ONLY = 15; // the only person with history has left
 const TWO_REPLIERS = 16; // two people replied; the first one seen is already answered
 const REPLIER_CLASH = 17; // two people replied; the ANSWERED one replied more recently
+const FOLLOWED_UP = 18; // one call, and the thank-you email went out the day after
+const CALL_CLASH = 19; // two calls; the lead (owed a reply) had the OLDER one
 
 const PAST = "2020-03-05T17:00:00Z";
 const OLDER = "2020-01-02T17:00:00Z";
+const CALL_951 = "2020-02-01T17:00:00Z"; // the CALL_CLASH lead's own, older call
 const SOON = "2030-02-01T17:00:00Z";
 const MID = "2030-04-01T17:00:00Z";
 const LATER = "2030-06-01T17:00:00Z";
@@ -72,6 +75,14 @@ const people: Person[] = [
   // first. Recency alone would name 703 and bury the reply actually waiting.
   { company_id: REPLIER_CLASH, contact_id: 703, is_current: true },
   { company_id: REPLIER_CLASH, contact_id: 704, is_current: true },
+  // One call, then a thank-you email the day after (CAR-266).
+  { company_id: FOLLOWED_UP, contact_id: 801, is_current: true },
+  // The call-stage version of REPLIER_CLASH: 951 is owed a response after an
+  // OLDER call; 952 had the company's most recent call. Criterion 1 makes 951
+  // the lead, so the pill must order 951's reply against 951's own call — the
+  // merged traction_detail.at belongs to 952.
+  { company_id: CALL_CLASH, contact_id: 951, is_current: true },
+  { company_id: CALL_CLASH, contact_id: 952, is_current: true },
 ];
 
 /** Outbound mail, per contact. Everyone emailed also counts as "contacted". */
@@ -85,6 +96,8 @@ const OUTBOUND: Record<number, string[]> = {
   702: ["2026-05-01T10:00:00Z"], // never wrote back
   703: ["2026-05-01T10:00:00Z", "2026-05-10T10:00:00Z"], // wrote back after their reply
   704: ["2026-05-01T10:00:00Z"], // never wrote back
+  801: ["2020-01-10T10:00:00Z", "2020-03-06T10:00:00Z"], // scheduled the call, then followed up after it
+  951: ["2020-01-05T10:00:00Z"], // scheduling email; never answered their post-call reply
 };
 
 /** Inbound mail from the contact's own address, per contact. */
@@ -94,9 +107,21 @@ const INBOUND: Record<number, string[]> = {
   702: ["2026-05-05T10:00:00Z"],
   703: ["2026-05-09T10:00:00Z"], // the LATER reply, already answered
   704: ["2026-05-02T10:00:00Z"], // the EARLIER reply, still owed a response
+  951: ["2020-03-01T10:00:00Z"], // after 951's call, before 952's — still unanswered
 };
 
-const COMPANY_IDS = [CONTACTED, REPLIED, CALLS_DONE, CALLS_UPCOMING, OVERRIDE, FORMER_ONLY, TWO_REPLIERS, REPLIER_CLASH];
+const COMPANY_IDS = [
+  CONTACTED,
+  REPLIED,
+  CALLS_DONE,
+  CALLS_UPCOMING,
+  OVERRIDE,
+  FORMER_ONLY,
+  TWO_REPLIERS,
+  REPLIER_CLASH,
+  FOLLOWED_UP,
+  CALL_CLASH,
+];
 
 const idsIn = (q: RecordedQuery, col: string): number[] | null => {
   const f = q.filters.find(([m, c]) => m === "in" && c === col);
@@ -220,6 +245,9 @@ function route(q: RecordedQuery): unknown | undefined {
       }
       if (ids.has(402)) rows.push({ id: 802, contact_id: 402, start_at: MID, status: "confirmed" });
       if (ids.has(601)) rows.push({ id: 900, contact_id: 601, start_at: PAST, status: "confirmed" });
+      // CALL_CLASH: the lead's older call, and the other contact's newer one.
+      if (ids.has(951)) rows.push({ id: 951, contact_id: 951, start_at: CALL_951, status: "confirmed" });
+      if (ids.has(952)) rows.push({ id: 952, contact_id: 952, start_at: PAST, status: "confirmed" });
       return rows;
     }
 
@@ -242,9 +270,11 @@ function route(q: RecordedQuery): unknown | undefined {
       // A separate, older meeting for 302 only — so CALLS_DONE has two distinct
       // conversations across the company once the shared event is deduped.
       const ids = new Set(idsIn(q, "contact_id") ?? []);
-      return ids.has(302)
-        ? [{ meeting_id: 55, contact_id: 302, meetings: { user_id: USER, meeting_date: OLDER } }]
-        : [];
+      const rows = [];
+      if (ids.has(302)) rows.push({ meeting_id: 55, contact_id: 302, meetings: { user_id: USER, meeting_date: OLDER } });
+      // FOLLOWED_UP's call, logged as a meeting (no type -> reads as a call).
+      if (ids.has(801)) rows.push({ meeting_id: 56, contact_id: 801, meetings: { user_id: USER, meeting_date: PAST } });
+      return rows;
     }
 
     case "contact_schools":
@@ -356,7 +386,11 @@ describe("lead selection when two current contacts have both replied (CAR-253)",
     expect(c.traction_detail).toEqual({ count: 2, at: "2026-05-05T10:00:00Z" });
 
     expect(c.lead_contact_name).toBe("Person 702");
-    expect(c.lead_detail?.reply).toEqual({ awaitingOurReply: true, lastMessageAt: "2026-05-05T10:00:00Z" });
+    expect(c.lead_detail?.reply).toEqual({
+      awaitingOurReply: true,
+      lastMessageAt: "2026-05-05T10:00:00Z",
+      lastUnansweredReplyAt: "2026-05-05T10:00:00Z",
+    });
     expect(nextActionForCompany(c, new Date("2026-08-06T12:00:00"))!.text).toMatch(/write back/);
   });
 
@@ -393,5 +427,44 @@ describe("owing someone a reply outranks recency in lead selection (CAR-253 + CA
     // replies and reports the latest of them.
     const c = (await summaries()).get(REPLIER_CLASH)!;
     expect(c.traction_detail).toEqual({ count: 2, at: "2026-05-09T10:00:00Z" });
+  });
+});
+
+/**
+ * What happened SINCE the conversation drives the pill (CAR-266), end to end
+ * through the real aggregation: the follow-up email retires the prompt, and an
+ * unanswered post-call reply promotes it to the write-back line.
+ */
+describe("recognizing what happened after the call (CAR-266)", () => {
+  it("flips the prompt to a statement once the thank-you email is out", async () => {
+    const c = (await summaries()).get(FOLLOWED_UP)!;
+
+    expect(c.traction).toBe("call_done");
+    expect(c.lead_detail?.last_outreach_at).toBe("2020-03-06T10:00:00Z");
+    expect(c.lead_detail?.last_conversation_at).toBe(PAST);
+
+    // The ladder speaks in first names, so "Person 801" renders as "Person".
+    const pill = nextActionForCompany(c, new Date("2026-08-06T12:00:00"))!;
+    expect(pill.text).toBe("You followed up with Person 6 years ago");
+    expect(pill.tone).toBe("muted");
+  });
+
+  it("orders the unanswered reply against the LEAD's call, not the company's latest", async () => {
+    const c = (await summaries()).get(CALL_CLASH)!;
+
+    expect(c.traction).toBe("call_done");
+    // The chip merges across the company, so 952's newer call dates it...
+    expect(c.traction_detail).toEqual({ count: 2, at: PAST });
+    // ...while criterion 1 crowns 951, whose own call is older.
+    expect(c.lead_contact_name).toBe("Person 951");
+    expect(c.lead_detail?.last_conversation_at).toBe(CALL_951);
+
+    // 951's reply postdates 951's own call, so the pill asks for the write-back.
+    // Ordered against the merged timestamp instead, the reply would predate the
+    // "conversation" and the promotion would go silent — the drift
+    // last_conversation_at exists to prevent.
+    // First-name rendering again: "Person 951" leads the line as "Person".
+    const pill = nextActionForCompany(c, new Date("2026-08-06T12:00:00"))!;
+    expect(pill.text).toBe("Person replied, write back");
   });
 });

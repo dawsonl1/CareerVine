@@ -181,6 +181,15 @@ export interface ReplyThreadState {
   awaitingOurReply: boolean;
   /** Latest message on those threads, either direction — what "(2 days ago)" counts from. */
   lastMessageAt: string | null;
+  /**
+   * Latest inbound reply on the threads still awaiting our response; null
+   * whenever `awaitingOurReply` is false. This is what lets the `call_done`
+   * rung tell "they wrote after the conversation" from "an old scheduling
+   * reply we never typed an answer to" (CAR-266) — the conversation itself
+   * answered the latter, and promoting on `awaitingOurReply` alone would put
+   * the write-back instruction on it.
+   */
+  lastUnansweredReplyAt: string | null;
 }
 
 export interface ContactStage {
@@ -682,6 +691,7 @@ export async function getContactStages(
     if (replies.length > 0) {
       let awaitingOurReply = false;
       let lastMessageAt: string | null = null;
+      let lastUnansweredReplyAt: string | null = null;
       for (const bucket of threadsByContact.get(contact.id)?.values() ?? []) {
         const theirs = firstOutbound
           ? bucket.theirReplyAts.filter((d) => d >= firstOutbound)
@@ -691,10 +701,21 @@ export async function getContactStages(
         // Compared against their FIRST reply, so answering once retires the
         // prompt for good: their replying again afterwards is a live exchange,
         // not an outstanding task.
-        if (!bucket.lastOutAt || bucket.lastOutAt <= firstReplyAt) awaitingOurReply = true;
+        if (!bucket.lastOutAt || bucket.lastOutAt <= firstReplyAt) {
+          awaitingOurReply = true;
+          // The LATEST reply on an unanswered thread, unlike the first-reply
+          // anchor above: every reply on such a thread is unanswered, and the
+          // call_done rung asks whether ANY of them postdates the conversation
+          // (CAR-266). An answered thread still contributes nothing here, so
+          // this cannot resurrect a prompt CAR-253 retired.
+          lastUnansweredReplyAt = laterOf(
+            lastUnansweredReplyAt,
+            theirs.reduce((a, b) => (a > b ? a : b)),
+          );
+        }
         lastMessageAt = laterOf(lastMessageAt, bucket.lastMessageAt);
       }
-      replyThread = { awaitingOurReply, lastMessageAt };
+      replyThread = { awaitingOurReply, lastMessageAt, lastUnansweredReplyAt };
     }
 
     const referrals = referralCount.get(contact.id) ?? 0;
@@ -853,6 +874,16 @@ export interface LeadDetail {
   last_outreach_at: string | null;
   /** Their reply conversation's state; null when no real inbound backs the stage. */
   reply: ReplyThreadState | null;
+  /**
+   * The lead's own latest PAST conversation (their `tallies.call_done.at`);
+   * null when they have none, e.g. a bare stage_override. Lead-scoped where
+   * `traction_detail.at` is merged across the company: tie-break criterion 1
+   * (an unanswered reply wins) can crown a lead whose conversation is not the
+   * company's most recent one, and the next-action pill must date and order
+   * follow-up evidence against the conversation of the person it NAMES
+   * (CAR-266).
+   */
+  last_conversation_at: string | null;
 }
 
 /** The seven fields the who-you-know pass computes; see CompanyBaseSummary. */
@@ -1580,10 +1611,11 @@ export async function getCompanies(
       //  2. Failing that, the most recent evidence for the winning stage wins
       //     (CAR-257) — soonest for an upcoming call, latest for everything
       //     else. The pill describes a conversation now, so an arbitrary winner
-      //     would name Spencer while describing Jane's coffee chat. This is the
-      //     same timestamp `tractionDetail.at` already reports, so the chip's
-      //     "(1 month ago)", the lead's name and the conversation's kind all
-      //     refer to one conversation.
+      //     would name Spencer while describing Jane's coffee chat. When THIS
+      //     criterion decides, `tractionDetail.at` matches the winner's own
+      //     evidence; when criterion 1 overrides recency it can differ, which
+      //     is why the pill dates itself from `lead_detail.last_conversation_at`
+      //     rather than the merged timestamp (CAR-266).
       //
       // Owing someone a reply outranks recency deliberately: "who is waiting on
       // me" is a more actionable question than "what happened most recently".
@@ -1661,6 +1693,7 @@ export async function getCompanies(
         leadDetail = {
           last_outreach_at: best.stage.tallies.contacted.at,
           reply: best.stage.replyThread,
+          last_conversation_at: best.stage.tallies.call_done.at,
         };
       } else if (current.length > 0) {
         const warm =

@@ -145,6 +145,12 @@ networking event names the event. A text exchange or an "Other" conversation get
 no follow-up nudge at all: those cards simply tell you when you last spoke, so
 the app never pushes you to chase something that was never a meeting.
 
+And the card notices when the follow-up is already done. Send the thank-you
+email after a call and the prompt retires into "You followed up with Lance
+2 days ago", dated from your follow-up rather than the call. If they write to
+you after the conversation and you have not answered, the card skips straight to
+"Lance replied, write back", because responding is the follow-up.
+
 The next move on each card answers the same question with the same honesty.
 Waiting on someone reads "Waiting on Julian. You reached out 3 days ago", so the
 decision to nudge is yours to make from a number rather than a shrug. And
