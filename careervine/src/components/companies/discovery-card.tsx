@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/toast";
 import { ExternalLink, UserPlus, X } from "lucide-react";
 import { apiFetch, isApiRequestError } from "@/lib/api-client";
 import { invalidateCompanyScopes } from "@/lib/company-detail-cache";
+import { refreshCompaniesList } from "@/lib/companies-list-cache";
 
 /**
  * Company page "New PM hires" card (plan 41 §5.1): candidates the weekly
@@ -90,6 +91,10 @@ export function DiscoveryCard({
         // The add creates a contact AT THIS COMPANY, so every cached
         // roster that could show them is now wrong (CAR-268).
         invalidateCompanyScopes();
+        // The new contact also changes this company's row on /companies: its
+        // counts, who leads it, and under `minContacts: 1` whether the row is
+        // there at all (CAR-278).
+        refreshCompaniesList();
         // Invalidation alone leaves THIS page showing a roster without them,
         // since it is already mounted and reads no cache again on its own
         // (CAR-277). The reload has to be asked for.

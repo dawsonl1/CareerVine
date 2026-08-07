@@ -137,6 +137,26 @@ describe("companies list cache", () => {
     expect(q.getCompanies).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes with no user given, reading the user back out of the key", async () => {
+    // The form nearly every caller uses: a conversation logged from a contact
+    // page, an email sent from the compose modal. Those components hold no
+    // `userId`, and the refetch must still be scoped to the right one.
+    q.getCompanies.mockResolvedValue([summary(1, "Acme")]);
+    const first = render(<CompaniesPage />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeTruthy());
+    first.unmount();
+
+    q.getCompanies.mockResolvedValue([summary(1, "Acme"), summary(2, "Globex")]);
+    refreshCompaniesList();
+    await waitFor(() => expect(q.getCompanies).toHaveBeenCalledTimes(2));
+
+    expect(q.getCompanies).toHaveBeenLastCalledWith(USER_ID, expect.anything());
+
+    render(<CompaniesPage />);
+    expect(screen.getByText("Globex")).toBeTruthy();
+    expect(q.getCompanies).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves the cache empty when the background refresh fails", async () => {
     q.getCompanies.mockResolvedValue([summary(1, "Acme")]);
     const first = render(<CompaniesPage />);

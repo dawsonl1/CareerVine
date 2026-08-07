@@ -24,9 +24,11 @@ import { listKeysByPrefix, refreshList } from "@/lib/list-cache";
  */
 export const COMPANIES_LIST_TTL_MS = 15 * 60 * 1000;
 
+const LIST_PREFIX = "companies:";
+
 /** Every cached sort for one user. */
 export function companiesListKeyPrefix(userId: string): string {
-  return `companies:${userId}:`;
+  return `${LIST_PREFIX}${userId}:`;
 }
 
 /**
@@ -58,17 +60,30 @@ export function fetchCompaniesList(userId: string, sort: CompanySort): Promise<C
  * exactly the moment the user was most likely to go back — they had just changed
  * something — so the trip that CAR-256 made instant went back to costing a full
  * `getCompanies` aggregate. `refreshList` throttles and de-duplicates, so the
- * autosave write sites can call this as often as they like.
+ * write sites can call this as often as they like, and it is a no-op on a tab
+ * that has never opened /companies.
  *
  * All sorts, not just the one in view: the user may have been on any of them
  * when they left, and a sort left holding contradicted rows is exactly the bug
  * this prevents. Only sorts this tab has actually loaded are refreshed —
  * warming one the user has never opened would be inventing work.
+ *
+ * `userId` IS OPTIONAL, and most callers omit it. Same problem
+ * `invalidateCompanyScopes()` solved the same way: the writes that change a
+ * company row happen in components with no user in scope (a conversation logged
+ * from a contact page, an email sent from the compose modal, a candidate added
+ * from a discovery card), and threading an id through them to refresh entries
+ * that can only belong to the one signed-in user would be ceremony, not safety.
+ * The store is in-memory and per-tab and `signOut` hard-navigates, so a tab only
+ * ever holds one user's keys. The refetch takes its user from the KEY either
+ * way, so an omitted argument never widens what is read.
  */
-export function refreshCompaniesList(userId: string): void {
-  const prefix = companiesListKeyPrefix(userId);
+export function refreshCompaniesList(userId?: string): void {
+  const prefix = userId ? companiesListKeyPrefix(userId) : LIST_PREFIX;
   for (const key of listKeysByPrefix(prefix)) {
-    const sort = key.slice(prefix.length) as CompanySort;
-    refreshList(key, () => fetchCompaniesList(userId, sort));
+    // `companies:<userId>:<sort>`, and neither part can contain a colon.
+    const [, keyUserId, sort] = key.split(":");
+    if (!keyUserId || !sort) continue;
+    refreshList(key, () => fetchCompaniesList(keyUserId, sort as CompanySort));
   }
 }
