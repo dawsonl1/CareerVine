@@ -1372,6 +1372,17 @@ export interface CompanyPerson {
   selection_reason: string | null;
   last_scraped_at: string | null;
   linkedin_url: string | null;
+  /**
+   * The contact's own outreach stage, populated for FORMER employees too.
+   *
+   * It says nothing about whether they still work at the company whose page you
+   * are on — that lives in which array they arrived in (`current` vs `former`),
+   * never on this field. So never build a company-level claim by concatenating
+   * the two rosters and reading `stage`: an email to somebody who left in 2016
+   * then reads as traction at the company you are trying to get into. That was
+   * CAR-255 on the pipeline panel and CAR-244 on the list traction chip, from
+   * this same field, two years apart in the codebase.
+   */
   stage: OutreachStage | null;
   email: { address: string; source: string; bounced: boolean } | null;
   /** Most recent logged interaction (offline touchpoints live on the contact). */
@@ -2040,16 +2051,14 @@ export async function removeTargetCompany(targetId: number) {
   if (error) throw error;
 }
 
-export async function updateTargetCompany(
-  targetId: number,
-  patch: Partial<Pick<TargetInfo, "priority_score" | "tier" | "program_name" | "app_window_text" | "next_app_date" | "status">>,
-) {
-  const { error } = await db()
-    .from("target_companies")
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq("id", targetId);
-  if (error) throw error;
-}
+// `updateTargetCompany(targetId, patch)` was deleted here (CAR-255). It had no
+// callers, and it was the last writer of `target_companies.status` with none of
+// the gates the real ones carry: no `is_current` employment check, no
+// forward-only `status = 'researching'` re-assertion, and no `user_id` scoping
+// on the update. Wiring it up would have re-opened the defect this ticket
+// closed. The two sanctioned writers are `advanceCompaniesForContacts`
+// (automatic, reply-driven) and `syncScopeStatus` in pipeline-queries.ts
+// (the user moving the stage by hand).
 
 export async function addTargetCompanyNote(targetCompanyId: number, note: string, locationId?: number | null) {
   const { error } = await db()

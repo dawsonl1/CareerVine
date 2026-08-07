@@ -228,6 +228,7 @@ function StageSummary({
   cycleForm: CycleFormState;
   scopeLabel: string;
   isCompanyScope: boolean;
+  /** Built by `outreachRecord` — current employees only. */
   outreachContacts: CompanyPerson[];
 }) {
   const { researching, applied, interviewing } = cycleForm;
@@ -384,6 +385,7 @@ function StageFormFields({
   userId: string;
   isCompanyScope: boolean;
   scopeLabel: string;
+  /** Built by `outreachRecord` — current employees only. */
   outreachContacts: CompanyPerson[];
   block: LocationBlock | null;
   onPatchCycle: (patch: (prev: CycleFormState) => CycleFormState) => void;
@@ -1079,6 +1081,34 @@ function BenchSection({
   );
 }
 
+/**
+ * Who counts as outreach AT this company (CAR-255).
+ *
+ * Two gates, both load-bearing:
+ *
+ *  1. CURRENT EMPLOYEES ONLY. An email to somebody who left in 2016 is not
+ *     traction at the company you are trying to get into, and rendering it as
+ *     "Contact made with Preston" reads as a door that is already open. The
+ *     caller enforces this by handing over the scope's `current` roster; the
+ *     signature says so, and `former` has no path in. Every sibling surface
+ *     already draws this line: the list traction chip (CAR-244/246), the roster
+ *     split (CAR-241), and the stage advance that put the company here in the
+ *     first place (CAR-243, `is_current` in company-stage-advance.ts).
+ *  2. UNFILTERED BY THE ROSTER SEARCH. This is a record of what happened, not a
+ *     view of what the search box matched. Passing the filtered roster let a
+ *     query rewrite the stage's claim and an unmatched one empty it.
+ *
+ * `bounced` is excluded alongside `not_contacted`: the send failed, so no
+ * contact was made. Bench contacts never arrive here — they are a separate
+ * roster array upstream — which matches the traction chip treating an archived
+ * contact as no traction.
+ */
+function outreachRecord(currentEmployees: CompanyPerson[]): CompanyPerson[] {
+  return currentEmployees.filter(
+    (p) => p.stage && p.stage !== "not_contacted" && p.stage !== "bounced",
+  );
+}
+
 function RecruitingPanel({
   userId,
   scopeLabel,
@@ -1086,7 +1116,7 @@ function RecruitingPanel({
   targeted,
   onTargetChange,
   block,
-  people,
+  currentEmployees,
   scopeState,
   cycleForm,
   onSelectStage,
@@ -1101,7 +1131,12 @@ function RecruitingPanel({
   targeted: boolean;
   onTargetChange: (targeted: boolean) => void;
   block: LocationBlock | null;
-  people: CompanyPerson[];
+  /**
+   * The scope's CURRENT employees, unfiltered by the roster search. Named for
+   * the invariant rather than typed as a bare `people`, because the whole defect
+   * in CAR-255 was a caller handing over `[...current, ...former]`.
+   */
+  currentEmployees: CompanyPerson[];
   scopeState: ReturnType<typeof getScopeState>;
   cycleForm: CycleFormState;
   onSelectStage: (stage: PipelineStage) => void;
@@ -1110,9 +1145,7 @@ function RecruitingPanel({
   onStartNextCycle: () => void;
   onDeleteCycle: (cycle: number) => void;
 }) {
-  const outreachContacts = people.filter(
-    (p) => p.stage && p.stage !== "not_contacted" && p.stage !== "bounced",
-  );
+  const outreachContacts = outreachRecord(currentEmployees);
 
   const progressStage = cycleForm.selectedStage;
   const [expandedStage, setExpandedStage] = useState<PipelineStage>(progressStage);
@@ -1332,9 +1365,12 @@ export function PipelineLayout({
     [currentPeople, query],
   );
   const filteredFormer = useMemo(() => filterPeople(formerPeople, query), [formerPeople, query]);
-  // Everything the roster shows, collapsed or not — the header count and the
-  // recruiting panel both speak for the whole company, not for what happens to
-  // be expanded.
+  // Everything the roster shows, collapsed or not: the header count speaks for
+  // both groups, not for whichever one happens to be expanded.
+  //
+  // Roster-scoped ONLY. The recruiting panel used to read this too, which is how
+  // former employees got recorded as outreach and how a search rewrote the
+  // record (CAR-255) — it takes `currentPeople` now.
   const filteredPeople = useMemo(
     () => [...filteredCurrent, ...filteredFormer],
     [filteredCurrent, filteredFormer],
@@ -1498,7 +1534,11 @@ export function PipelineLayout({
           targeted={targeted}
           onTargetChange={(v) => actions.setScopeTargeted(scope, v)}
           block={recruitingBlock}
-          people={filteredPeople}
+          // Deliberately NOT `filteredPeople` (CAR-255): that list is former
+          // employees concatenated onto current ones AND narrowed by the roster
+          // search, so it recorded outreach at companies people had left and
+          // rewrote the record as you typed. See `outreachRecord`.
+          currentEmployees={currentPeople}
           scopeState={scopeState}
           cycleForm={cycleForm}
           onSelectStage={(stage) => actions.selectStage(scope, stage)}
