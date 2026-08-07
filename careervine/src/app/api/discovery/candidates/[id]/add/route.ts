@@ -3,6 +3,7 @@ import { idParamSchema } from "@/lib/api-schemas";
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import { importPeopleChunk } from "@/lib/bulk-import";
 import { buildCandidatePeopleRecord } from "@/lib/apify/discovery";
+import { ensureCompanyTargets } from "@/lib/company-helpers";
 import { triggerEnrichOnSave } from "@/lib/apify/scrape-service";
 import { REDACTED_CANDIDATE_FIELDS } from "@/lib/data-retention";
 
@@ -82,6 +83,11 @@ export const POST = withApiHandler({
       .from("discovery_candidates")
       .update({ status: "added", added_contact_id: result.contact_id, ...REDACTED_CANDIDATE_FIELDS })
       .eq("id", c.id);
+
+    // Discovery surfaces people BY the company they currently work at, so
+    // clicking Add is a deliberate statement about that company (CAR-263). The
+    // candidate's company_id is that current employer by construction.
+    await ensureCompanyTargets(service, user.id, [c.company_id]);
 
     const enrich = await triggerEnrichOnSave(user.id, result.contact_id);
     return { success: true, contactId: result.contact_id, enrich: enrich.status };

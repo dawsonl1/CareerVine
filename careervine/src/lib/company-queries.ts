@@ -36,7 +36,7 @@ import {
 import { chunked, chunkedPaginated, paginateAll, escapeIlike } from "@/lib/data/postgrest";
 import { must } from "@/lib/data/client";
 import { getUserSchool } from "@/lib/data/users";
-import { findOrCreateCompany } from "./company-helpers";
+import { ensureCompanyTargets as ensureCompanyTargetsShared, findOrCreateCompany } from "./company-helpers";
 import { nextActionForCompany, NO_ACTION_RANK } from "./company-next-action";
 import { isByuFamilySchool, schoolsMatch } from "@/lib/schools/affinity";
 import { sortExperiences } from "@/lib/experience-order";
@@ -2327,6 +2327,20 @@ export async function addTargetCompany(userId: string, companyId: number) {
     .single();
   if (error) throw error;
   return data as { id: number };
+}
+
+/**
+ * Target the companies a deliberately-added contact CURRENTLY works at (CAR-263).
+ *
+ * Lives here rather than in the contacts data layer because it is target
+ * bookkeeping, and because THIS module's client seam is the one MCP injects into
+ * (`setCompanyQueriesClient`), so browser and MCP callers share one wrapper. The
+ * rules — create missing rows only, never write `is_targeted`, company-wide
+ * scope — live in the shared helper. API routes with their own client call that
+ * helper directly instead.
+ */
+export async function ensureCompanyTargets(userId: string, companyIds: number[]): Promise<number> {
+  return await ensureCompanyTargetsShared(db() as never, userId, companyIds);
 }
 
 export async function updateTargetCompanyTargeted(targetId: number, isTargeted: boolean) {

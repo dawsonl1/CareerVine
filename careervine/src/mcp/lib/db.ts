@@ -14,7 +14,7 @@
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service-client";
 import type { TablesInsert } from "@/lib/database.types";
-import { setCompanyQueriesClient } from "@/lib/company-queries";
+import { ensureCompanyTargets, setCompanyQueriesClient } from "@/lib/company-queries";
 import { setDataClient, type QueryClient } from "@/lib/data/client";
 import { getUserSchool } from "@/lib/data/users";
 import { chunked, escapeIlike, paginateAll } from "@/lib/data/postgrest";
@@ -294,17 +294,23 @@ export async function createContactFull(input: NewContactInput): Promise<number>
     }
     if (input.company?.name) {
       const company = await findOrCreateCompany(input.company.name);
+      const isCurrent = input.company.is_current ?? true;
       await addCompanyToContact({
         contact_id: contactId,
         company_id: company.id,
         title: input.company.title ?? null,
-        is_current: input.company.is_current ?? true,
+        is_current: isCurrent,
         location: null,
         start_date: null,
         end_date: null,
         start_month: null,
         end_month: null,
       });
+      // add_contact is a deliberate single-person add, so the employer joins the
+      // target list (CAR-263). Past employers do not, hence the is_current gate.
+      // Unlike add_company_intel this never revives a hand-untargeted company:
+      // the helper only creates rows that are missing.
+      if (isCurrent) await ensureCompanyTargets(uid(), [company.id]);
     }
     if (input.school?.name) {
       const school = await findOrCreateSchool(input.school.name);

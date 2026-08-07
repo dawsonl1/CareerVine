@@ -520,3 +520,82 @@ export async function ensureCompanyLocations(
     await ensureCompanyLocation(supabase, p.company_id, p.location_id, source);
   }
 }
+
+/**
+ * Target the companies a deliberately-added person CURRENTLY works at (CAR-263).
+ *
+ * Adding someone by hand is a statement that you care about where they work, so
+ * their employer joins the target list instead of sitting in the `in_play` limbo
+ * every imported contact's employer occupies. Measured against real data before
+ * scoping this: applying it to EVERY contact would have created 528 targets at
+ * once, so the bulk paths (bundle sync, pipeline import, scrape refresh) do not
+ * call this. Only the five deliberate single-person paths do.
+ *
+ * Three rules, each load-bearing:
+ *
+ * 1. **CURRENT roles only.** A profile save mints a company row for every job in
+ *    the person's history, so passing "their companies" unfiltered would target
+ *    all fifteen past employers. Callers pass only what `is_current` covers.
+ * 2. **Missing rows only — `is_targeted` is never written.** A company the user
+ *    untargeted must stay untargeted when another contact there shows up. This is
+ *    CAR-258's rule at a second call site: nothing automatic may reverse a
+ *    hand-set un-target.
+ * 3. **Company-wide scope only** (`location_id IS NULL`). Office-level targeting
+ *    is a deliberate per-office act on the company page, not something a contact
+ *    save can infer.
+ *
+ * Returns how many targets were created. Never throws for the caller's sake: a
+ * contact save must not fail because the target bookkeeping did, so errors are
+ * logged and swallowed — including the 23505 a concurrent save races into
+ * against `target_companies_user_company_companywide`, where losing the race
+ * means the row exists, which is the goal.
+ */
+export async function ensureCompanyTargets(
+  supabase: SupabaseClient,
+  userId: string,
+  companyIds: number[],
+): Promise<number> {
+  const ids = [...new Set(companyIds)].filter((id) => Number.isFinite(id));
+  if (ids.length === 0) return 0;
+
+  try {
+    // Chunked because a single contact can carry more employers than a URL-length
+    // `in()` safely holds, and this shares the data layer's limits.
+    const have = new Set<number>();
+    for (const chunk of chunkList(ids)) {
+      const rows = must(
+        await supabase
+          .from("target_companies")
+          .select("company_id")
+          .eq("user_id", userId)
+          .is("location_id", null)
+          .in("company_id", chunk)
+          // Deliberate and exactly sufficient: `target_companies_user_company_companywide`
+          // is UNIQUE on (user_id, company_id) WHERE location_id IS NULL, so this
+          // returns at most one row per id in the chunk. Never near PostgREST's
+          // silent 1000-row truncation, and a partial page here would read as
+          // "not targeted yet" and create a duplicate.
+          .limit(chunk.length),
+      ) as Array<{ company_id: number }> | null;
+      for (const r of rows ?? []) have.add(r.company_id);
+    }
+
+    const missing = ids.filter((id) => !have.has(id));
+    if (missing.length === 0) return 0;
+
+    // `is_targeted` and `status` are omitted so both take their column defaults
+    // (true / 'researching') — the same shape addTargetCompany inserts.
+    const { error } = await supabase
+      .from("target_companies")
+      .insert(missing.map((company_id) => ({ user_id: userId, company_id })));
+    if (error) {
+      // 23505 = another save created the same row first. Not a failure.
+      if ((error as { code?: string }).code !== "23505") throw error;
+      return 0;
+    }
+    return missing.length;
+  } catch (err) {
+    console.error("[ensureCompanyTargets] could not target current employers:", err);
+    return 0;
+  }
+}

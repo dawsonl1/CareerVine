@@ -166,6 +166,12 @@ New contacts saved from the browser extension are enriched automatically (photo,
 real work history, and a verified email in one pass), so a two-second save produces
 a complete profile.
 
+Adding someone by hand also adds their employer to your target companies, since
+choosing to save a person is already a statement about where they work. Only the
+job they hold now counts, not the ones they have left, and a company you have set
+to "Not a target" stays that way. Bulk imports are left out on purpose: loading a
+data bundle of two thousand prospects should not turn into two thousand targets.
+
 ### Admin spend controls
 
 For account managers, the admin dashboard adds per-account switches for all of
