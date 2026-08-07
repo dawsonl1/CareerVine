@@ -8,6 +8,177 @@
 
 import { randomUUID } from "node:crypto";
 import { db, must } from "./client";
+import {
+  loadPipeline,
+  savePipelineCycle,
+  type LoadedPipeline,
+} from "@/lib/pipeline-queries";
+import { createPipelineEntityId, type CycleFormState } from "@/lib/pipeline-state";
+
+/**
+ * Read a company's whole recruiting board (CAR-270).
+ *
+ * A thin re-export of `loadPipeline`, and the indirection is the point.
+ * `src/lib/pipeline-queries.ts` sits OUTSIDE the MCP scoping gate: that suite
+ * globs `src/lib/data/*.ts` exactly, so a tool importing `loadPipeline` directly
+ * would compile, pass CI, and be the one MCP data path in the codebase with no
+ * mechanical scoping enforcement at all. Routing through this module pulls it
+ * into `DATA_TABLES`, which forces a classification entry and a drive that
+ * exercises its real queries.
+ *
+ * `loadPipeline` scopes at the root (`target_companies` filtered by user_id) and
+ * everything below keys on ids that read produced — the ownership pattern the
+ * gate models. Safe as written, and now checked.
+ *
+ * Returns an empty Map when the user has no target row for the company, rather
+ * than throwing: "not a target" is an answer, not an error.
+ */
+export async function loadCompanyPipeline(
+  userId: string,
+  companyId: number,
+): Promise<LoadedPipeline> {
+  // Ownership is proven HERE, in the gated module, rather than inherited from
+  // `loadPipeline`'s own root filter. A bare delegation would have been a
+  // pass-through: the scoping gate's provenance check flagged it, because no
+  // query originated in this file and the classification would have been a
+  // claim about code the gate cannot see. This read is scoped, cheap, and makes
+  // the guarantee local — if `loadPipeline` ever loses its filter, this still
+  // refuses a company the user does not target.
+  const owned = must(
+    await db()
+      .from("target_companies")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("company_id", companyId)
+      .limit(1),
+  ) as Array<{ id: number }> | null;
+  if (!owned || owned.length === 0) return new Map();
+
+  return loadPipeline(userId, companyId);
+}
+
+/** What an append needs to locate: one scope's cycle, and the target that owns it. */
+async function resolveCycleForAppend(
+  userId: string,
+  companyId: number,
+  scopeKey: string,
+  cycleNumber?: number,
+): Promise<{ targetId: number; cycleNumber: number; form: CycleFormState }> {
+  const pipeline = await loadCompanyPipeline(userId, companyId);
+  const scope = pipeline.get(scopeKey);
+  if (!scope) {
+    throw new Error(
+      `No pipeline scope "${scopeKey}" for company ${companyId} — target the company first, or use scope "all".`,
+    );
+  }
+  const cycle = cycleNumber ?? scope.scope.activeCycle;
+  const form = scope.scope.cycles[String(cycle)];
+  if (!form) throw new Error(`Company ${companyId} has no cycle ${cycle} in scope "${scopeKey}"`);
+  return { targetId: scope.targetId, cycleNumber: cycle, form };
+}
+
+/**
+ * Append one entry to a cycle collection and persist the whole cycle (CAR-270).
+ *
+ * Sends the FULL collection, not just the new row, because
+ * `save_pipeline_cycle` assigns `position = ord - 1` across whatever payload it
+ * receives: a one-row payload would renumber that row to position 0 and collide
+ * with the entries already there. This is what the UI does too.
+ *
+ * No `deleted` key, ever. CAR-238 made deletion explicit precisely so a writer
+ * that has not seen every row cannot destroy the ones it does not know about,
+ * and an append has no business removing anything.
+ *
+ * `loadCompanyPipeline` above is the ownership proof: its root read is scoped to
+ * `userId`, and `save_pipeline_cycle` itself performs NO ownership check — it is
+ * SECURITY INVOKER relying on RLS, which the MCP service client bypasses. The
+ * target id handed to the RPC must therefore be one this call already proved.
+ */
+async function appendToCycle(
+  userId: string,
+  companyId: number,
+  scopeKey: string,
+  cycleNumber: number | undefined,
+  mutate: (form: CycleFormState) => CycleFormState,
+): Promise<{ targetId: number; cycleNumber: number }> {
+  const { targetId, cycleNumber: cycle, form } = await resolveCycleForAppend(
+    userId,
+    companyId,
+    scopeKey,
+    cycleNumber,
+  );
+  await savePipelineCycle(targetId, cycle, mutate(form));
+  return { targetId, cycleNumber: cycle };
+}
+
+export interface ApplicationInput {
+  jobTitle: string;
+  location?: string;
+  dateApplied?: string;
+}
+
+/** Log an application on a cycle. Attachments are upload-only, so none are set. */
+export async function appendApplication(
+  userId: string,
+  companyId: number,
+  scopeKey: string,
+  cycleNumber: number | undefined,
+  input: ApplicationInput,
+): Promise<{ targetId: number; cycleNumber: number; applicationId: string }> {
+  const applicationId = createPipelineEntityId();
+  const result = await appendToCycle(userId, companyId, scopeKey, cycleNumber, (form) => ({
+    ...form,
+    applied: {
+      applications: [
+        ...form.applied.applications,
+        {
+          id: applicationId,
+          jobTitle: input.jobTitle,
+          location: input.location ?? "",
+          dateApplied: input.dateApplied ?? "",
+          // PDFs are browser uploads into a private bucket; there is no path an
+          // agent could supply that would resolve.
+          resume: null,
+          coverLetter: null,
+        },
+      ],
+    },
+  }));
+  return { ...result, applicationId };
+}
+
+export interface InterviewRoundInput {
+  date?: string;
+  interviewer?: string;
+  /** Column is `questions`; the UI labels it "Interview notes". Free text. */
+  notes?: string;
+}
+
+/** Log an interview round on a cycle. */
+export async function appendInterviewRound(
+  userId: string,
+  companyId: number,
+  scopeKey: string,
+  cycleNumber: number | undefined,
+  input: InterviewRoundInput,
+): Promise<{ targetId: number; cycleNumber: number; roundId: string }> {
+  const roundId = createPipelineEntityId();
+  const result = await appendToCycle(userId, companyId, scopeKey, cycleNumber, (form) => ({
+    ...form,
+    interviewing: {
+      rounds: [
+        ...form.interviewing.rounds,
+        {
+          id: roundId,
+          date: input.date ?? "",
+          interviewer: input.interviewer ?? "",
+          questions: input.notes ?? "",
+        },
+      ],
+    },
+  }));
+  return { ...result, roundId };
+}
 
 /**
  * The five recruiting stages. A type, not a runtime array: the only caller is

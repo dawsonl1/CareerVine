@@ -47,7 +47,12 @@ import {
 import {
   setCompanyStage,
   updateTargetResearch,
+  loadCompanyPipeline,
+  appendApplication,
+  appendInterviewRound,
   type TargetCompanyStage,
+  type ApplicationInput,
+  type InterviewRoundInput,
 } from "@/lib/data/pipeline";
 import { getNetworkingStreak } from "@/lib/data/home";
 import { createActionItem as createActionItemShared, getActionItems } from "@/lib/data/action-items";
@@ -558,6 +563,89 @@ export async function setCompanyStageForCompany(
   const targetId = await getOrCreateTargetCompany(companyId);
   const { previousStage } = await setCompanyStage(uid(), targetId, stage);
   return { targetId, previousStage };
+}
+
+/**
+ * The whole recruiting board for a company, flattened for a tool response
+ * (CAR-270).
+ *
+ * `loadCompanyPipeline` returns a Map keyed by scope ("all" for company-wide,
+ * else the location id as a string) whose values carry a per-cycle form model.
+ * That shape exists for a React form; an agent wants a list.
+ *
+ * Attachment PATHS are deliberately dropped. `resume_path` is
+ * `${userId}/${uuid}.pdf` inside a private bucket, so the value is unusable
+ * without a signed URL and it embeds the user's uuid. Name and size answer
+ * "which resume did I send", which is the actual question, without handing back
+ * something that looks fetchable and is not.
+ */
+export async function getCompanyPipeline(companyId: number) {
+  const pipeline = await loadCompanyPipeline(uid(), companyId);
+  return [...pipeline.entries()].map(([scopeKey, scope]) => ({
+    scope: scopeKey,
+    scope_label: scopeKey === "all" ? "Company-wide" : `Office ${scope.locationId}`,
+    location_id: scope.locationId,
+    target_id: scope.targetId,
+    is_targeted: scope.isTargeted,
+    // The list badge's stage. The per-cycle `stage` below is what the company
+    // page shows; they are written together and should agree.
+    target_status: scope.status,
+    active_cycle: scope.scope.activeCycle,
+    cycle_count: scope.scope.cycleCount,
+    cycles: Object.entries(scope.scope.cycles)
+      .map(([number, form]) => ({
+        cycle_number: Number(number),
+        stage: form.selectedStage,
+        // "Declined to open the NEXT cycle" — a UI intent flag, not an outcome.
+        // It does not mean rejected and gates no logic.
+        declined_next_cycle: form.closed.declinedNextCycle,
+        programs: form.researching.programs.map((p) => ({
+          name: p.name,
+          apps_open: p.appsOpen,
+          job_potential: p.jobPotential,
+        })),
+        notes: form.researching.notes.map((n) => n.body),
+        applications: form.applied.applications.map((a) => ({
+          application_id: a.id,
+          job_title: a.jobTitle,
+          location: a.location,
+          date_applied: a.dateApplied,
+          resume: a.resume ? { name: a.resume.name, size_bytes: a.resume.sizeBytes } : null,
+          cover_letter: a.coverLetter
+            ? { name: a.coverLetter.name, size_bytes: a.coverLetter.sizeBytes }
+            : null,
+        })),
+        interview_rounds: form.interviewing.rounds.map((r) => ({
+          round_id: r.id,
+          date: r.date,
+          interviewer: r.interviewer,
+          // Column is `questions`; the UI labels it "Interview notes" and it is
+          // free text, not a question list.
+          notes: r.questions,
+        })),
+      }))
+      .sort((a, b) => a.cycle_number - b.cycle_number),
+  }));
+}
+
+/** Log an application on a company's pipeline cycle (CAR-270). */
+export async function logApplication(
+  companyId: number,
+  scopeKey: string,
+  cycleNumber: number | undefined,
+  input: ApplicationInput,
+) {
+  return appendApplication(uid(), companyId, scopeKey, cycleNumber, input);
+}
+
+/** Log an interview round on a company's pipeline cycle (CAR-270). */
+export async function logInterviewRound(
+  companyId: number,
+  scopeKey: string,
+  cycleNumber: number | undefined,
+  input: InterviewRoundInput,
+) {
+  return appendInterviewRound(uid(), companyId, scopeKey, cycleNumber, input);
 }
 
 /** Set a company target's research fields, creating the target row if absent (CAR-265). */
