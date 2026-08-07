@@ -30,6 +30,7 @@ function company(overrides: CompanyOverrides): CompanySummary {
     lead_contact_name: null,
     office_scopes: [],
     traction: null,
+    traction_detail: null,
     ...rest,
     target:
       target == null

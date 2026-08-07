@@ -25,7 +25,7 @@ const USER = "user-traction";
 
 /** The BambooHR shape: one contacted former employee, one untouched current alum in product. */
 const MIXED = 44;
-/** Everyone has moved on — the fallback case. */
+/** Everyone has moved on — traction blanks out entirely (CAR-246). */
 const FORMER_ONLY = 55;
 
 interface Emp {
@@ -180,7 +180,9 @@ describe("company traction reads current employees (CAR-244)", () => {
 
   it("surfaces the warm intro the former employee was suppressing", async () => {
     const c = (await summaries()).get(MIXED)!;
-    const { text } = action(c);
+    const a = action(c);
+    expect(a).not.toBeNull();
+    const text = a!.text;
 
     // Before the fix this read "Waiting on Person. Follow up if it's been a
     // while" — the rank-56 contacted branch outranking the warm intro at 44.
@@ -188,13 +190,21 @@ describe("company traction reads current employees (CAR-244)", () => {
     expect(text).not.toMatch(/Waiting on/);
   });
 
-  it("keeps a former-only company's real history rather than blanking it", async () => {
+  it("blanks a former-only company rather than crediting someone who left", async () => {
     const c = (await summaries()).get(FORMER_ONLY)!;
 
-    // Nobody current to prefer, so the fallback keeps what actually happened.
-    expect(c.traction).toBe("contacted");
-    expect(c.lead_contact_name).toBe("Person 501");
-    expect(action(c).text).toMatch(/^Waiting on Person\./);
+    // CAR-244 shipped a fallback here: with nobody current, traction reverted to
+    // the former employees so the chip would not go empty. CAR-246 REMOVED it
+    // deliberately — "Contacted (3 months ago)" beside a company where everyone
+    // you know has left describes a door that is already shut. If this ever
+    // reads "contacted" again, the fallback was restored; that is the
+    // regression, not this expectation.
+    expect(c.traction).toBeNull();
+    expect(c.traction_detail).toBeNull();
+    expect(c.lead_contact_name).toBeNull();
+    // Nothing to say at all now: no current contacts, no deadline, no pipeline
+    // state of its own.
+    expect(action(c)).toBeNull();
   });
 
   it("still counts current employees for the who-you-know fields", async () => {
