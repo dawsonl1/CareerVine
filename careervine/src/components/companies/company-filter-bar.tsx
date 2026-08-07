@@ -9,6 +9,7 @@ import {
   type AlumniFilter,
   type CompanyFilters,
   type ContactsFilter,
+  type TargetingFilter,
   type TargetStatus,
 } from "@/lib/company-filters";
 import { STAGE_LABELS, STAGE_ORDER, type OutreachStage } from "@/lib/stage-derivation";
@@ -65,7 +66,8 @@ function secondaryActiveCount(f: CompanyFilters): number {
     (f.traction.length > 0 ? 1 : 0) +
     (f.tiers.length > 0 ? 1 : 0) +
     (f.contacts.length > 0 ? 1 : 0) +
-    (f.alumni.length > 0 ? 1 : 0)
+    (f.alumni.length > 0 ? 1 : 0) +
+    (f.targeting.length > 0 ? 1 : 0)
   );
 }
 
@@ -138,8 +140,8 @@ export default function CompanyFilterBar({
         </button>
       </div>
 
-      {/* Secondary tier: warmth + traction/tier/contacts/alumni, collapsed by default.
-          Toggle chips first, then the multi-select facets. */}
+      {/* Secondary tier: warmth + target/traction/tier/contacts/alumni, collapsed by
+          default. Toggle chips first, then the multi-select facets. */}
       {open && (
         <div className="flex flex-wrap items-center gap-2 border-t border-outline-variant pt-3">
           {/* Hidden, not disabled, without affinity (CAR-213): the filter
@@ -156,6 +158,25 @@ export default function CompanyFilterBar({
               {affinity.abbr ? `${affinity.abbr} alum in product` : "Alum in product"}
             </button>
           )}
+
+          {/* First of the selects, and deliberately: it is the coarsest cut in the
+              row, and it qualifies the status chips directly above it. The list is
+              `in_play` (targets plus anyone you know somewhere), so "Not a target"
+              is the only way to see the companies you know people at but have not
+              picked up yet — the status chips cannot express it, since every one of
+              them narrows to a target already (CAR-252). */}
+          <MultiSelect
+            ariaLabel="Filter by target company"
+            anyLabel="Any company"
+            values={filters.targeting}
+            onChange={(v) => onFiltersChange({ ...filters, targeting: v as TargetingFilter[] })}
+            options={[
+              { value: "target", label: "Target company" },
+              { value: "untargeted", label: "Not a target" },
+            ]}
+            className="text-sm"
+            triggerClassName={SELECT_TRIGGER}
+          />
 
           <MultiSelect
             ariaLabel="Filter by traction"

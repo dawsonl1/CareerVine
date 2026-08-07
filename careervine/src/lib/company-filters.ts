@@ -53,6 +53,29 @@ export type ContactsFilter = (typeof CONTACTS_FILTERS)[number];
 export const ALUMNI_FILTERS = ["with", "without"] as const;
 export type AlumniFilter = (typeof ALUMNI_FILTERS)[number];
 
+/**
+ * Whether the company is one the user targets (CAR-252).
+ *
+ * The page loads `scope: "in_play"` — targets UNION companies with a current
+ * non-bench contact — so the list genuinely holds both kinds, and `untargeted` is
+ * the "who do I know that I haven't targeted yet" view that nothing else reaches.
+ * `target` follows `CompanySummary.target`, which `deriveCompanyTarget` leaves null
+ * both when no target_companies row exists and when every scope row is
+ * soft-untargeted, so "Not a target" agrees with the company card either way.
+ *
+ * ON THE OVERLAP WITH THE STATUS CHIPS, which the header above makes a live
+ * concern: `target_companies.status` is CHECK-pinned to the five TARGET_STATUSES,
+ * so selecting every status chip already yields exactly `target`. That is NOT the
+ * CAR-248 defect. There the two controls combined DIFFERENTLY (one ANDed, one
+ * ORed) with nothing on screen to say which; here both OR within themselves and
+ * AND across, so "Target company" + "Applied" behaves as it reads. And the value
+ * that motivates the facet, `untargeted`, is unreachable from the chips at all —
+ * `target` is its mandatory partner, because a facet only satisfies "select
+ * everything = select nothing" when its values cover the dimension.
+ */
+export const TARGETING_FILTERS = ["target", "untargeted"] as const;
+export type TargetingFilter = (typeof TARGETING_FILTERS)[number];
+
 export interface CompanyFilters {
   /** Free-text query — matched against name, program name, and tier label. */
   q: string;
@@ -66,6 +89,8 @@ export interface CompanyFilters {
   contacts: ContactsFilter[];
   /** Alumni-presence sides to include; empty (or both) = any. */
   alumni: AlumniFilter[];
+  /** Target-vs-not sides to include; empty (or both) = any. */
+  targeting: TargetingFilter[];
   /** Only companies with an alum of the user's school in a product role. */
   productAlum: boolean;
 }
@@ -77,6 +102,7 @@ export const EMPTY_COMPANY_FILTERS: CompanyFilters = {
   tiers: [],
   contacts: [],
   alumni: [],
+  targeting: [],
   productAlum: false,
 };
 
@@ -84,6 +110,7 @@ const VALID_STATUSES = new Set<string>(TARGET_STATUSES);
 const VALID_STAGES = new Set<string>(STAGE_ORDER);
 const VALID_CONTACTS = new Set<string>(CONTACTS_FILTERS);
 const VALID_ALUMNI = new Set<string>(ALUMNI_FILTERS);
+const VALID_TARGETING = new Set<string>(TARGETING_FILTERS);
 
 export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
   return (
@@ -93,6 +120,7 @@ export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
     f.tiers.length > 0 ||
     f.contacts.length > 0 ||
     f.alumni.length > 0 ||
+    f.targeting.length > 0 ||
     f.productAlum
   );
 }
@@ -125,6 +153,10 @@ export function filterCompanies(rows: CompanySummary[], f: CompanyFilters): Comp
     if (f.alumni.length > 0) {
       const withAlumni = c.alum_count > 0;
       if (!f.alumni.some((side) => (side === "with" ? withAlumni : !withAlumni))) return false;
+    }
+    if (f.targeting.length > 0) {
+      const isTarget = c.target != null;
+      if (!f.targeting.some((side) => (side === "target" ? isTarget : !isTarget))) return false;
     }
     if (f.productAlum && c.product_alum_count === 0) return false;
     return true;
@@ -174,7 +206,8 @@ export function statusChipCounts(
 
 // ── URL param round-trip ────────────────────────────────────────────────
 // Scheme: ?q=stripe&status=applied,interviewing&traction=replied,call_done
-//          &tier=Big+Tech&tier=Utah&contacts=none&alumni=with&product_alum=1
+//          &tier=Big+Tech&tier=Utah&contacts=none&alumni=with&targeting=untargeted
+//          &product_alum=1
 //
 // Param names stay SINGULAR, so every link shared before the facets went
 // multi-value still parses: one value lands as a one-element array, and the
@@ -239,6 +272,10 @@ export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
       parseList<ContactsFilter>(params, "contacts", VALID_CONTACTS),
     ),
     alumni: parseList<AlumniFilter>(params, "alumni", VALID_ALUMNI),
+    // New in CAR-252, so there is no legacy spelling to fold in: every link shared
+    // before it carries no `targeting` param and parses to [], which is exactly the
+    // absence of the filter.
+    targeting: parseList<TargetingFilter>(params, "targeting", VALID_TARGETING),
     productAlum: params.get("product_alum") === "1",
   };
 }
@@ -267,6 +304,7 @@ export function serializeCompanyFilters(f: CompanyFilters, base: URLSearchParams
   setRepeated("tier", f.tiers);
   setList("contacts", f.contacts);
   setList("alumni", f.alumni);
+  setList("targeting", f.targeting);
   // Retired in CAR-248. Deleted rather than merely not written: `parse` has
   // already folded it into `contacts`, so leaving it on the URL would apply it a
   // second time on the next read and re-narrow a filter the user just widened.
