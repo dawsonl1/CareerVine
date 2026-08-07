@@ -158,6 +158,7 @@ describe("nextActionForCompany adapter", () => {
       },
       office_scopes: [],
       traction: "replied",
+      traction_detail: { count: 1, at: "2026-07-18T00:00:00Z" },
     } satisfies CompanySummary;
     const a = nextActionForCompany(c, NOW);
     expect(a.text).toContain("Sarah");

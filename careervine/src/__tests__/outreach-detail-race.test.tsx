@@ -79,6 +79,7 @@ function summary(id: number, name: string): CompanySummary {
     target: { status: "open" } as CompanySummary["target"],
     office_scopes: [],
     traction: null,
+    traction_detail: null,
   };
 }
 

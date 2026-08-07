@@ -100,6 +100,13 @@ search and stackable filters:
 - Every filtered view lives in the URL: share it, bookmark it, or click into a
   company and come back without losing your place.
 
+Each card also carries a traction badge that reads like a status report rather
+than a label: "3 Contacted (2 days ago)", "2 Calls Done (2 weeks ago)", "1 Call
+Scheduled (in 3 days)". You can see at a glance how much has happened at a
+company and whether it has gone cold, without opening it. Only people who
+currently work there count toward it, so a conversation with someone who has
+since moved on never makes a company look warmer than it is.
+
 ## A network that keeps itself fresh
 
 Contact data goes stale the moment you save it. People change jobs, get promoted,

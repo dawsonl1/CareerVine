@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { STATUS_LABELS, STATUS_STYLES } from "@/components/companies/company-filter-bar";
-import { STAGE_LABELS } from "@/lib/stage-derivation";
+import { STAGE_LABELS, STAGE_CHIP_LABELS, type OutreachStage } from "@/lib/stage-derivation";
+import { formatRelativeTime } from "@/lib/relative-time";
 import { nextActionForCompany, type NextActionTone } from "@/lib/company-next-action";
 import type { CompanySummary } from "@/lib/company-queries";
 import {
@@ -59,6 +60,23 @@ const TONE_CHIP: Record<NextActionTone, string> = {
 
 function pluralize(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * The traction chip's text: "2 Calls Done (2 weeks ago)" (CAR-246).
+ *
+ * Degrades in two steps rather than inventing data. A stage with no countable
+ * evidence behind it is a `stage_override` — set by hand, by the tracker import
+ * or over MCP — so it renders the plain label instead of claiming "0 Replies".
+ * A count with no usable timestamp (a referral with no linked meeting) keeps the
+ * count and drops the time clause.
+ */
+function tractionChipText(stage: OutreachStage, detail: { count: number; at: string | null } | null): string {
+  if (!detail || detail.count === 0) return STAGE_LABELS[stage];
+  const { one, many } = STAGE_CHIP_LABELS[stage];
+  const counted = pluralize(detail.count, one, many);
+  const when = formatRelativeTime(detail.at);
+  return when ? `${counted} (${when})` : counted;
 }
 
 /**
@@ -187,8 +205,8 @@ export function CompanyCard({ company: c }: { company: CompanySummary }) {
             {/* Traction badge (secondary) + open affordance */}
             <div className="flex items-center gap-2 shrink-0">
               {c.traction && c.traction !== "not_contacted" && (
-                <span className="hidden sm:inline-flex px-2.5 py-0.5 rounded-full text-xs bg-tertiary-container text-on-tertiary-container">
-                  {STAGE_LABELS[c.traction]}
+                <span className="hidden sm:inline-flex px-2.5 py-0.5 rounded-full text-xs bg-tertiary-container text-on-tertiary-container whitespace-nowrap">
+                  {tractionChipText(c.traction, c.traction_detail)}
                 </span>
               )}
               <ChevronRight className="w-4 h-4 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity" />

@@ -30,9 +30,11 @@ export async function enrichedByDefault(): Promise<void> {
   const all: CompanySummary[] = await getCompanies(USER, { scope: "all", search: "acme" });
   const explicit: CompanySummary[] = await getCompanies(USER, { scope: "targets", enrich: true });
 
-  // The five fields are real numbers/values on the enriched row, not optionals.
+  // The six fields are real numbers/values on the enriched row, not optionals.
   const alum: number = list[0].alum_count;
   const lead: string | null = list[0].lead_contact_name;
+  const detail: { count: number; at: string | null } | null = list[0].traction_detail;
+  void detail;
   const rank: number = nextActionForCompany(list[0]).rank;
 
   void [noOpts, emptyOpts, targets, all, explicit, alum, lead, rank];
@@ -72,6 +74,8 @@ export async function refusals(): Promise<void> {
   void rows[0].traction;
   // @ts-expect-error lead_contact_name is not on an unenriched summary
   void rows[0].lead_contact_name;
+  // @ts-expect-error traction_detail is not on an unenriched summary
+  void rows[0].traction_detail;
 
   // 2. Laundering an unenriched row into somewhere that reads those fields.
   // @ts-expect-error a CompanyBaseSummary is not a CompanySummary
