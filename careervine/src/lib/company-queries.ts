@@ -29,6 +29,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import {
   deriveOutreachStage,
   stageRank,
+  STAGE_ORDER,
   type OutreachStage,
   type StageSignals,
 } from "./stage-derivation";
@@ -36,7 +37,7 @@ import { chunked, chunkedPaginated, paginateAll, escapeIlike } from "@/lib/data/
 import { must } from "@/lib/data/client";
 import { getUserSchool } from "@/lib/data/users";
 import { findOrCreateCompany } from "./company-helpers";
-import { nextActionForCompany } from "./company-next-action";
+import { nextActionForCompany, NO_ACTION_RANK } from "./company-next-action";
 import { isByuFamilySchool, schoolsMatch } from "@/lib/schools/affinity";
 import { sortExperiences } from "@/lib/experience-order";
 import { conversationTypeLabel } from "@/lib/constants";
@@ -120,9 +121,61 @@ function verifiedSchoolCounts(verified: string | null, userSchool: string | null
 
 // ── Stage signals (batch) ──────────────────────────────────────────────
 
+/**
+ * One stage's evidence for a single contact (CAR-246).
+ *
+ * `count` is deliberately NOT uniform across stages. The email states
+ * (contacted / replied / bounced) are per-person and so are 0 or 1 here, because
+ * a thread with five follow-ups is one relationship, not five events. The call
+ * and referral states count the events themselves, so a single call with two
+ * attendees contributes 1 to each of them and the company chip reads
+ * "2 Calls Done" — which is the number of conversations that actually happened.
+ */
+export interface StageTally {
+  count: number;
+  /**
+   * Latest occurrence, EXCEPT `call_scheduled`, which carries the soonest: a
+   * chip about an upcoming call should count down to the next one, not report
+   * the furthest-out one on the calendar. Null when the row carries no usable
+   * date, which drops the time clause rather than inventing one.
+   */
+  at: string | null;
+}
+
 export interface ContactStage {
   stage: OutreachStage;
   rank: number;
+  /**
+   * Per-stage evidence, summed across a company's current employees to build
+   * the list chip. Every stage is present so the caller can read the winning
+   * one without a null check; unreached stages are `{ count: 0, at: null }`.
+   */
+  tallies: Record<OutreachStage, StageTally>;
+}
+
+/** A zeroed tally set — every stage present, nothing claimed. */
+function emptyTallies(): Record<OutreachStage, StageTally> {
+  return STAGE_ORDER.reduce(
+    (acc, stage) => {
+      acc[stage] = { count: 0, at: null };
+      return acc;
+    },
+    {} as Record<OutreachStage, StageTally>,
+  );
+}
+
+/** Later of two ISO timestamps, tolerating nulls on either side. */
+function laterOf(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
+/** Earlier of two ISO timestamps, tolerating nulls on either side. */
+function earlierOf(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;
 }
 
 /**
@@ -207,8 +260,11 @@ export async function getContactStages(
         (await paginateAll(async (from, to) =>
           must(
             await db()
+              // interaction_date (CAR-246): a "Contacted" chip has to say how
+              // long ago, and a LinkedIn DM or a coffee is often the only touch
+              // a contact has — the email leg cannot date those.
               .from("interactions")
-              .select("contact_id, contacts!inner()")
+              .select("contact_id, interaction_date, contacts!inner()")
               .eq("contacts.user_id", userId)
               .in("contact_id", chunk)
               .order("id")
@@ -222,8 +278,11 @@ export async function getContactStages(
         (await paginateAll(async (from, to) =>
           must(
             await db()
+              // The embedded meeting is the ONLY date a referral has (CAR-246):
+              // the table carries no created_at of its own. A referral with no
+              // linked meeting renders count-only, by design.
               .from("referrals")
-              .select("referred_by_contact_id")
+              .select("referred_by_contact_id, meetings(meeting_date)")
               .eq("user_id", userId)
               .in("referred_by_contact_id", chunk)
               .order("id")
@@ -239,7 +298,9 @@ export async function getContactStages(
           must(
             await db()
               .from("contact_emails")
-              .select("contact_id, contacts!inner()")
+              // bounced_at was filtered on but never selected; the chip needs
+              // the value to date a "Bounced" state (CAR-246).
+              .select("contact_id, bounced_at, contacts!inner()")
               .eq("contacts.user_id", userId)
               .not("bounced_at", "is", null)
               .in("contact_id", chunk)
@@ -255,7 +316,9 @@ export async function getContactStages(
           must(
             await db()
               .from("calendar_events")
-              .select("contact_id, start_at, status")
+              // `id` (CAR-246) so the two calendar legs can be deduped before
+              // counting — see the noteEvent aggregation below.
+              .select("id, contact_id, start_at, status")
               .eq("user_id", userId)
               .in("contact_id", chunk)
               .order("id")
@@ -273,7 +336,10 @@ export async function getContactStages(
           must(
             await db()
               .from("calendar_event_contacts")
-              .select("contact_id, calendar_events!inner(user_id, start_at, status)")
+              // calendar_event_id (CAR-246): the same event reaches a contact
+              // through this junction AND through calendar_events.contact_id, so
+              // counting without the id double-counts one call.
+              .select("calendar_event_id, contact_id, calendar_events!inner(user_id, start_at, status)")
               .eq("calendar_events.user_id", userId)
               .in("contact_id", chunk)
               .order("calendar_event_id")
@@ -290,7 +356,8 @@ export async function getContactStages(
           must(
             await db()
               .from("meeting_contacts")
-              .select("contact_id, meetings!inner(user_id, meeting_date)")
+              // meeting_id (CAR-246): same dedupe need as the calendar legs.
+              .select("meeting_id, contact_id, meetings!inner(user_id, meeting_date)")
               .eq("meetings.user_id", userId)
               .in("contact_id", chunk)
               .order("meeting_id")
@@ -312,16 +379,30 @@ export async function getContactStages(
   }
 
   // Aggregate signals per contact
-  const outboundAt = new Map<number, string>(); // earliest outbound date
+  /** Any outbound at all, dated or not — this is what "we reached out" means. */
+  const outboundContacts = new Set<number>();
+  const firstOutboundAt = new Map<number, string>(); // earliest DATED outbound
+  const lastOutboundAt = new Map<number, string>(); // latest DATED outbound (chip recency)
   const inboundAt = new Map<number, string[]>();
   for (const link of emails as Array<{ contact_id: number; email_messages: { direction: string | null; date: string | null; from_address: string | null } | null }>) {
     const m = link.email_messages;
     if (m == null) continue;
     if (m.direction === "outbound") {
       // Outbound credits every linked contact — they all received the outreach.
-      const prev = outboundAt.get(link.contact_id);
-      const d = m.date ?? "";
-      if (!prev || d < prev) outboundAt.set(link.contact_id, d);
+      //
+      // Existence and dates are tracked separately because a message whose Date
+      // header did not parse still proves we reached out, but must never act as
+      // the "earliest outbound" the reply gate compares against: it used to be
+      // stored as "", which every real inbound timestamp trivially clears, so
+      // one undated outbound could report an inbound that PREDATED our outreach
+      // as a reply to it.
+      outboundContacts.add(link.contact_id);
+      if (m.date) {
+        const prevFirst = firstOutboundAt.get(link.contact_id);
+        if (!prevFirst || m.date < prevFirst) firstOutboundAt.set(link.contact_id, m.date);
+        const prevLast = lastOutboundAt.get(link.contact_id);
+        if (!prevLast || m.date > prevLast) lastOutboundAt.set(link.contact_id, m.date);
+      }
     } else if (m.direction === "inbound") {
       // Inbound counts as a REPLY only for the contact who sent it (their
       // address is from_address), not for cc'd co-recipients who merely
@@ -330,52 +411,134 @@ export async function getContactStages(
       // (CAR-159 review F9). A message whose sender matches no linked contact
       // address (rare: sender address removed from the contact) is skipped.
       const from = (m.from_address ?? "").toLowerCase();
-      if (from && addrByContact.get(link.contact_id)?.has(from)) {
+      if (from && addrByContact.get(link.contact_id)?.has(from) && m.date) {
         const list = inboundAt.get(link.contact_id) ?? [];
-        list.push(m.date ?? "");
+        list.push(m.date);
         inboundAt.set(link.contact_id, list);
       }
     }
   }
 
-  const interacted = new Set((interactions as Array<{ contact_id: number }>).map((r) => r.contact_id));
-  const referred = new Set((referrals as Array<{ referred_by_contact_id: number }>).map((r) => r.referred_by_contact_id));
-  const bounced = new Set((bounces as Array<{ contact_id: number }>).map((r) => r.contact_id));
+  const interacted = new Set<number>();
+  const lastInteractionAt = new Map<number, string>();
+  for (const r of interactions as Array<{ contact_id: number; interaction_date: string | null }>) {
+    interacted.add(r.contact_id);
+    if (!r.interaction_date) continue;
+    const prev = lastInteractionAt.get(r.contact_id);
+    if (!prev || r.interaction_date > prev) lastInteractionAt.set(r.contact_id, r.interaction_date);
+  }
 
-  const upcoming = new Set<number>();
-  const past = new Set<number>();
-  const noteEvent = (contactId: number | null, startAt: string | null, status: string | null) => {
+  const referralCount = new Map<number, number>();
+  const lastReferralAt = new Map<number, string>();
+  for (const r of referrals as Array<{
+    referred_by_contact_id: number;
+    meetings: { meeting_date: string | null } | null;
+  }>) {
+    referralCount.set(r.referred_by_contact_id, (referralCount.get(r.referred_by_contact_id) ?? 0) + 1);
+    const at = r.meetings?.meeting_date;
+    if (!at) continue;
+    const prev = lastReferralAt.get(r.referred_by_contact_id);
+    if (!prev || at > prev) lastReferralAt.set(r.referred_by_contact_id, at);
+  }
+
+  const bounced = new Set<number>();
+  const lastBounceAt = new Map<number, string>();
+  for (const r of bounces as Array<{ contact_id: number; bounced_at: string | null }>) {
+    bounced.add(r.contact_id);
+    if (!r.bounced_at) continue;
+    const prev = lastBounceAt.get(r.contact_id);
+    if (!prev || r.bounced_at > prev) lastBounceAt.set(r.contact_id, r.bounced_at);
+  }
+
+  /**
+   * Calls per contact, keyed by event so the two calendar legs cannot count the
+   * same conversation twice (CAR-246). A calendar event reaches a contact both
+   * through `calendar_events.contact_id` and through the
+   * `calendar_event_contacts` junction; when these were membership Sets the
+   * duplicate collapsed silently, but a COUNT would have reported one call as
+   * two. Meetings share the map under their own key prefix.
+   */
+  const callsByContact = new Map<number, Map<string, string>>();
+  const noteEvent = (contactId: number | null, key: string, startAt: string | null, status: string | null) => {
     if (contactId == null || !startAt || status === "cancelled") return;
-    (startAt > nowIso ? upcoming : past).add(contactId);
+    const calls = callsByContact.get(contactId) ?? new Map<string, string>();
+    calls.set(key, startAt);
+    callsByContact.set(contactId, calls);
   };
   for (const e of calEvents) {
-    noteEvent(e.contact_id, e.start_at, e.status);
+    noteEvent(e.contact_id, `cal:${e.id}`, e.start_at, e.status);
   }
   for (const l of calLinks) {
-    noteEvent(l.contact_id, l.calendar_events?.start_at ?? null, l.calendar_events?.status ?? null);
+    noteEvent(l.contact_id, `cal:${l.calendar_event_id}`, l.calendar_events?.start_at ?? null, l.calendar_events?.status ?? null);
   }
   for (const l of meetingLinks) {
-    const d = l.meetings?.meeting_date;
-    if (!d) continue;
-    (d > nowIso ? upcoming : past).add(l.contact_id);
+    // meetings carry no status column, so any dated meeting counts.
+    noteEvent(l.contact_id, `mtg:${l.meeting_id}`, l.meetings?.meeting_date ?? null, null);
   }
 
   for (const contact of contacts) {
-    const firstOutbound = outboundAt.get(contact.id);
+    const hasOutbound = outboundContacts.has(contact.id);
+    const firstOutbound = firstOutboundAt.get(contact.id) ?? null;
     const inbounds = inboundAt.get(contact.id) ?? [];
-    const hasReply = Boolean(firstOutbound != null && inbounds.some((d) => d >= firstOutbound));
+    // A reply is inbound mail from them that followed our outreach. When every
+    // outbound we hold is undated we cannot order the two, so an inbound from a
+    // thread we are demonstrably in still counts — the alternative would drop a
+    // real reply on a date-header technicality.
+    const replies = firstOutbound
+      ? inbounds.filter((d) => d >= firstOutbound)
+      : hasOutbound
+        ? inbounds
+        : [];
+
+    let upcomingCalls = 0;
+    let pastCalls = 0;
+    let soonestCall: string | null = null;
+    let latestCall: string | null = null;
+    for (const at of callsByContact.get(contact.id)?.values() ?? []) {
+      if (at > nowIso) {
+        upcomingCalls++;
+        soonestCall = earlierOf(soonestCall, at);
+      } else {
+        pastCalls++;
+        latestCall = laterOf(latestCall, at);
+      }
+    }
+
+    const referrals = referralCount.get(contact.id) ?? 0;
+    const interactedHere = interacted.has(contact.id);
     const signals: StageSignals = {
       stageOverride: contact.stage_override ?? null,
-      hasReferral: referred.has(contact.id),
-      hasPastCall: past.has(contact.id),
-      hasUpcomingCall: upcoming.has(contact.id),
-      hasReply,
-      hasOutboundEmail: firstOutbound != null,
-      hasInteraction: interacted.has(contact.id),
+      hasReferral: referrals > 0,
+      hasPastCall: pastCalls > 0,
+      hasUpcomingCall: upcomingCalls > 0,
+      hasReply: replies.length > 0,
+      hasOutboundEmail: hasOutbound,
+      hasInteraction: interactedHere,
       hasBouncedEmail: bounced.has(contact.id),
     };
     const stage = deriveOutreachStage(signals);
-    result.set(contact.id, { stage, rank: stageRank(stage) });
+
+    // Evidence for the company chip (CAR-246). Per-person states are capped at
+    // 1 so summing across a company counts PEOPLE; call and referral states
+    // carry their real event counts so summing counts CONVERSATIONS.
+    const tallies = emptyTallies();
+    if (hasOutbound || interactedHere) {
+      tallies.contacted = {
+        count: 1,
+        at: laterOf(lastOutboundAt.get(contact.id) ?? null, lastInteractionAt.get(contact.id) ?? null),
+      };
+    }
+    if (replies.length > 0) {
+      tallies.replied = { count: 1, at: replies.reduce<string | null>(laterOf, null) };
+    }
+    if (bounced.has(contact.id)) {
+      tallies.bounced = { count: 1, at: lastBounceAt.get(contact.id) ?? null };
+    }
+    if (upcomingCalls > 0) tallies.call_scheduled = { count: upcomingCalls, at: soonestCall };
+    if (pastCalls > 0) tallies.call_done = { count: pastCalls, at: latestCall };
+    if (referrals > 0) tallies.referral = { count: referrals, at: lastReferralAt.get(contact.id) ?? null };
+
+    result.set(contact.id, { stage, rank: stageRank(stage), tallies });
   }
   return result;
 }
@@ -422,7 +585,7 @@ export interface CompanyBaseSummary {
   office_scopes: OfficeScopeSummary[];
 }
 
-/** The five fields the who-you-know pass computes; see CompanyBaseSummary. */
+/** The six fields the who-you-know pass computes; see CompanyBaseSummary. */
 export interface CompanyEnrichment {
   /** BYU alumni among current non-bench contacts — the app's warm-intro edge. */
   alum_count: number;
@@ -436,8 +599,18 @@ export interface CompanyEnrichment {
    * when the company has no current non-bench contacts.
    */
   lead_contact_name: string | null;
-  /** Max derived stage across non-bench contacts (pursuing/in_play views). */
+  /** Max derived stage across CURRENT non-bench contacts (pursuing/in_play views). */
   traction: OutreachStage | null;
+  /**
+   * How much of `traction` there is and when it last happened, for the list
+   * chip: "2 Calls Done (2 weeks ago)" (CAR-246). Null whenever `traction` is.
+   *
+   * `count` can be 0 with a non-null `traction`: `contacts.stage_override` wins
+   * over every derived signal, so a company can sit at "Replied" with no inbound
+   * message behind it. The chip renders the bare label there rather than
+   * asserting a number the data does not support.
+   */
+  traction_detail: { count: number; at: string | null } | null;
 }
 
 /**
@@ -937,6 +1110,7 @@ export async function getCompanies(
   // and safe), and for an `enrich: false` caller. One extra batched query (BYU
   // alumni) over the shown set.
   const traction = new Map<number, OutreachStage>();
+  const tractionDetail = new Map<number, { count: number; at: string | null }>();
   const alumCountByCompany = new Map<number, number>();
   const productAlumCountByCompany = new Map<number, number>();
   const recruiterCountByCompany = new Map<number, number>();
@@ -978,17 +1152,35 @@ export async function getCompanies(
       // product). The three counts above already filter to `current`; this pass
       // was the one that did not (CAR-244).
       //
-      // The fallback keeps a company whose contacts have ALL moved on from
-      // going blank: `people` is already non-bench, so with no current contacts
-      // it is exactly the former ones. Accepted trade-off: a contact you are
-      // mid-thread with who changes jobs takes their traction with them.
-      const tractionPool = current.length > 0 ? current : people;
+      // CAR-244 softened this with a fallback to `people` when nobody current
+      // remained, so the chip would not blank out. CAR-246 REMOVES that: a
+      // company whose contacts have all moved on shows no traction at all,
+      // because "2 Calls Done" next to a company where you know nobody is a
+      // claim about a door that is already closed. Deliberate reversal, not a
+      // regression — do not restore the fallback.
       let best: { stage: ContactStage; person: PersonAgg } | null = null;
-      for (const p of tractionPool) {
+      for (const p of current) {
         const s = stages.get(p.id);
         if (s && (!best || s.rank > best.stage.rank)) best = { stage: s, person: p };
       }
-      if (best) traction.set(id, best.stage.stage);
+      if (best) {
+        traction.set(id, best.stage.stage);
+        // How much of that stage there is, across everyone still working here.
+        // Summed over CURRENT contacts, not just the one that won: three people
+        // contacted is "3 Contacted" even though one of them set the stage.
+        const winning = best.stage.stage;
+        let count = 0;
+        let at: string | null = null;
+        for (const p of current) {
+          const tally = stages.get(p.id)?.tallies[winning];
+          if (!tally || tally.count === 0) continue;
+          count += tally.count;
+          // Upcoming calls count DOWN to the next one; everything else reports
+          // the most recent thing that happened.
+          at = winning === "call_scheduled" ? earlierOf(at, tally.at) : laterOf(at, tally.at);
+        }
+        tractionDetail.set(id, { count, at });
+      }
 
       // Lead name for the next-action line: the contact with real momentum, else
       // the best warm lead among current contacts (product alum → alum → recruiter → any).
@@ -1057,6 +1249,7 @@ export async function getCompanies(
           lead_contact_name: leadNameByCompany.get(c.id) ?? null,
           ...scopes,
           traction: traction.get(c.id) ?? null,
+          traction_detail: tractionDetail.get(c.id) ?? null,
         };
       })
     : null;
@@ -1083,7 +1276,9 @@ export async function getCompanies(
   const nextRank = new Map<number, number>();
   if (sort === "next" && enrichedSummaries) {
     const now = new Date();
-    for (const c of enrichedSummaries) nextRank.set(c.id, nextActionForCompany(c, now).rank);
+    // A company the ladder has nothing to say about still needs a rank, or it
+    // would sort as undefined rather than last (CAR-246).
+    for (const c of enrichedSummaries) nextRank.set(c.id, nextActionForCompany(c, now)?.rank ?? NO_ACTION_RANK);
   }
   summaries.sort((a, b) => {
     switch (sort) {
