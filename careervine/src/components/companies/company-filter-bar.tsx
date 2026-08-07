@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { LocationMultiSelect } from "@/components/companies/location-multi-select";
+import type { LocationGroupOption } from "@/lib/company-location-filter";
 import {
   EMPTY_COMPANY_FILTERS,
   hasActiveCompanyFilters,
@@ -45,8 +47,10 @@ interface CompanyFilterBarProps {
   /** Current filter state with `q` reflecting the live input. */
   filters: CompanyFilters;
   onFiltersChange: (filters: CompanyFilters) => void;
-  /** Distinct tier labels present in the loaded data. */
-  tierOptions: string[];
+  /** State-grouped office locations present in the loaded data. */
+  locationGroups: LocationGroupOption[];
+  /** Companies with no office row at all, for the "No location set" row. */
+  noLocationCount: number;
   /**
    * Per-status company counts, with every other active facet already applied
    * (`statusChipCounts`), so a count reads as "what I get if I click this".
@@ -64,7 +68,7 @@ function secondaryActiveCount(f: CompanyFilters): number {
     (f.productAlum ? 1 : 0) +
     (f.currentOnly ? 1 : 0) +
     (f.traction.length > 0 ? 1 : 0) +
-    (f.tiers.length > 0 ? 1 : 0) +
+    (f.locations.length > 0 ? 1 : 0) +
     (f.contacts.length > 0 ? 1 : 0) +
     (f.alumni.length > 0 ? 1 : 0)
   );
@@ -85,7 +89,8 @@ function ChipCheck({ on }: { on: boolean }) {
 export default function CompanyFilterBar({
   filters,
   onFiltersChange,
-  tierOptions,
+  locationGroups,
+  noLocationCount,
   statusCounts,
 }: CompanyFilterBarProps) {
   const affinity = useAlumniAffinity();
@@ -181,13 +186,17 @@ export default function CompanyFilterBar({
             triggerClassName={SELECT_TRIGGER}
           />
 
-          {tierOptions.length >= 2 && (
-            <MultiSelect
-              ariaLabel="Filter by tier"
-              anyLabel="Any tier"
-              values={filters.tiers}
-              onChange={(v) => onFiltersChange({ ...filters, tiers: v })}
-              options={tierOptions.map((t) => ({ value: t, label: t }))}
+          {/* Unlike the tier dropdown this replaces, there is no ">= 2 values"
+              gate. Tier was hidden for almost everyone because one ops script
+              was its only writer; offices are populated by the scrape importer
+              and the add-company form, so the control is meaningful for any
+              user with a single located company. */}
+          {(locationGroups.length > 0 || noLocationCount > 0) && (
+            <LocationMultiSelect
+              values={filters.locations}
+              onChange={(v) => onFiltersChange({ ...filters, locations: v })}
+              groups={locationGroups}
+              noLocationCount={noLocationCount}
               className="text-sm"
               triggerClassName={SELECT_TRIGGER}
             />

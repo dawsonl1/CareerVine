@@ -157,6 +157,8 @@ describe("nextActionForCompany adapter", () => {
         status: "outreach_active",
       },
       office_scopes: [],
+      offices: [],
+      roster: [],
       traction: "replied",
     } satisfies CompanySummary;
     const a = nextActionForCompany(c, NOW);

@@ -399,6 +399,57 @@ export interface OfficeScopeSummary {
 }
 
 /**
+ * One office from the `company_locations` registry (CAR-251).
+ *
+ * Distinct from `OfficeScopeSummary` above, which is a `target_companies` row
+ * the user has explicitly targeted. This is "the company has an office here",
+ * whether or not the user is pursuing it, and it is what the location filter
+ * matches on — that difference is why a user with no targets at all still gets
+ * a working filter.
+ */
+export interface CompanyOfficeSummary {
+  location_id: number;
+  city: string | null;
+  state: string | null;
+  country: string;
+  /** Display label, e.g. "Lehi, Utah". */
+  label: string;
+}
+
+/**
+ * One (contact, office) pair in a company's workforce, for location-scoped
+ * card counts (CAR-251).
+ *
+ * WHY THIS IS A ROSTER AND NOT A COUNT MAP. The cheap shape was per-office
+ * counts that the client sums over the selected offices. That over-counts: on
+ * the reference account 493 contacts hold roles at two or more DIFFERENT
+ * offices of the same company (16 with both roles current), and summing counts
+ * each of them once per office. Unioning contact ids is the only way to get
+ * "how many people are at the places I selected" right for a multi-select.
+ *
+ * Entries with a null `location_id` are the reason the card can state its own
+ * blind spot. Only 53% of current roles carry a location, so a strictly-scoped
+ * count would silently read "1 person" where nine contacts exist; the card
+ * shows the remainder ("· 8 location unknown") rather than dropping them.
+ *
+ * The flags are denormalized on purpose: they are computed once by the
+ * enrichment pass, and recomputing them per filter change would mean shipping
+ * the alumni lookup to the client.
+ */
+export interface CompanyRosterEntry {
+  contact_id: number;
+  /** Office this role sits at; null when no office was ever recorded. */
+  location_id: number | null;
+  /** Role is explicitly remote, which is not the same as "office unknown". */
+  remote: boolean;
+  is_current: boolean;
+  bench: boolean;
+  alum: boolean;
+  product_alum: boolean;
+  recruiter: boolean;
+}
+
+/**
  * What getCompanies returns WITHOUT the who-you-know enrichment pass
  * (`enrich: false`).
  *
@@ -420,6 +471,12 @@ export interface CompanyBaseSummary {
   target: TargetInfo | null;
   /** Targeted office scopes (location-level targets), highest priority first. */
   office_scopes: OfficeScopeSummary[];
+  /**
+   * Every office in the registry for this company, targeted or not (CAR-251).
+   * The location filter matches on these, so it works for a user with no
+   * targets and no data bundle.
+   */
+  offices: CompanyOfficeSummary[];
 }
 
 /** The five fields the who-you-know pass computes; see CompanyBaseSummary. */
@@ -438,6 +495,12 @@ export interface CompanyEnrichment {
   lead_contact_name: string | null;
   /** Max derived stage across non-bench contacts (pursuing/in_play views). */
   traction: OutreachStage | null;
+  /**
+   * Per-(contact, office) rows backing location-scoped card counts (CAR-251).
+   * Enrichment-side because the alum/recruiter flags are what that pass
+   * computes; the location filter itself only needs `offices` on the base.
+   */
+  roster: CompanyRosterEntry[];
 }
 
 /**
@@ -589,6 +652,9 @@ interface EmploymentAggRow {
   company_id: number;
   contact_id: number;
   is_current: boolean;
+  /** Office this role sits at; null when the scrape never recorded one (CAR-251). */
+  location_id: number | null;
+  workplace_type: string | null;
   contacts: {
     name: string;
     network_status: string;
@@ -681,7 +747,7 @@ async function fetchEmploymentRowsForCompanies(
       await db()
         .from("contact_companies")
         .select(
-          "company_id, contact_id, is_current, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
+          "company_id, contact_id, is_current, location_id, workplace_type, contacts!inner(user_id, name, network_status, stage_override, persona, verified_school)",
         )
         .eq("contacts.user_id", userId)
         .in("company_id", chunk)
@@ -858,8 +924,34 @@ export async function getCompanies(
   // reference account, for MCP's list_companies(targets_only: false). Skipping
   // it cannot change that scope's output, because nothing downstream can
   // observe the difference.
-  const [employment, companyRows] = await Promise.all([
+  const [employment, officeRows, companyRows] = await Promise.all([
     runEnrichment ? fetchEmploymentRowsForCompanies(userId, companyIds) : Promise.resolve([]),
+    // The office registry for the shown companies (CAR-251) — what the location
+    // filter matches on. Rides this wave because it is keyed on `companyIds`
+    // and reads nothing the other two produce.
+    //
+    // chunkedPaginated, not chunked: company_locations fans out (a company can
+    // have dozens of offices) so one id chunk can exceed PostgREST's 1000-row
+    // cap. Unpaginated it would silently drop offices, and a dropped office is
+    // a company that vanishes from its own city's filter.
+    //
+    // NOT gated on runEnrichment: `offices` lives on the BASE summary, so an
+    // `enrich: false` caller still gets it.
+    chunkedPaginated<{
+      company_id: number;
+      location_id: number;
+      locations: { city: string | null; state: string | null; country: string } | null;
+    }>(companyIds, async (chunk, from, to) =>
+      must(
+        await db()
+          .from("company_locations")
+          .select("id, company_id, location_id, locations(city, state, country)")
+          .in("company_id", chunk)
+          .order("company_id")
+          .order("id")
+          .range(from, to),
+      ),
+    ),
     chunked(companyIds, async (chunk) => {
       let q = db()
         .from("companies")
@@ -891,6 +983,14 @@ export async function getCompanies(
     currentProspect: Set<number>;
     /** Non-bench people at this company, deduped by contact id (current wins). */
     people: Map<number, PersonAgg>;
+    /**
+     * One entry per distinct (contact, office) pair, keyed `contactId:locationId`
+     * (CAR-251). Deduped here rather than at render time because a contact can
+     * hold several roles at the same office, and `is_current` ORs across them
+     * the same way `people` collapses — a boomeranger at one office is current
+     * there, not both current and former.
+     */
+    pairs: Map<string, { contact_id: number; location_id: number | null; remote: boolean; is_current: boolean }>;
   }
   const aggByCompany = new Map<number, Agg>();
   for (const row of employment) {
@@ -902,8 +1002,24 @@ export async function getCompanies(
         bench: new Set(),
         currentProspect: new Set(),
         people: new Map(),
+        pairs: new Map(),
       };
       aggByCompany.set(row.company_id, agg);
+    }
+    // Location membership is tracked for BENCH contacts too, so a scoped card
+    // can still show "2 benched" at the filtered office rather than implying
+    // the bench is empty there.
+    {
+      const key = `${row.contact_id}:${row.location_id ?? ""}`;
+      const existing = agg.pairs.get(key);
+      if (existing) existing.is_current ||= row.is_current;
+      else
+        agg.pairs.set(key, {
+          contact_id: row.contact_id,
+          location_id: row.location_id,
+          remote: row.workplace_type === "remote",
+          is_current: row.is_current,
+        });
     }
     const contact = row.contacts;
     if (contact.network_status === "bench") {
@@ -941,6 +1057,7 @@ export async function getCompanies(
   const productAlumCountByCompany = new Map<number, number>();
   const recruiterCountByCompany = new Map<number, number>();
   const leadNameByCompany = new Map<number, string | null>();
+  const rosterByCompany = new Map<number, CompanyRosterEntry[]>();
   if (runEnrichment) {
     const uniqueContacts = new Map<number, { id: number; stage_override: string | null }>();
     for (const id of companyIds) {
@@ -964,6 +1081,31 @@ export async function getCompanies(
       alumCountByCompany.set(id, current.filter(isAlum).length);
       productAlumCountByCompany.set(id, current.filter(isProductAlum).length);
       recruiterCountByCompany.set(id, current.filter((p) => p.persona === "recruiter").length);
+
+      // The location-scoped roster (CAR-251). Flags are read off `people`, which
+      // holds only NON-BENCH contacts — so a bench contact's entry carries
+      // bench:true and false flags, matching the unscoped card, where alum and
+      // recruiter counts are likewise computed over current non-bench people.
+      const agg = aggByCompany.get(id);
+      if (agg) {
+        const byContact = agg.people;
+        rosterByCompany.set(
+          id,
+          [...agg.pairs.values()].map((pair) => {
+            const person = byContact.get(pair.contact_id);
+            return {
+              contact_id: pair.contact_id,
+              location_id: pair.location_id,
+              remote: pair.remote,
+              is_current: pair.is_current,
+              bench: agg.bench.has(pair.contact_id),
+              alum: person ? isAlum(person) : false,
+              product_alum: person ? isProductAlum(person) : false,
+              recruiter: person?.persona === "recruiter",
+            };
+          }),
+        );
+      }
 
       // Max derived stage, and the contact driving it.
       //
@@ -1013,6 +1155,26 @@ export async function getCompanies(
    * unenriched one simply omits the five keys. Sharing the expressions is what
    * stops the two shapes from drifting on a base field.
    */
+  // Office registry per company, label-sorted so the card and the filter show a
+  // stable order (CAR-251). A row whose location join came back null is dropped
+  // rather than rendered as "Location 42": it cannot be matched by any filter
+  // value, so surfacing it would only produce an unselectable chip.
+  const officesByCompany = new Map<number, CompanyOfficeSummary[]>();
+  for (const row of officeRows) {
+    const loc = row.locations;
+    if (!loc) continue;
+    const list = officesByCompany.get(row.company_id) ?? [];
+    list.push({
+      location_id: row.location_id,
+      city: loc.city,
+      state: loc.state,
+      country: loc.country,
+      label: locationLabel(loc) ?? loc.country,
+    });
+    officesByCompany.set(row.company_id, list);
+  }
+  for (const list of officesByCompany.values()) list.sort((a, b) => a.label.localeCompare(b.label));
+
   const parts = (c: { id: number; name: string; logo_url: string | null; linkedin_url: string | null }) => {
     const derived = targetByCompany.get(c.id);
     // Counts come from the RPC, not from the in-memory sets: the employment
@@ -1032,6 +1194,7 @@ export async function getCompanies(
       scopes: {
         target: derived?.target ?? null,
         office_scopes: derived?.office_scopes ?? [],
+        offices: officesByCompany.get(c.id) ?? [],
       },
     };
   };
@@ -1057,6 +1220,7 @@ export async function getCompanies(
           lead_contact_name: leadNameByCompany.get(c.id) ?? null,
           ...scopes,
           traction: traction.get(c.id) ?? null,
+          roster: rosterByCompany.get(c.id) ?? [],
         };
       })
     : null;

@@ -67,6 +67,8 @@ function summary(id: number, name: string, currentCount: number): CompanySummary
     lead_contact_name: null,
     target: { status: "open" } as CompanySummary["target"],
     office_scopes: [],
+    offices: [],
+    roster: [],
     traction: null,
   };
 }

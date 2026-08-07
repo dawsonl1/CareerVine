@@ -9,11 +9,14 @@
  * case: selecting both sides ORs to everything, which is the same result as
  * selecting neither.
  *
- * Every facet reads a field `getCompanies` already returns, so nothing here implies
- * a query change.
+ * Most facets read a field `getCompanies` already returns. The location facet
+ * (CAR-251) is the exception and the reason that used to say "every": it reads
+ * `offices`, an office-registry join added to `getCompanies` for it. Its value
+ * grammar, option tree and scoped counts live in `company-location-filter.ts`.
  */
 
 import type { CompanySummary } from "./company-queries";
+import { matchesLocation, parseLocationSelection } from "./company-location-filter";
 import { STAGE_ORDER, type OutreachStage } from "./stage-derivation";
 
 export const TARGET_STATUSES = [
@@ -38,14 +41,17 @@ export const ALUMNI_FILTERS = ["with", "without"] as const;
 export type AlumniFilter = (typeof ALUMNI_FILTERS)[number];
 
 export interface CompanyFilters {
-  /** Free-text query — matched against name, program name, and tier label. */
+  /** Free-text query — matched against name and program name. */
   q: string;
   /** Target statuses to include; empty = any. */
   statuses: TargetStatus[];
   /** Derived outreach stages to include; empty = any. */
   traction: OutreachStage[];
-  /** Tier labels to include; empty = any. */
-  tiers: string[];
+  /**
+   * Office locations to include; empty = any. Values are `c:<location_id>`,
+   * `s:<state>` or `none` — see `company-location-filter.ts`.
+   */
+  locations: string[];
   /** Contact-presence sides to include; empty (or both) = any. */
   contacts: ContactsFilter[];
   /** Alumni-presence sides to include; empty (or both) = any. */
@@ -63,7 +69,7 @@ export const EMPTY_COMPANY_FILTERS: CompanyFilters = {
   q: "",
   statuses: [],
   traction: [],
-  tiers: [],
+  locations: [],
   contacts: [],
   alumni: [],
   currentOnly: false,
@@ -80,7 +86,7 @@ export function hasActiveCompanyFilters(f: CompanyFilters): boolean {
     f.q.trim() !== "" ||
     f.statuses.length > 0 ||
     f.traction.length > 0 ||
-    f.tiers.length > 0 ||
+    f.locations.length > 0 ||
     f.contacts.length > 0 ||
     f.alumni.length > 0 ||
     f.currentOnly ||
@@ -93,15 +99,17 @@ export function filterCompanies(rows: CompanySummary[], f: CompanyFilters): Comp
   const q = f.q.trim().toLowerCase();
   const statuses = new Set<string>(f.statuses);
   const traction = new Set<string>(f.traction);
-  const tiers = new Set<string>(f.tiers);
+  // Parsed once for the whole sweep, not per row: the selection is a fixed
+  // input and re-parsing it 2,000 times per keystroke is pure waste.
+  const location = parseLocationSelection(f.locations);
   return rows.filter((c) => {
     if (q) {
-      const haystacks = [c.name, c.target?.program_name, c.target?.tier];
+      const haystacks = [c.name, c.target?.program_name];
       if (!haystacks.some((h) => h != null && h.toLowerCase().includes(q))) return false;
     }
     if (statuses.size > 0 && (!c.target || !statuses.has(c.target.status))) return false;
     if (traction.size > 0 && (c.traction === null || !traction.has(c.traction))) return false;
-    if (tiers.size > 0 && (c.target?.tier == null || !tiers.has(c.target.tier))) return false;
+    if (!matchesLocation(c, location)) return false;
     if (f.contacts.length > 0) {
       const withContacts = c.current_count + c.former_count > 0;
       if (!f.contacts.some((side) => (side === "with" ? withContacts : !withContacts))) return false;
@@ -116,16 +124,6 @@ export function filterCompanies(rows: CompanySummary[], f: CompanyFilters): Comp
     if (f.productAlum && c.product_alum_count === 0) return false;
     return true;
   });
-}
-
-/** Distinct tier labels present in the data, for the tier dropdown. */
-export function distinctTiers(rows: CompanySummary[]): string[] {
-  const tiers = new Set<string>();
-  for (const c of rows) {
-    const t = c.target?.tier?.trim();
-    if (t) tiers.add(t);
-  }
-  return [...tiers].sort((a, b) => a.localeCompare(b));
 }
 
 /** Per-status row counts (before status filtering), for chip labels. */
@@ -161,18 +159,23 @@ export function statusChipCounts(
 
 // ── URL param round-trip ────────────────────────────────────────────────
 // Scheme: ?q=stripe&status=applied,interviewing&traction=replied,call_done
-//          &tier=Big+Tech&tier=Utah&contacts=none&alumni=with&current=1&product_alum=1
+//          &loc=c:412&loc=s:Utah&contacts=none&alumni=with&current=1&product_alum=1
 //
 // Param names stay SINGULAR, so every link shared before the facets went
 // multi-value still parses: one value lands as a one-element array, and the
 // retired `contacts=any` fails validation and falls through to the empty array,
 // which is exactly what it meant.
 //
-// Enum facets are comma-joined (the scheme `status` already used). `tier` is
-// REPEATED instead, and never split: a tier label is free text and may itself
-// contain a comma, so splitting would turn the pre-existing link for a tier named
-// "Foo, Bar" into two tiers that match nothing. Parsing accepts both forms
-// everywhere; only the emitted shape differs.
+// Enum facets are comma-joined (the scheme `status` already used). `loc` is
+// REPEATED instead, and never split, for the same reason its `tier` predecessor
+// was: a state group is free text and may contain a comma, so splitting would
+// turn a link for "Washington, D.C." into two values that match nothing.
+// Parsing accepts both forms everywhere; only the emitted shape differs.
+//
+// `loc` is not validated against the loaded data. A city id for a company the
+// current view does not include is simply a value nothing matches, which is the
+// honest result for a shared link — silently dropping it would show the
+// recipient an unfiltered list that looks like the sender's.
 
 /** Repeated and/or comma-joined param → deduped list of values that pass `valid`. */
 function parseList<T extends string>(params: URLSearchParams, key: string, valid: Set<string>): T[] {
@@ -185,17 +188,17 @@ function parseList<T extends string>(params: URLSearchParams, key: string, valid
 }
 
 export function parseCompanyFilters(params: URLSearchParams): CompanyFilters {
-  // Tiers are free text (a user-defined label), so there is no value list to
-  // validate against — only blanks are dropped.
-  const tiers = params
-    .getAll("tier")
+  // Location values carry ids and free-text state names, so there is no value
+  // list to validate against — only blanks are dropped.
+  const locations = params
+    .getAll("loc")
     .map((s) => s.trim())
     .filter((s) => s !== "");
   return {
     q: params.get("q") ?? "",
     statuses: parseList<TargetStatus>(params, "status", VALID_STATUSES),
     traction: parseList<OutreachStage>(params, "traction", VALID_STAGES),
-    tiers: [...new Set(tiers)],
+    locations: [...new Set(locations)],
     contacts: parseList<ContactsFilter>(params, "contacts", VALID_CONTACTS),
     alumni: parseList<AlumniFilter>(params, "alumni", VALID_ALUMNI),
     currentOnly: params.get("current") === "1",
@@ -224,7 +227,7 @@ export function serializeCompanyFilters(f: CompanyFilters, base: URLSearchParams
   setOrDelete("q", f.q.trim() || null);
   setList("status", f.statuses);
   setList("traction", f.traction);
-  setRepeated("tier", f.tiers);
+  setRepeated("loc", f.locations);
   setList("contacts", f.contacts);
   setList("alumni", f.alumni);
   setOrDelete("current", f.currentOnly ? "1" : null);

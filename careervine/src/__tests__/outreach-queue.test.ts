@@ -17,6 +17,8 @@ function company(overrides: Partial<CompanySummary> & { name: string }): Company
     recruiter_count: 0,
     lead_contact_name: null,
     office_scopes: [],
+    offices: [],
+    roster: [],
     traction: null,
     target: {
       id: 1,

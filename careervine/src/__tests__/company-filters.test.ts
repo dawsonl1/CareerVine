@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   EMPTY_COMPANY_FILTERS,
   countByStatus,
-  distinctTiers,
   filterCompanies,
   hasActiveCompanyFilters,
   parseCompanyFilters,
@@ -11,6 +10,17 @@ import {
   type CompanyFilters,
 } from "@/lib/company-filters";
 import type { CompanySummary, TargetInfo } from "@/lib/company-queries";
+
+/** An office row, the unit the location facet matches on. */
+function office(location_id: number, city: string, state: string | null) {
+  return {
+    location_id,
+    city,
+    state,
+    country: "United States",
+    label: state ? `${city}, ${state}` : city,
+  };
+}
 
 let nextId = 1;
 type CompanyOverrides = Omit<Partial<CompanySummary>, "target"> & { target?: Partial<TargetInfo> | null };
@@ -29,6 +39,8 @@ function company(overrides: CompanyOverrides): CompanySummary {
     recruiter_count: 0,
     lead_contact_name: null,
     office_scopes: [],
+    offices: [],
+    roster: [],
     traction: null,
     ...rest,
     target:
@@ -63,12 +75,18 @@ describe("filterCompanies", () => {
       expect(filterCompanies(rows, filters({ q: "sTrIp" }))).toEqual([rows[0]]);
     });
 
-    it("matches program name and tier label", () => {
+    it("matches program name", () => {
       const byProgram = company({ name: "Goldman Sachs", target: { program_name: "APM Program" } });
-      const byTier = company({ name: "Adobe", target: { tier: "Big Tech" } });
-      const rows = [byProgram, byTier, company({ name: "Acme" })];
+      const rows = [byProgram, company({ name: "Acme" })];
       expect(filterCompanies(rows, filters({ q: "apm" }))).toEqual([byProgram]);
-      expect(filterCompanies(rows, filters({ q: "big tech" }))).toEqual([byTier]);
+    });
+
+    it("does not search office labels", () => {
+      // The retired tier facet WAS in the haystack, so "big tech" matched text.
+      // Locations are structured values with their own facet; leaving them in
+      // free text would make a q= search silently behave like a location filter.
+      const lehi = company({ name: "Acme", offices: [office(1, "Lehi", "Utah")] });
+      expect(filterCompanies([lehi], filters({ q: "lehi" }))).toEqual([]);
     });
 
     it("trims surrounding whitespace", () => {
@@ -120,19 +138,68 @@ describe("filterCompanies", () => {
     });
   });
 
-  describe("tier facet", () => {
-    it("matches the exact tier label, excluding untargeted/untiered rows", () => {
-      const bigTech = company({ target: { tier: "Big Tech" } });
-      const rows = [bigTech, company({ target: { tier: "Utah" } }), company({ target: null })];
-      expect(filterCompanies(rows, filters({ tiers: ["Big Tech"] }))).toEqual([bigTech]);
+  describe("location facet", () => {
+    const lehi = () => company({ name: "Lehi Co", offices: [office(1, "Lehi", "Utah")] });
+    const boston = () => company({ name: "Boston Co", offices: [office(2, "Boston", "Massachusetts")] });
+
+    it("matches one city, excluding companies without an office there", () => {
+      const hit = lehi();
+      const rows = [hit, boston(), company({ name: "Nowhere Co" })];
+      expect(filterCompanies(rows, filters({ locations: ["c:1"] }))).toEqual([hit]);
     });
 
-    it("ORs several tiers together", () => {
-      const bigTech = company({ target: { tier: "Big Tech" } });
-      const utah = company({ target: { tier: "Utah" } });
-      const finance = company({ target: { tier: "Finance" } });
-      const rows = [bigTech, utah, finance];
-      expect(filterCompanies(rows, filters({ tiers: ["Big Tech", "Utah"] }))).toEqual([bigTech, utah]);
+    it("ORs several cities together", () => {
+      const a = lehi();
+      const b = boston();
+      const rows = [a, b, company({ name: "Austin Co", offices: [office(3, "Austin", "Texas")] })];
+      expect(filterCompanies(rows, filters({ locations: ["c:1", "c:2"] }))).toEqual([a, b]);
+    });
+
+    it("a state value matches every city in that state", () => {
+      const a = lehi();
+      const b = company({ name: "Provo Co", offices: [office(4, "Provo", "Utah")] });
+      const rows = [a, b, boston()];
+      expect(filterCompanies(rows, filters({ locations: ["s:Utah"] }))).toEqual([a, b]);
+    });
+
+    it("a state value matches an office added after the selection was made", () => {
+      // Why state values are stored as the state and resolved per evaluation
+      // rather than expanded into city ids at click time.
+      const newCity = company({ name: "Draper Co", offices: [office(99, "Draper", "Utah")] });
+      expect(filterCompanies([newCity], filters({ locations: ["s:Utah"] }))).toEqual([newCity]);
+    });
+
+    it("matches a company with ANY matching office, not only a single-office one", () => {
+      const multi = company({
+        name: "Multi Co",
+        offices: [office(2, "Boston", "Massachusetts"), office(1, "Lehi", "Utah")],
+      });
+      expect(filterCompanies([multi], filters({ locations: ["c:1"] }))).toEqual([multi]);
+    });
+
+    it("`none` selects exactly the companies with no office at all", () => {
+      const bare = company({ name: "Nowhere Co" });
+      const rows = [lehi(), bare];
+      expect(filterCompanies(rows, filters({ locations: ["none"] }))).toEqual([bare]);
+    });
+
+    it("ORs `none` with a city rather than cancelling it", () => {
+      const a = lehi();
+      const bare = company({ name: "Nowhere Co" });
+      const rows = [a, boston(), bare];
+      expect(filterCompanies(rows, filters({ locations: ["c:1", "none"] }))).toEqual([a, bare]);
+    });
+
+    it("groups an office with no state under its country", () => {
+      const belgian = company({
+        name: "Belgian Co",
+        offices: [{ location_id: 7, city: "Rumst", state: null, country: "Belgium", label: "Rumst, Belgium" }],
+      });
+      expect(filterCompanies([belgian], filters({ locations: ["s:Belgium"] }))).toEqual([belgian]);
+    });
+
+    it("an unparseable value matches nothing rather than everything", () => {
+      expect(filterCompanies([lehi()], filters({ locations: ["c:notanumber"] }))).toEqual([]);
     });
   });
 
@@ -208,11 +275,11 @@ describe("filterCompanies", () => {
   });
 
   it("ANDs facets with each other rather than ORing them", () => {
-    const both = company({ name: "Stripe", alum_count: 1, target: { tier: "Big Tech" } });
-    const tierOnly = company({ name: "Adobe", alum_count: 0, target: { tier: "Big Tech" } });
-    const alumniOnly = company({ name: "Lucid", alum_count: 3, target: { tier: "Utah" } });
-    const rows = [both, tierOnly, alumniOnly];
-    expect(filterCompanies(rows, filters({ tiers: ["Big Tech"], alumni: ["with"] }))).toEqual([both]);
+    const both = company({ name: "Stripe", alum_count: 1, offices: [office(1, "Lehi", "Utah")] });
+    const locationOnly = company({ name: "Adobe", alum_count: 0, offices: [office(1, "Lehi", "Utah")] });
+    const alumniOnly = company({ name: "Lucid", alum_count: 3, offices: [office(2, "Boston", "Massachusetts")] });
+    const rows = [both, locationOnly, alumniOnly];
+    expect(filterCompanies(rows, filters({ locations: ["c:1"], alumni: ["with"] }))).toEqual([both]);
   });
 });
 
@@ -226,25 +293,11 @@ describe("hasActiveCompanyFilters", () => {
     expect(hasActiveCompanyFilters(filters({ q: "x" }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ statuses: ["applied"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ traction: ["replied"] }))).toBe(true);
-    expect(hasActiveCompanyFilters(filters({ tiers: ["Big Tech"] }))).toBe(true);
+    expect(hasActiveCompanyFilters(filters({ locations: ["s:Utah"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ contacts: ["none"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ alumni: ["with"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ currentOnly: true }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ productAlum: true }))).toBe(true);
-  });
-});
-
-describe("distinctTiers", () => {
-  it("returns sorted unique non-empty tiers", () => {
-    const rows = [
-      company({ target: { tier: "Utah" } }),
-      company({ target: { tier: "Big Tech" } }),
-      company({ target: { tier: "Utah" } }),
-      company({ target: { tier: "  " } }),
-      company({ target: { tier: null } }),
-      company({ target: null }),
-    ];
-    expect(distinctTiers(rows)).toEqual(["Big Tech", "Utah"]);
   });
 });
 
@@ -268,12 +321,12 @@ describe("countByStatus", () => {
 });
 
 describe("statusChipCounts", () => {
-  // Two tiers × two statuses, so a tier facet has something to cut in both.
+  // Two states × two statuses, so a location facet has something to cut in both.
   const rows = [
-    company({ name: "Stripe", target: { status: "researching", tier: "Big Tech" } }),
-    company({ name: "Adobe", target: { status: "researching", tier: "Big Tech" } }),
-    company({ name: "Lucid", target: { status: "researching", tier: "Utah" } }),
-    company({ name: "Qualtrics", target: { status: "applied", tier: "Utah" } }),
+    company({ name: "Stripe", target: { status: "researching" }, offices: [office(1, "Boston", "Massachusetts")] }),
+    company({ name: "Adobe", target: { status: "researching" }, offices: [office(1, "Boston", "Massachusetts")] }),
+    company({ name: "Lucid", target: { status: "researching" }, offices: [office(2, "Lehi", "Utah")] }),
+    company({ name: "Qualtrics", target: { status: "applied" }, offices: [office(2, "Lehi", "Utah")] }),
   ];
 
   it("matches countByStatus when nothing else is filtering", () => {
@@ -281,7 +334,7 @@ describe("statusChipCounts", () => {
   });
 
   it("narrows every count by the other facets", () => {
-    expect(statusChipCounts(rows, filters({ tiers: ["Utah"] }))).toEqual({
+    expect(statusChipCounts(rows, filters({ locations: ["s:Utah"] }))).toEqual({
       researching: 1,
       outreach_active: 0,
       applied: 1,
@@ -301,7 +354,7 @@ describe("statusChipCounts", () => {
   });
 
   it("agrees with the visible list for the selected status", () => {
-    const f = filters({ statuses: ["researching"], tiers: ["Big Tech"] });
+    const f = filters({ statuses: ["researching"], locations: ["s:Massachusetts"] });
     expect(filterCompanies(rows, f)).toHaveLength(statusChipCounts(rows, f).researching);
   });
 });
@@ -309,14 +362,14 @@ describe("statusChipCounts", () => {
 describe("URL param round-trip", () => {
   it("parses a fully-populated query string", () => {
     const params = new URLSearchParams(
-      "q=stripe&status=applied,interviewing&traction=replied,call_done&tier=Big+Tech&tier=Utah" +
+      "q=stripe&status=applied,interviewing&traction=replied,call_done&loc=c:412&loc=s:Utah" +
         "&contacts=none&alumni=with&current=1&product_alum=1",
     );
     expect(parseCompanyFilters(params)).toEqual({
       q: "stripe",
       statuses: ["applied", "interviewing"],
       traction: ["replied", "call_done"],
-      tiers: ["Big Tech", "Utah"],
+      locations: ["c:412", "s:Utah"],
       contacts: ["none"],
       alumni: ["with"],
       currentOnly: true,
@@ -339,7 +392,7 @@ describe("URL param round-trip", () => {
     expect(parseCompanyFilters(new URLSearchParams("status=applied,applied")).statuses).toEqual([
       "applied",
     ]);
-    expect(parseCompanyFilters(new URLSearchParams("tier=Utah&tier=Utah")).tiers).toEqual(["Utah"]);
+    expect(parseCompanyFilters(new URLSearchParams("loc=s:Utah&loc=s:Utah")).locations).toEqual(["s:Utah"]);
   });
 
   it("serializes active filters and omits inactive ones", () => {
@@ -351,35 +404,35 @@ describe("URL param round-trip", () => {
     expect(out.get("status")).toBe("applied");
     expect(out.get("contacts")).toBe("none");
     expect(out.has("traction")).toBe(false);
-    expect(out.has("tier")).toBe(false);
+    expect(out.has("loc")).toBe(false);
     expect(out.has("alumni")).toBe(false);
     expect(out.has("current")).toBe(false);
     expect(out.has("product_alum")).toBe(false);
   });
 
   it("preserves unrelated params and clears stale filter params", () => {
-    const base = new URLSearchParams("view=targets&sort=priority&q=old&tier=Utah&current=1");
+    const base = new URLSearchParams("view=targets&sort=priority&q=old&loc=s:Utah&current=1");
     const out = serializeCompanyFilters(filters({ q: "new" }), base);
     expect(out.get("view")).toBe("targets");
     expect(out.get("sort")).toBe("priority");
     expect(out.get("q")).toBe("new");
-    expect(out.has("tier")).toBe(false);
+    expect(out.has("loc")).toBe(false);
     expect(out.has("current")).toBe(false);
     // base is not mutated
     expect(base.get("q")).toBe("old");
   });
 
-  it("emits one tier param per tier rather than joining them", () => {
+  it("emits one loc param per value rather than joining them", () => {
     // Pinned separately from the round-trip below: comma-joining survives a
-    // round-trip for a SINGLE tier, so only a multi-tier assertion catches it.
-    const out = serializeCompanyFilters(filters({ tiers: ["Big Tech", "Utah"] }), new URLSearchParams());
-    expect(out.getAll("tier")).toEqual(["Big Tech", "Utah"]);
+    // round-trip for a SINGLE value, so only a multi-value assertion catches it.
+    const out = serializeCompanyFilters(filters({ locations: ["c:1", "s:Utah"] }), new URLSearchParams());
+    expect(out.getAll("loc")).toEqual(["c:1", "s:Utah"]);
   });
 
-  it("replaces every copy of a repeated tier param rather than appending to it", () => {
-    const base = new URLSearchParams("tier=Utah&tier=Finance");
-    const out = serializeCompanyFilters(filters({ tiers: ["Big Tech"] }), base);
-    expect(out.getAll("tier")).toEqual(["Big Tech"]);
+  it("replaces every copy of a repeated loc param rather than appending to it", () => {
+    const base = new URLSearchParams("loc=s:Utah&loc=s:Texas");
+    const out = serializeCompanyFilters(filters({ locations: ["c:1"] }), base);
+    expect(out.getAll("loc")).toEqual(["c:1"]);
   });
 
   it("round-trips: parse(serialize(f)) === f", () => {
@@ -387,7 +440,7 @@ describe("URL param round-trip", () => {
       q: "gold",
       statuses: ["outreach_active", "closed"],
       traction: ["call_done", "replied"],
-      tiers: ["Utah/Silicon Slopes", "Big Tech"],
+      locations: ["c:412", "s:Utah"],
       contacts: ["with"],
       alumni: ["without"],
       currentOnly: true,
@@ -396,21 +449,20 @@ describe("URL param round-trip", () => {
     expect(parseCompanyFilters(serializeCompanyFilters(f, new URLSearchParams()))).toEqual(f);
   });
 
-  it("round-trips a tier label containing a comma", () => {
-    // Why `tier` is repeated rather than comma-joined: this label was already
-    // shareable as a single-value param, and splitting on commas would turn it
-    // into two tiers that match nothing.
-    const f = filters({ tiers: ["Provo, UT"] });
-    expect(parseCompanyFilters(serializeCompanyFilters(f, new URLSearchParams())).tiers).toEqual([
-      "Provo, UT",
+  it("round-trips a state group containing a comma", () => {
+    // Why `loc` is repeated rather than comma-joined, inherited from `tier`:
+    // splitting on commas would turn one group into two values matching nothing.
+    const f = filters({ locations: ["s:Washington, D.C."] });
+    expect(parseCompanyFilters(serializeCompanyFilters(f, new URLSearchParams())).locations).toEqual([
+      "s:Washington, D.C.",
     ]);
   });
 
   describe("links shared before the facets went multi-value", () => {
-    it("reads a single-value traction/tier/contacts URL", () => {
-      const params = new URLSearchParams("traction=replied&tier=Big+Tech&contacts=with");
+    it("reads a single-value traction/loc/contacts URL", () => {
+      const params = new URLSearchParams("traction=replied&loc=s:Utah&contacts=with");
       expect(parseCompanyFilters(params)).toEqual(
-        filters({ traction: ["replied"], tiers: ["Big Tech"], contacts: ["with"] }),
+        filters({ traction: ["replied"], locations: ["s:Utah"], contacts: ["with"] }),
       );
     });
 
@@ -418,8 +470,15 @@ describe("URL param round-trip", () => {
       expect(parseCompanyFilters(new URLSearchParams("contacts=any")).contacts).toEqual([]);
     });
 
-    it("reads a comma-joined tier label as ONE tier, not two", () => {
-      expect(parseCompanyFilters(new URLSearchParams("tier=Foo,+Bar")).tiers).toEqual(["Foo, Bar"]);
+    it("reads a comma-joined group name as ONE value, not two", () => {
+      expect(parseCompanyFilters(new URLSearchParams("loc=s:Foo,+Bar")).locations).toEqual(["s:Foo, Bar"]);
+    });
+
+    it("drops a stale tier param instead of carrying it into locations", () => {
+      // Links shared before CAR-251 carry ?tier=. There is nothing to map it to
+      // (Big Tech was never a place), so it must read as no location filter
+      // rather than as a value that matches nothing and empties the list.
+      expect(parseCompanyFilters(new URLSearchParams("tier=Big+Tech")).locations).toEqual([]);
     });
   });
 });

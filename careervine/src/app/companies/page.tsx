@@ -11,12 +11,16 @@ import { Select } from "@/components/ui/select";
 import { LoadErrorBanner, LoadErrorState } from "@/components/ui/load-error-state";
 import { useLatestRequest } from "@/hooks/use-latest-request";
 import CompanyFilterBar from "@/components/companies/company-filter-bar";
+import {
+  locationOptions,
+  noLocationCount,
+  parseLocationSelection,
+} from "@/lib/company-location-filter";
 import { CompanyCard } from "@/components/companies/company-card";
 import { AddCompanyModal } from "@/components/companies/add-company-modal";
 import { getCompanies, type CompanySummary, type CompanySort } from "@/lib/company-queries";
 import {
   EMPTY_COMPANY_FILTERS,
-  distinctTiers,
   filterCompanies,
   hasActiveCompanyFilters,
   parseCompanyFilters,
@@ -117,7 +121,16 @@ function CompaniesPage() {
   );
   // Over the whole list, not `visible`: options that disappear as you filter make
   // the dropdown feel broken, and a tier you just deselected has to stay reachable.
-  const tierOptions = useMemo(() => distinctTiers(companies), [companies]);
+  // Both computed over the WHOLE list, never `visible` — options that disappear
+  // as you filter make the dropdown feel broken.
+  const locationGroups = useMemo(() => locationOptions(companies), [companies]);
+  const noLocationTotal = useMemo(() => noLocationCount(companies), [companies]);
+  // Parsed once here and threaded to the cards, so every card scopes against
+  // the same selection the row filter used.
+  const locationSelection = useMemo(
+    () => parseLocationSelection(liveFilters.locations),
+    [liveFilters.locations],
+  );
   // Chip counts follow every other facet (CAR-245), so each one predicts its own click.
   const statusCounts = useMemo(
     () => statusChipCounts(companies, { ...urlFilters, q: deferredQ }),
@@ -249,7 +262,8 @@ function CompaniesPage() {
         <CompanyFilterBar
           filters={liveFilters}
           onFiltersChange={setFilters}
-          tierOptions={tierOptions}
+          locationGroups={locationGroups}
+          noLocationCount={noLocationTotal}
           statusCounts={showingStaleList || !loadFailed ? statusCounts : undefined}
         />
 
@@ -305,7 +319,7 @@ function CompaniesPage() {
             ) : (
               <div className="grid gap-3">
                 {visible.map((c) => (
-                  <CompanyCard key={c.id} company={c} />
+                  <CompanyCard key={c.id} company={c} locationSelection={locationSelection} />
                 ))}
               </div>
             )}
