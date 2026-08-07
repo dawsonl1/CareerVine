@@ -28,7 +28,7 @@ check, a unit-test coverage gate (§h), and `npm run check:conventions`.
 
 ## a. API routes
 
-108 routes live under `careervine/src/app/api` and 91 of them go through `withApiHandler`,
+109 routes live under `careervine/src/app/api` and 92 of them go through `withApiHandler`,
 which owns auth, the admin and capability gates, rate limiting, Zod validation (`paramsSchema`,
 then `schema`, then `querySchema`), and error mapping, in that order. Gates and the limiter run
 before the body is parsed. The 17 routes that skip the wrapper are the named allowlist in

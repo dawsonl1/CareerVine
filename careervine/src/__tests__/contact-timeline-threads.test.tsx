@@ -69,6 +69,7 @@ const THREAD_OF_THREE = [
 function renderTab(props: Partial<React.ComponentProps<typeof ContactTimelineTab>> = {}) {
   const onEntryClick = vi.fn();
   const onToggleThread = vi.fn();
+  const onToggleShowRemoved = vi.fn();
   const view = render(
     <ContactTimelineTab
       meetings={[]}
@@ -79,10 +80,12 @@ function renderTab(props: Partial<React.ComponentProps<typeof ContactTimelineTab
       onEntryClick={onEntryClick}
       expandedThreads={new Set()}
       onToggleThread={onToggleThread}
+      showRemoved={false}
+      onToggleShowRemoved={onToggleShowRemoved}
       {...props}
     />
   );
-  return { onEntryClick, onToggleThread, ...view };
+  return { onEntryClick, onToggleThread, onToggleShowRemoved, ...view };
 }
 
 describe("contact timeline thread stacking", () => {
@@ -111,9 +114,12 @@ describe("contact timeline thread stacking", () => {
       private_notes: null,
       calendar_description: null,
       transcript: null,
+      is_excluded: false,
     };
     renderTab({ meetings: [meeting] });
-    const rows = screen.getAllByRole("button");
+    // The header's Show removed control is a button too, and carries no
+    // aria-label; the rows are the labelled ones.
+    const rows = screen.getAllByRole("button").filter((b) => b.getAttribute("aria-label"));
     expect(rows[0].getAttribute("aria-label")).toContain("3 messages");
     expect(rows[1].getAttribute("aria-label")).toContain("Coffee chat");
   });

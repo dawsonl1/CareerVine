@@ -52,6 +52,22 @@ interface ContactTimelineTabProps {
    */
   expandedThreads: Set<string>;
   onToggleThread: (threadId: string) => void;
+  /**
+   * Whether entries the user struck from the record are shown (CAR-260).
+   * Off by default: the point of removing something is not seeing it. This is
+   * the recovery surface, since restoring happens from the detail modal.
+   */
+  showRemoved: boolean;
+  onToggleShowRemoved: () => void;
+}
+
+/** The marker a struck entry carries wherever it is still rendered. */
+function RemovedChip() {
+  return (
+    <span className="text-xs px-1.5 py-0.5 rounded bg-surface-container-high text-muted-foreground shrink-0">
+      Removed
+    </span>
+  );
 }
 
 /** One row's shared chrome: the icon bubble, the click target, the hover state. */
@@ -60,6 +76,7 @@ function TimelineRow({
   onClick,
   label,
   indented = false,
+  removed = false,
   children,
 }: {
   icon: React.ReactNode;
@@ -68,19 +85,22 @@ function TimelineRow({
   label: string;
   /** Set for a message rendered inside an expanded thread stack. */
   indented?: boolean;
+  /** Struck from every calculation, and only on screen because "Show removed" is on. */
+  removed?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={label}
+      aria-label={removed ? `${label}. Removed` : label}
       className={`w-full text-left relative flex items-center gap-4 p-4 rounded-[12px] hover:bg-surface-container-low transition-colors cursor-pointer${
         indented ? " pl-12" : ""
-      }`}
+      }${removed ? " opacity-55" : ""}`}
     >
       {icon}
       <div className="min-w-0 flex-1">{children}</div>
+      {removed && <RemovedChip />}
     </button>
   );
 }
@@ -120,6 +140,7 @@ function EmailRow({
       label={`${subject}${message.date ? `, ${shortDate(message.date)}` : ""}. Open details`}
       onClick={onClick}
       indented={indented}
+      removed={message.is_excluded}
       icon={<EmailIcon direction={message.direction} small={indented} />}
     >
       <div className="flex items-center gap-2.5">
@@ -204,35 +225,58 @@ export function ContactTimelineTab({
   onEntryClick,
   expandedThreads,
   onToggleThread,
+  showRemoved,
+  onToggleShowRemoved,
 }: ContactTimelineTabProps) {
+  // Struck entries are gone from the timeline unless the user asks for them.
+  // Belt and braces on the email leg: /api/gmail/emails already withholds them
+  // (excluding sets is_hidden, which that route filters) unless the page passes
+  // includeExcluded, so this second filter only matters if that ever changes.
+  const keep = <T extends { is_excluded?: boolean | null }>(rows: T[]) =>
+    showRemoved ? rows : rows.filter((r) => !r.is_excluded);
+
+  const shownMeetings = keep(meetings);
+  const shownEmails = keep(emails);
+  const shownCompletedActions = keep(completedActions);
+
   // Every sent email also writes an `interactions` mirror row so last_touch
   // updates (email-send.ts), which rendered one send as two timeline entries.
   // Drop the mirror — but only when the message it mirrors is actually on
   // screen. Keying on presence rather than on `email_message_id != null` is
   // what makes a failed email load degrade to a duplicate row instead of
   // silently swallowing the only surviving record of the send.
-  const loadedEmailIds = new Set(emails.map((e) => e.id));
-  const ownInteractions = interactions.filter(
+  const loadedEmailIds = new Set(shownEmails.map((e) => e.id));
+  const ownInteractions = keep(interactions).filter(
     (i) => i.email_message_id == null || !loadedEmailIds.has(i.email_message_id)
   );
 
   const entries: TimelineRowEntry[] = [
-    ...meetings.map((m) => ({ kind: "meeting" as const, date: m.meeting_date, data: m })),
+    ...shownMeetings.map((m) => ({ kind: "meeting" as const, date: m.meeting_date, data: m })),
     ...ownInteractions.map((i) => ({ kind: "interaction" as const, date: i.interaction_date, data: i })),
     // Grouped by thread, so a six-message conversation is one row and the count
     // above reflects conversations rather than messages (CAR-260). Placed at the
     // thread's latest date, matching buildThreads' own sort and the Emails tab.
-    ...buildThreads(emails).map((t) => ({ kind: "email_thread" as const, date: t.latestDate, data: t })),
-    ...completedActions
+    ...buildThreads(shownEmails).map((t) => ({ kind: "email_thread" as const, date: t.latestDate, data: t })),
+    ...shownCompletedActions
       .filter((a) => a.completed_at)
       .map((a) => ({ kind: "completed_action" as const, date: a.completed_at!, data: a })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <div>
-      <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-4">
-        <Calendar className="h-4 w-4" /> Timeline{entries.length > 0 ? ` (${entries.length})` : ""}
-      </h4>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+          <Calendar className="h-4 w-4" /> Timeline{entries.length > 0 ? ` (${entries.length})` : ""}
+        </h4>
+        <button
+          type="button"
+          onClick={onToggleShowRemoved}
+          aria-pressed={showRemoved}
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+        >
+          {showRemoved ? "Hide removed" : "Show removed"}
+        </button>
+      </div>
 
       {/* A banner rather than the full state: the meetings, interactions and
           completed actions below are still valid and still worth showing. What
@@ -270,6 +314,7 @@ export function ContactTimelineTab({
                     key={`m-${m.id}`}
                     label={`${title}, ${shortDate(item.date)}. Open details`}
                     onClick={() => onEntryClick({ kind: "meeting", date: item.date, data: m })}
+                    removed={m.is_excluded}
                     icon={
                       <div className="w-9 h-9 rounded-full bg-secondary-container flex items-center justify-center shrink-0 z-10">
                         <Calendar className="h-4 w-4 text-on-secondary-container" />
@@ -292,6 +337,7 @@ export function ContactTimelineTab({
                     key={`i-${i.id}`}
                     label={`${title}, ${shortDate(item.date)}. Open details`}
                     onClick={() => onEntryClick({ kind: "interaction", date: item.date, data: i })}
+                    removed={i.is_excluded}
                     icon={
                       <div className="w-9 h-9 rounded-full bg-tertiary-container flex items-center justify-center shrink-0 z-10">
                         <MessageSquare className="h-4 w-4 text-on-tertiary-container" />
@@ -313,6 +359,7 @@ export function ContactTimelineTab({
                     key={`ca-${a.id}`}
                     label={`Action completed, ${shortDate(item.date)}: ${a.title}. Open details`}
                     onClick={() => onEntryClick({ kind: "completed_action", date: item.date, data: a })}
+                    removed={a.is_excluded}
                     icon={
                       <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0 z-10">
                         <CheckCircle className="h-4 w-4 text-primary" />

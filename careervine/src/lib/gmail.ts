@@ -358,6 +358,7 @@ export async function syncEmailsForContact(
       const existing = must(
         await supabase
           .from("email_messages")
+          // exclusion-exempt: sync bookkeeping. This probe decides which messages already exist; hiding struck rows here makes every sync re-insert them.
           .select("gmail_message_id")
           .eq("user_id", userId)
           .in("gmail_message_id", msgIds),
@@ -457,6 +458,9 @@ export async function syncEmailsForContact(
             // fail because an attribution lookup did.
             const { data: ourThreads } = await supabase
               .from("email_messages")
+              // exclusion-exempt: asks whether WE wrote on this thread first, which is
+              // what makes an inbound message a reply at all. Striking our own sent
+              // message does not unsend it, and the reply is still real.
               .select("thread_id, ai_assisted")
               .eq("user_id", userId)
               .eq("direction", "outbound")
@@ -501,6 +505,7 @@ export async function syncEmailsForContact(
       // the two still gets its link this pass.
       const { data: pageRows, error: pageRowsError } = await supabase
         .from("email_messages")
+        // exclusion-exempt: sync bookkeeping. Post-upsert id lookup for junction linking, not a derived value.
         .select("id")
         .eq("user_id", userId)
         .in("gmail_message_id", msgIds);
@@ -885,6 +890,7 @@ export async function backfillEmailsForContact(
         let q = supabase
           .from("email_messages")
           .select("id")
+          // exclusion-exempt: sync bookkeeping. Pages every cached id to claim orphans; a struck row still needs claiming.
           .eq("user_id", userId)
           .order("id", { ascending: true })
           .range(offset, offset + PAGE - 1);
@@ -1125,6 +1131,10 @@ export async function checkForReplyInThread(
       .eq("user_id", userId)
       .eq("thread_id", threadId)
       .eq("direction", "inbound")
+      // CAR-260: this is the gate that retires a follow-up sequence. An
+      // automated calendar notice the user struck must stop holding the
+      // sequence back, which is the whole point of striking it.
+      .eq("is_excluded", false)
       .gte("date", sinceDate)
       .limit(1),
   );
@@ -1482,6 +1492,7 @@ export async function syncThreadReplies(
     must(
       await supabase
         .from("email_messages")
+        // exclusion-exempt: sync bookkeeping. Builds knownMessageIds, so struck rows must stay visible or the sweep re-ingests them.
         .select("gmail_message_id, thread_id, matched_contact_id, email_message_contacts(contact_id)")
         .eq("user_id", userId)
         .not("thread_id", "is", null)
@@ -1666,6 +1677,9 @@ export async function syncThreadReplies(
       const priorOutbound = must(
         await supabase
           .from("email_messages")
+          // exclusion-exempt: same as the attribution read in syncEmailsForContact —
+          // whether we sent on this thread first is a fact about the conversation,
+          // not a derived metric.
           .select("ai_assisted")
           .eq("user_id", userId)
           .eq("thread_id", msg.threadId)

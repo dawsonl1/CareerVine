@@ -125,6 +125,8 @@ export type ContactMeeting = {
   private_notes: string | null;
   calendar_description: string | null;
   transcript: string | null;
+  /** Struck from every derived calculation by the user (CAR-260). */
+  is_excluded: boolean;
 };
 
 // ── Gmail types ──
@@ -192,6 +194,8 @@ export type CompletedActionEntry = {
   /** `ActionDirection.WaitingOn` when the user was waiting on the contact. */
   direction?: string | null;
   completed_at: string | null;
+  /** Struck from every derived calculation by the user (CAR-260). */
+  is_excluded?: boolean;
 };
 
 export type TimelineEntry =
