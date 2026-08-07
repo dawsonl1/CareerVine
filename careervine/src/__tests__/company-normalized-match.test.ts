@@ -11,7 +11,12 @@
  */
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { findOrCreateCompany, normalizeCompanyName } from "@/lib/company-helpers";
+import {
+  applyCompanyConsolidations,
+  findOrCreateCompany,
+  normalizeCompanyName,
+  prefetchCompanies,
+} from "@/lib/company-helpers";
 
 // ── Programmable chained-builder mock (same shape as bulk-import-batching) ──
 
@@ -331,5 +336,136 @@ describe("claimCompanyRow (CAR-158)", () => {
 
     const result = await findOrCreateCompany(client, CLAIM_INPUT);
     expect(result).toMatchObject({ id: 4679, linkedin_company_id: null });
+  });
+});
+
+// ── CAR-269: hardcoded company consolidations ───────────────────────────
+
+const ADOBE_ROW = {
+  id: 166,
+  name: "Adobe",
+  linkedin_company_id: "1480",
+  linkedin_url: "https://www.linkedin.com/company/adobe",
+  universal_name: "adobe",
+  logo_url: null,
+};
+
+const BILL_ROW = {
+  id: 249,
+  name: "BILL (Bill.com)",
+  linkedin_company_id: "113254",
+  linkedin_url: "https://www.linkedin.com/company/bill",
+  universal_name: "bill",
+  logo_url: null,
+};
+
+/** Responder that serves the canonical rows by linkedin_company_id, for both
+ * the eq() path (findOrCreateCompany step 1) and the in() path (prefetch). */
+const canonicalResponder: Responder = (state) => {
+  if (state.table !== "companies" || state.op !== "select") return { data: [] };
+  const eq = filterOf(state, "eq");
+  if (eq?.args[0] === "linkedin_company_id") {
+    const row = [ADOBE_ROW, BILL_ROW].find((r) => r.linkedin_company_id === eq.args[1]);
+    return { data: row ?? null };
+  }
+  const inF = filterOf(state, "in");
+  if (inF?.args[0] === "linkedin_company_id") {
+    const wanted = inF.args[1] as string[];
+    return { data: [ADOBE_ROW, BILL_ROW].filter((r) => wanted.includes(r.linkedin_company_id)) };
+  }
+  return { data: [] };
+};
+
+describe("applyCompanyConsolidations (CAR-269)", () => {
+  it("rewrites Workfront's LinkedIn identity to Adobe's", () => {
+    const out = applyCompanyConsolidations({
+      name: "Workfront",
+      linkedin_company_id: "48453",
+      linkedin_url: "https://www.linkedin.com/company/adobeworkfront/",
+      universal_name: "adobeworkfront",
+      logo_url: "https://media.licdn.com/workfront.png",
+    });
+    expect(out).toEqual({
+      name: "Adobe",
+      linkedin_company_id: "1480",
+      linkedin_url: "https://www.linkedin.com/company/adobe",
+      universal_name: "adobe",
+      logo_url: null,
+    });
+  });
+
+  it("rewrites Divvy inputs via universal_name and via URL slug alone", () => {
+    expect(applyCompanyConsolidations({ name: "Divvy | Inc.", universal_name: "divvynowbill" }).name)
+      .toBe("BILL (Bill.com)");
+    expect(
+      applyCompanyConsolidations({
+        name: "Divvy",
+        linkedin_url: "https://www.linkedin.com/company/divvynowbill/",
+      }).name,
+    ).toBe("BILL (Bill.com)");
+  });
+
+  it("rewrites name-only alias variants", () => {
+    for (const name of ["Workfront", "Adobe Workfront", "Adobe (Workfront office)"]) {
+      expect(applyCompanyConsolidations({ name }).linkedin_company_id, name).toBe("1480");
+    }
+    for (const name of ["Divvy", "Divvy | Inc.", "BILL", "Bill.com"]) {
+      expect(applyCompanyConsolidations({ name }).linkedin_company_id, name).toBe("113254");
+    }
+  });
+
+  it("never name-aliases an input that carries its own LinkedIn identity", () => {
+    const own = { name: "Divvy", linkedin_company_id: "999999" };
+    expect(applyCompanyConsolidations(own)).toBe(own);
+    const slug = { name: "Workfront", linkedin_url: "https://www.linkedin.com/company/some-other-co" };
+    expect(applyCompanyConsolidations(slug)).toBe(slug);
+  });
+
+  it("returns the SAME object when no consolidation applies", () => {
+    const input = { name: "Rubrik", linkedin_company_id: "4840301" };
+    expect(applyCompanyConsolidations(input)).toBe(input);
+  });
+});
+
+describe("findOrCreateCompany consolidation (CAR-269)", () => {
+  it("resolves a Workfront-identified input straight to the Adobe row", async () => {
+    const { client, calls } = createMockClient(canonicalResponder);
+    const result = await findOrCreateCompany(client, {
+      name: "Workfront",
+      linkedin_company_id: "48453",
+      linkedin_url: "https://www.linkedin.com/company/adobeworkfront/",
+      universal_name: "adobeworkfront",
+    });
+    expect(result).toMatchObject({ id: 166, name: "Adobe" });
+    // The alias must rewrite BEFORE the match ladder: no query may carry the
+    // Workfront id, and nothing may be inserted.
+    for (const call of calls) {
+      for (const f of call.filters) {
+        expect(f.args, `query filtered on ${JSON.stringify(f.args)}`).not.toContain("48453");
+      }
+    }
+    expect(calls.filter((c) => c.op === "insert")).toHaveLength(0);
+  });
+
+  it("resolves a name-only 'Divvy' input to the BILL row by canonical id", async () => {
+    const { client, calls } = createMockClient(canonicalResponder);
+    const result = await findOrCreateCompany(client, { name: "Divvy" });
+    expect(result).toMatchObject({ id: 249, name: "BILL (Bill.com)" });
+    expect(calls.filter((c) => c.op === "insert")).toHaveLength(0);
+  });
+});
+
+describe("prefetchCompanies consolidation (CAR-269)", () => {
+  it("returns canonical rows under the callers' raw lookup keys", async () => {
+    const { client } = createMockClient(canonicalResponder);
+    const { byId, byName } = await prefetchCompanies(client, [
+      { name: "Workfront", linkedin_company_id: "48453" },
+      { name: "Divvy" }, // name-only → aliased into the id sweep
+      { name: "Adobe", linkedin_company_id: "1480" }, // canonical id untouched
+    ]);
+    // Callers key byId on the RAW linkedin id and byName on the raw name.
+    expect(byId.get("48453")).toMatchObject({ id: 166, name: "Adobe" });
+    expect(byId.get("1480")).toMatchObject({ id: 166 });
+    expect(byName.get("divvy")).toMatchObject({ id: 249, name: "BILL (Bill.com)" });
   });
 });
