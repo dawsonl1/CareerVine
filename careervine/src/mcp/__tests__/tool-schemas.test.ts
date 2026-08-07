@@ -6,6 +6,12 @@ import {
   setNetworkStatusSchema,
 } from "../tools/contacts";
 import { sendEmailSchema, scheduleEmailSchema, followUpSequenceSchema } from "../tools/email";
+import { updateInteractionSchema } from "../tools/upkeep";
+import {
+  CONVERSATION_TYPE_DETAIL_MAX_LENGTH,
+  CONVERSATION_TYPE_VALUES,
+  SYSTEM_INTERACTION_TYPE_EMAIL,
+} from "@/lib/constants";
 
 describe("tool input schemas", () => {
   it("search_contacts accepts a plain query and rejects bogus tiers", () => {
@@ -88,6 +94,45 @@ describe("tool input schemas", () => {
       messages: [{ subject: "s", body: "b", send_after_days: 3 }],
     });
     expect(good.messages).toHaveLength(1);
+  });
+});
+
+describe("update_interaction (CAR-275)", () => {
+  const schema = z.object(updateInteractionSchema);
+
+  it("needs an interaction_id and nothing else", () => {
+    expect(() => schema.parse({})).toThrow();
+    expect(schema.parse({ interaction_id: 41 }).interaction_id).toBe(41);
+  });
+
+  it("accepts the five conversation types and refuses the system-only one", () => {
+    for (const type of CONVERSATION_TYPE_VALUES) {
+      expect(schema.parse({ interaction_id: 41, type }).type).toBe(type);
+    }
+    // `email` is a legal column value but never a caller's to write: the send
+    // path owns it, exactly as in log_interaction.
+    expect(() => schema.parse({ interaction_id: 41, type: SYSTEM_INTERACTION_TYPE_EMAIL })).toThrow();
+    expect(() => schema.parse({ interaction_id: 41, type: "phone" })).toThrow();
+  });
+
+  it("caps the detail at the length the CHECK enforces", () => {
+    const max = "x".repeat(CONVERSATION_TYPE_DETAIL_MAX_LENGTH);
+    expect(schema.parse({ interaction_id: 41, detail: max }).detail).toBe(max);
+    expect(() => schema.parse({ interaction_id: 41, detail: `${max}x` })).toThrow();
+  });
+
+  it("distinguishes clearing a field from leaving it alone", () => {
+    // null clears, undefined leaves unchanged — the handler branches on which.
+    expect(schema.parse({ interaction_id: 41, summary: null }).summary).toBeNull();
+    expect(schema.parse({ interaction_id: 41 }).summary).toBeUndefined();
+    expect(schema.parse({ interaction_id: 41, detail: null }).detail).toBeNull();
+  });
+
+  it("names the destination contact distinctly from a subject contact", () => {
+    // Not `contact_id` / `name`: on every other tool those identify the SUBJECT,
+    // and reusing them here for a destination is the reading a model gets wrong.
+    expect(schema.parse({ interaction_id: 41, move_to_contact_id: 7 }).move_to_contact_id).toBe(7);
+    expect(updateInteractionSchema).not.toHaveProperty("contact_id");
   });
 });
 
