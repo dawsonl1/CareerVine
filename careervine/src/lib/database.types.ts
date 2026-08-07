@@ -2657,7 +2657,6 @@ export type Database = {
           priority_score: number | null
           program_name: string | null
           status: string
-          tier: string | null
           updated_at: string
           user_id: string
         }
@@ -2674,7 +2673,6 @@ export type Database = {
           priority_score?: number | null
           program_name?: string | null
           status?: string
-          tier?: string | null
           updated_at?: string
           user_id: string
         }
@@ -2691,7 +2689,6 @@ export type Database = {
           priority_score?: number | null
           program_name?: string | null
           status?: string
-          tier?: string | null
           updated_at?: string
           user_id?: string
         }

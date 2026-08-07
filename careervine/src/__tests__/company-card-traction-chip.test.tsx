@@ -34,6 +34,8 @@ function company(over: Partial<CompanySummary> = {}): CompanySummary {
     lead_contact_name: "Kelson Reid",
     target: null,
     office_scopes: [],
+    offices: [],
+    roster: [],
     traction: "call_done",
     traction_detail: { count: 2, at: daysAgo(14) },
     lead_detail: null,
@@ -126,7 +128,6 @@ describe("traction chip rendering (CAR-246)", () => {
           target: {
             id: 1,
             priority_score: null,
-            tier: null,
             program_name: null,
             app_window_text: null,
             next_app_date: soonLocal,
