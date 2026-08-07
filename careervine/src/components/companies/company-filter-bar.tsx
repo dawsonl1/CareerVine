@@ -12,7 +12,7 @@ import {
   type TargetStatus,
 } from "@/lib/company-filters";
 import { STAGE_LABELS, STAGE_ORDER, type OutreachStage } from "@/lib/stage-derivation";
-import { Check, ChevronDown, GraduationCap, SlidersHorizontal, UserCheck } from "lucide-react";
+import { Check, ChevronDown, GraduationCap, SlidersHorizontal } from "lucide-react";
 import { useAlumniAffinity } from "@/hooks/use-alumni-affinity";
 
 // Shared with the company cards on the page.
@@ -62,7 +62,6 @@ interface CompanyFilterBarProps {
 function secondaryActiveCount(f: CompanyFilters): number {
   return (
     (f.productAlum ? 1 : 0) +
-    (f.currentOnly ? 1 : 0) +
     (f.traction.length > 0 ? 1 : 0) +
     (f.tiers.length > 0 ? 1 : 0) +
     (f.contacts.length > 0 ? 1 : 0) +
@@ -158,19 +157,6 @@ export default function CompanyFilterBar({
             </button>
           )}
 
-          {/* A toggle rather than a row in the contacts dropdown: options inside one
-              dropdown OR together, and this one NARROWS. "With contacts" or
-              "works there now" would be the wider set, not the intersection. */}
-          <button
-            onClick={() => onFiltersChange({ ...filters, currentOnly: !filters.currentOnly })}
-            aria-pressed={filters.currentOnly}
-            className={`${CHIP_BASE} ${filters.currentOnly ? CHIP_ON : CHIP_OFF}`}
-          >
-            <ChipCheck on={filters.currentOnly} />
-            <UserCheck className="h-4 w-4 mr-1.5" />
-            Contact works there now
-          </button>
-
           <MultiSelect
             ariaLabel="Filter by traction"
             anyLabel="Any traction"
@@ -193,13 +179,20 @@ export default function CompanyFilterBar({
             />
           )}
 
+          {/* One control for contact presence (CAR-248). The retired setup paired
+              this dropdown with a "works there now" chip, which read as a second,
+              overlapping criterion in the same row: "With contacts" and "works
+              there now" both describe knowing someone. Splitting the old "with"
+              into its two halves says the same things with one control, and the
+              halves OR like every other facet — picking both IS "with contacts". */}
           <MultiSelect
             ariaLabel="Filter by contacts"
             anyLabel="Any contacts"
             values={filters.contacts}
             onChange={(v) => onFiltersChange({ ...filters, contacts: v as ContactsFilter[] })}
             options={[
-              { value: "with", label: "With contacts" },
+              { value: "current", label: "Contact works there now" },
+              { value: "former", label: "Contact worked there before" },
               { value: "none", label: "No contacts yet" },
             ]}
             className="text-sm"

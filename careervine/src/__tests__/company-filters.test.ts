@@ -137,22 +137,37 @@ describe("filterCompanies", () => {
   });
 
   describe("contacts facet", () => {
-    const withCurrent = company({ current_count: 2 });
-    const withFormer = company({ former_count: 1 });
-    const benchOnly = company({ bench_count: 3 });
-    const empty = company({});
-    const rows = [withCurrent, withFormer, benchOnly, empty];
+    const currentOnly = company({ name: "Stripe", current_count: 2 });
+    const formerOnly = company({ name: "Adobe", former_count: 1 });
+    const both = company({ name: "Lucid", current_count: 1, former_count: 3 });
+    const benchOnly = company({ name: "Figma", bench_count: 3 });
+    const empty = company({ name: "Acme" });
+    const rows = [currentOnly, formerOnly, both, benchOnly, empty];
 
-    it('"with" requires current or former contacts (bench does not count)', () => {
-      expect(filterCompanies(rows, filters({ contacts: ["with"] }))).toEqual([withCurrent, withFormer]);
+    it('"current" keeps companies where someone works there now', () => {
+      expect(filterCompanies(rows, filters({ contacts: ["current"] }))).toEqual([currentOnly, both]);
     });
 
-    it('"none" keeps only companies without current/former contacts', () => {
+    it('"former" keeps companies where someone used to, even alongside a current contact', () => {
+      // `both` matching BOTH sides is deliberate: the two values describe people,
+      // not companies, and a company can have one of each.
+      expect(filterCompanies(rows, filters({ contacts: ["former"] }))).toEqual([formerOnly, both]);
+    });
+
+    it('"none" keeps only companies without current/former contacts (bench does not count)', () => {
       expect(filterCompanies(rows, filters({ contacts: ["none"] }))).toEqual([benchOnly, empty]);
     });
 
-    it("selecting both sides is the same as selecting neither", () => {
-      expect(filterCompanies(rows, filters({ contacts: ["with", "none"] }))).toEqual(rows);
+    it('"current" + "former" is the retired "with contacts"', () => {
+      expect(filterCompanies(rows, filters({ contacts: ["current", "former"] }))).toEqual([
+        currentOnly,
+        formerOnly,
+        both,
+      ]);
+    });
+
+    it("selecting all three values is the same as selecting none", () => {
+      expect(filterCompanies(rows, filters({ contacts: ["current", "former", "none"] }))).toEqual(rows);
     });
   });
 
@@ -174,20 +189,6 @@ describe("filterCompanies", () => {
     });
   });
 
-  describe("current-employment facet", () => {
-    it("keeps only companies where someone works there now", () => {
-      const current = company({ name: "Stripe", current_count: 1 });
-      // The distinction the facet exists for: "With contacts" keeps this row,
-      // because you do know someone — they just left.
-      const formerOnly = company({ name: "Adobe", former_count: 4 });
-      const benchOnly = company({ name: "Figma", bench_count: 2 });
-      const rows = [current, formerOnly, benchOnly];
-
-      expect(filterCompanies(rows, filters({ currentOnly: true }))).toEqual([current]);
-      expect(filterCompanies(rows, filters({ contacts: ["with"] }))).toEqual([current, formerOnly]);
-    });
-  });
-
   describe("alum-in-product facet", () => {
     it("keeps only companies with a product alum when enabled", () => {
       const withProductAlum = company({ name: "Stripe", product_alum_count: 1 });
@@ -203,7 +204,7 @@ describe("filterCompanies", () => {
     const wrongName = company({ name: "Adobe", current_count: 1, target: { status: "applied" } });
     const rows = [match, wrongStatus, wrongName];
     expect(
-      filterCompanies(rows, filters({ q: "stripe", statuses: ["applied"], contacts: ["with"] })),
+      filterCompanies(rows, filters({ q: "stripe", statuses: ["applied"], contacts: ["current"] })),
     ).toEqual([match]);
   });
 
@@ -228,8 +229,8 @@ describe("hasActiveCompanyFilters", () => {
     expect(hasActiveCompanyFilters(filters({ traction: ["replied"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ tiers: ["Big Tech"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ contacts: ["none"] }))).toBe(true);
+    expect(hasActiveCompanyFilters(filters({ contacts: ["current"] }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ alumni: ["with"] }))).toBe(true);
-    expect(hasActiveCompanyFilters(filters({ currentOnly: true }))).toBe(true);
     expect(hasActiveCompanyFilters(filters({ productAlum: true }))).toBe(true);
   });
 });
@@ -310,16 +311,15 @@ describe("URL param round-trip", () => {
   it("parses a fully-populated query string", () => {
     const params = new URLSearchParams(
       "q=stripe&status=applied,interviewing&traction=replied,call_done&tier=Big+Tech&tier=Utah" +
-        "&contacts=none&alumni=with&current=1&product_alum=1",
+        "&contacts=current,former&alumni=with&product_alum=1",
     );
     expect(parseCompanyFilters(params)).toEqual({
       q: "stripe",
       statuses: ["applied", "interviewing"],
       traction: ["replied", "call_done"],
       tiers: ["Big Tech", "Utah"],
-      contacts: ["none"],
+      contacts: ["current", "former"],
       alumni: ["with"],
-      currentOnly: true,
       productAlum: true,
     });
   });
@@ -388,9 +388,8 @@ describe("URL param round-trip", () => {
       statuses: ["outreach_active", "closed"],
       traction: ["call_done", "replied"],
       tiers: ["Utah/Silicon Slopes", "Big Tech"],
-      contacts: ["with"],
+      contacts: ["former", "none"],
       alumni: ["without"],
-      currentOnly: true,
       productAlum: true,
     });
     expect(parseCompanyFilters(serializeCompanyFilters(f, new URLSearchParams()))).toEqual(f);
@@ -408,9 +407,9 @@ describe("URL param round-trip", () => {
 
   describe("links shared before the facets went multi-value", () => {
     it("reads a single-value traction/tier/contacts URL", () => {
-      const params = new URLSearchParams("traction=replied&tier=Big+Tech&contacts=with");
+      const params = new URLSearchParams("traction=replied&tier=Big+Tech&contacts=none");
       expect(parseCompanyFilters(params)).toEqual(
-        filters({ traction: ["replied"], tiers: ["Big Tech"], contacts: ["with"] }),
+        filters({ traction: ["replied"], tiers: ["Big Tech"], contacts: ["none"] }),
       );
     });
 
@@ -420,6 +419,52 @@ describe("URL param round-trip", () => {
 
     it("reads a comma-joined tier label as ONE tier, not two", () => {
       expect(parseCompanyFilters(new URLSearchParams("tier=Foo,+Bar")).tiers).toEqual(["Foo, Bar"]);
+    });
+  });
+
+  describe("links shared before contacts absorbed the works-there-now toggle", () => {
+    it('reads the retired contacts=with as current + former', () => {
+      expect(parseCompanyFilters(new URLSearchParams("contacts=with")).contacts).toEqual([
+        "current",
+        "former",
+      ]);
+    });
+
+    it('reads contacts=with,none as every value, which is what it matched', () => {
+      expect(parseCompanyFilters(new URLSearchParams("contacts=with,none")).contacts).toEqual([
+        "current",
+        "former",
+        "none",
+      ]);
+    });
+
+    it("reads the retired current=1 toggle as the current value", () => {
+      expect(parseCompanyFilters(new URLSearchParams("current=1")).contacts).toEqual(["current"]);
+    });
+
+    it("narrows rather than widens when current=1 met the old contacts=with", () => {
+      // The toggle ANDed, so the pair meant "current", not "current or former".
+      expect(parseCompanyFilters(new URLSearchParams("contacts=with&current=1")).contacts).toEqual([
+        "current",
+      ]);
+    });
+
+    it("resolves the contradictory current=1 + contacts=none toward the dropdown", () => {
+      // That pair matched nothing at all; there is no equivalent here, and `none`
+      // at least shows the user a list.
+      expect(parseCompanyFilters(new URLSearchParams("contacts=none&current=1")).contacts).toEqual([
+        "none",
+      ]);
+    });
+
+    it("drops the retired current param on the next serialize so it cannot reapply", () => {
+      // Round-tripping a legacy link must not keep re-narrowing: `current=1` is
+      // folded into `contacts` on read, so it has to leave the URL on write.
+      const legacy = new URLSearchParams("contacts=with&current=1");
+      const out = serializeCompanyFilters(parseCompanyFilters(legacy), legacy);
+      expect(out.has("current")).toBe(false);
+      expect(out.get("contacts")).toBe("current");
+      expect(parseCompanyFilters(out).contacts).toEqual(["current"]);
     });
   });
 });
