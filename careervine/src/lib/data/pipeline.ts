@@ -10,6 +10,124 @@ import { randomUUID } from "node:crypto";
 import { db, must } from "./client";
 
 /**
+ * The five recruiting stages, in order. Duplicated from `pipeline-state.ts`
+ * rather than imported: that module is a client component's state model and
+ * pulling it in here would drag React types into the data layer.
+ */
+const PIPELINE_STAGES = ["researching", "outreach_active", "applied", "interviewing", "closed"] as const;
+export type TargetCompanyStage = (typeof PIPELINE_STAGES)[number];
+
+/**
+ * Set a company target's pipeline stage, by explicit instruction (CAR-265).
+ *
+ * WRITES BOTH LEGS, and that is the whole reason this function exists.
+ * `company-stage-advance.ts` states the invariant: the company page reads
+ * `pipeline_cycles.selected_stage` while the companies list reads
+ * `target_companies.status`, so moving one leaves the two surfaces disagreeing.
+ * No existing helper does both for an arbitrary stage — `syncScopeStatus` writes
+ * only the target row, and every caller pairs it with `savePipelineCycle` by
+ * hand (see use-pipeline-autosave.ts). MCP has no such caller to lean on.
+ *
+ * DELIBERATELY UNGATED on employment and direction, unlike
+ * `advanceCompaniesForContacts`. That one infers intent from a reply, so it is
+ * forward-only and gated on `is_current` — a stray reply must never drag a live
+ * application backwards. This is somebody saying which stage the company is at,
+ * the equivalent of moving it in the UI, so it has to be able to move backwards:
+ * a stage set by mistake must be correctable by the same route that set it.
+ *
+ * What it is NOT missing: `user_id` on the update. CAR-255 deleted
+ * `updateTargetCompany` for writing this column with `.eq("id")` as its only
+ * predicate, which is unsafe precisely here, under a service client that
+ * bypasses RLS.
+ *
+ * CACHE: CAR-256's `invalidateCompaniesList` is browser module state. Calling it
+ * from a server process would invalidate nothing, so it is deliberately not
+ * called — a stage set through here reaches the list on its next fetch or after
+ * the 5-minute TTL.
+ *
+ * @param userId Owner. `pipeline_cycles` has no user_id, so ownership is proven
+ *               on the parent target row before the cycle is touched.
+ */
+export async function setCompanyStage(
+  userId: string,
+  targetCompanyId: number,
+  stage: TargetCompanyStage,
+): Promise<{ previousStage: string | null }> {
+  const target = must(
+    await db()
+      .from("target_companies")
+      .select("id, active_cycle, status")
+      .eq("id", targetCompanyId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ) as { id: number; active_cycle: number | null; status: string | null } | null;
+  if (!target) throw new Error(`No target company with id ${targetCompanyId}`);
+
+  const previousStage = target.status ?? null;
+  if (previousStage === stage) return { previousStage };
+
+  const { error: statusErr } = await db()
+    .from("target_companies")
+    .update({ status: stage, updated_at: new Date().toISOString() })
+    .eq("id", targetCompanyId)
+    .eq("user_id", userId);
+  if (statusErr) throw statusErr;
+
+  // Mirror onto the active cycle. Upserted, not updated: a company whose
+  // pipeline panel was never opened has no cycle row at all, and the page seeds
+  // its stage from target_companies.status in that case — but the moment a row
+  // DOES exist it wins, so leaving a stale one behind is how the two surfaces
+  // drift apart.
+  const cycleNumber = target.active_cycle || 1;
+  const { error: cycleErr } = await db()
+    .from("pipeline_cycles")
+    .upsert(
+      { target_company_id: targetCompanyId, cycle_number: cycleNumber, selected_stage: stage },
+      { onConflict: "target_company_id,cycle_number", ignoreDuplicates: false },
+    );
+  if (cycleErr) throw cycleErr;
+
+  return { previousStage };
+}
+
+/**
+ * Update a company target's research fields (CAR-265).
+ *
+ * `next_app_date` had no writer anywhere in the app before this. It is what the
+ * outreach queue's boost window orders by, so an agent could consume an ordering
+ * it had no way to improve — it could read an application deadline off a careers
+ * page and had nowhere to put it.
+ *
+ * Only the fields passed are written, so a caller setting a deadline cannot
+ * blank a program name it never mentioned. `status` and `is_targeted` are NOT
+ * settable here: status goes through `setCompanyStage`, which also mirrors the
+ * cycle, and targeting has its own semantics.
+ */
+export async function updateTargetResearch(
+  userId: string,
+  targetCompanyId: number,
+  patch: {
+    priority_score?: number | null;
+    program_name?: string | null;
+    app_window_text?: string | null;
+    next_app_date?: string | null;
+  },
+): Promise<void> {
+  const fields = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  if (Object.keys(fields).length === 0) return;
+
+  const { error, count } = await db()
+    .from("target_companies")
+    .update({ ...fields, updated_at: new Date().toISOString() }, { count: "exact" })
+    .eq("id", targetCompanyId)
+    .eq("user_id", userId);
+  if (error) throw error;
+  // No returning read: the count is the ownership signal, and a zero here means
+  // the row is not this user's rather than that the write silently did nothing.
+  if (!count) throw new Error(`No target company with id ${targetCompanyId}`);
+}
+
+/**
  * Append a note to a company target's ACTIVE pipeline cycle (CAR-238).
  *
  * This writes the same `pipeline_notes` row the company page's "Add note"

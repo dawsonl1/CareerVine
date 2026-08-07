@@ -31,13 +31,24 @@ import {
   getBouncedAddresses,
   getContactById,
   getContactEmailLookup,
+  updateContact,
+  attachEmailToContact,
+  attachPhoneToContact,
+  removeContactTagsByName,
 } from "@/lib/data/contacts";
 import {
   buildLastTouchMap as buildLastTouchMapShared,
   getDueFollowUps,
   getNeglectedContacts,
   getRelationshipsOnTrack,
+  skipContactFirstOutreach,
+  snoozeContact,
 } from "@/lib/data/follow-ups";
+import {
+  setCompanyStage,
+  updateTargetResearch,
+  type TargetCompanyStage,
+} from "@/lib/data/pipeline";
 import { getNetworkingStreak } from "@/lib/data/home";
 import { createActionItem as createActionItemShared, getActionItems } from "@/lib/data/action-items";
 import {
@@ -420,6 +431,143 @@ export async function setStageOverride(contactId: number, stage: string | null):
     .eq("id", contactId)
     .eq("user_id", uid());
   if (error) throw error;
+}
+
+/** Contact fields an agent may edit (CAR-265). */
+export interface ContactFieldPatch {
+  industry?: string | null;
+  linkedin_url?: string | null;
+  headline?: string | null;
+  met_through?: string | null;
+  follow_up_frequency_days?: number | null;
+  preferred_contact_method?: string | null;
+  preferred_contact_value?: string | null;
+  intro_goal?: string | null;
+}
+
+/**
+ * Edit a contact's own fields (CAR-265).
+ *
+ * Goes THROUGH `updateContact` rather than issuing its own UPDATE, because that
+ * function is the canonicalization chokepoint (CAR-155): `linkedin_url` is
+ * normalized inside it, and a URL written around it lands as a variant that the
+ * import dedupe then treats as a different person. `userId` is passed so the
+ * write carries `.eq("user_id", …)` — the service client has no RLS behind it.
+ *
+ * `persona` and `network_scope` are deliberately absent: both are pipeline-owned
+ * and a scrape rewrites them, so accepting a value here would promise
+ * persistence this cannot deliver. Network tier has its own tool
+ * (`set_network_status`), notes have `add_contact_note`, and the outreach stage
+ * has `set_stage_override`.
+ *
+ * Only the keys present are written, so setting a cadence cannot blank a
+ * headline the caller never mentioned.
+ */
+export async function updateContactFields(
+  contactId: number,
+  patch: ContactFieldPatch,
+): Promise<string[]> {
+  await assertContactOwned(contactId);
+  const fields = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  if (Object.keys(fields).length === 0) return [];
+  await updateContact(contactId, fields, { userId: uid(), minimal: true });
+  return Object.keys(fields);
+}
+
+/**
+ * Add an email address to an EXISTING contact (CAR-265).
+ *
+ * `add_contact` could only attach addresses at creation, so the commonest
+ * enrichment an agent performs — finding an address that actually works — had
+ * nowhere to go.
+ *
+ * The ownership assertion is the entire security boundary here. `contact_emails`
+ * has no `user_id`, so the shared writer keys on the contact id alone and cannot
+ * scope itself; under the service client RLS is not behind it either. Asserting
+ * first is what puts that id in the proven set.
+ */
+export async function addContactEmail(
+  contactId: number,
+  email: string,
+  opts: { isPrimary?: boolean; source?: string } = {},
+): Promise<{ demotedPrimaries: number }> {
+  await assertContactOwned(contactId);
+  return attachEmailToContact(contactId, email, opts);
+}
+
+/** Add a phone number to an existing contact (CAR-265). See `addContactEmail`. */
+export async function addContactPhone(
+  contactId: number,
+  phone: string,
+  opts: { type?: string; isPrimary?: boolean } = {},
+): Promise<void> {
+  await assertContactOwned(contactId);
+  await attachPhoneToContact(contactId, phone, opts);
+}
+
+/**
+ * Remove tags from a contact (CAR-265).
+ *
+ * Two ids guard this: the contact, proven by the assertion, and the tag, which
+ * the shared writer resolves under `.eq("user_id", …)` so a name cannot reach
+ * another user's tag. Deletes the link only — the tag stays in the workspace.
+ */
+export async function untagContact(contactId: number, tagNames: string[]): Promise<string[]> {
+  await assertContactOwned(contactId);
+  return removeContactTagsByName(uid(), contactId, tagNames);
+}
+
+/**
+ * Defer a contact's follow-up (CAR-265).
+ *
+ * `list_due_followups` surfaces overdue contacts and, until now, an agent's only
+ * options were to email immediately or leave the contact overdue forever. Both
+ * shared writers also stamp `suggestion_cooldown_until`, which is why this
+ * delegates instead of writing the column directly: snoozing without the
+ * cooldown produces a contact that is snoozed and still being suggested.
+ */
+export async function deferFollowUp(
+  contactId: number,
+  opts: { until?: string; skipFirstOutreach?: boolean },
+): Promise<{ action: "snoozed" | "skipped" }> {
+  await assertContactOwned(contactId);
+  if (opts.skipFirstOutreach) {
+    await skipContactFirstOutreach(contactId, uid());
+    return { action: "skipped" };
+  }
+  if (!opts.until) throw new Error("Provide `until` (ISO date) or skip_first_outreach: true");
+  await snoozeContact(contactId, opts.until, uid());
+  return { action: "snoozed" };
+}
+
+/**
+ * Resolve a company to the user's company-wide target row, creating it if
+ * absent, then set its stage (CAR-265).
+ *
+ * The stage write itself lives in `src/lib/data/pipeline.ts` because it must
+ * write BOTH `target_companies.status` and the active cycle's `selected_stage`
+ * — see that function's header. It also lives there rather than in
+ * `pipeline-queries.ts` because the scoping gate's import scan covers
+ * `src/lib/data/*` and does not cover `pipeline-queries.ts`, so a write placed
+ * there would carry no enforcement at all.
+ */
+export async function setCompanyStageForCompany(
+  companyId: number,
+  stage: TargetCompanyStage,
+): Promise<{ targetId: number; previousStage: string | null }> {
+  const targetId = await getOrCreateTargetCompany(companyId);
+  const { previousStage } = await setCompanyStage(uid(), targetId, stage);
+  return { targetId, previousStage };
+}
+
+/** Set a company target's research fields, creating the target row if absent (CAR-265). */
+export async function updateCompanyResearch(
+  companyId: number,
+  patch: Parameters<typeof updateTargetResearch>[2],
+): Promise<{ targetId: number; fields: string[] }> {
+  const targetId = await getOrCreateTargetCompany(companyId);
+  await updateTargetResearch(uid(), targetId, patch);
+  return { targetId, fields: Object.keys(patch).filter((k) => patch[k as keyof typeof patch] !== undefined) };
 }
 
 // ── Interactions ───────────────────────────────────────────────────────

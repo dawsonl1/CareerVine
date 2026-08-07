@@ -14,7 +14,12 @@ import {
   createContactFull,
   appendNote,
   tagContact,
+  untagContact,
   setNetworkStatus,
+  updateContactFields,
+  addContactEmail,
+  addContactPhone,
+  deferFollowUp,
   getViewerSchool,
 } from "../lib/db";
 import { buildDossier } from "../lib/dossier";
@@ -83,6 +88,46 @@ export const setNetworkStatusSchema = {
   status: z
     .enum(["active", "prospect", "bench"])
     .describe("active = my network, prospect = outreach pool, bench = archive"),
+};
+
+/** CAR-265. Every field optional; the handler rejects an empty patch. */
+export const updateContactSchema = {
+  ...contactRefShape,
+  industry: z.string().nullable().optional(),
+  linkedin_url: z.string().nullable().optional().describe("Canonicalized on write"),
+  headline: z.string().nullable().optional().describe("A later scrape may overwrite this"),
+  met_through: z.string().nullable().optional(),
+  follow_up_frequency_days: z.number().int().min(1).max(3650).nullable().optional()
+    .describe("Cadence in days; null clears it"),
+  preferred_contact_method: z.string().nullable().optional(),
+  preferred_contact_value: z.string().nullable().optional(),
+  intro_goal: z.string().nullable().optional(),
+};
+
+export const addContactEmailSchema = {
+  ...contactRefShape,
+  email: z.string().min(3),
+  is_primary: z.boolean().optional().describe("Defaults true when the contact has no address yet"),
+  source: z.enum(["verified", "scraped", "pattern_guessed", "manual"]).optional(),
+};
+
+export const addContactPhoneSchema = {
+  ...contactRefShape,
+  phone: z.string().min(3),
+  type: z.string().optional().describe("mobile (default), work, home"),
+  is_primary: z.boolean().optional(),
+};
+
+export const untagContactSchema = {
+  ...contactRefShape,
+  tags: z.array(z.string()).min(1).describe("Tag names to unlink; the tags themselves are kept"),
+};
+
+export const deferFollowUpSchema = {
+  ...contactRefShape,
+  until: z.string().optional().describe("ISO date/time to snooze until"),
+  skip_first_outreach: z.literal(true).optional()
+    .describe("Permanently stop suggesting a FIRST outreach to this contact"),
 };
 
 export function registerContactTools(server: McpServer): void {
@@ -196,6 +241,105 @@ export function registerContactTools(server: McpServer): void {
       const contact = await resolveContact({ contact_id, name });
       const applied = await tagContact(contact.id, tags);
       return { summary: `Tagged ${contact.name}: ${applied.join(", ")}` };
+    }),
+  );
+
+  server.registerTool(
+    "update_contact",
+    {
+      title: "Update contact",
+      description:
+        "Edit a contact's own fields: industry, LinkedIn URL, headline, how you met, follow-up cadence, preferred contact method, intro goal. Only the fields you pass are changed. Network tier is set_network_status, notes are add_contact_note, outreach stage is set_stage_override.",
+      inputSchema: updateContactSchema,
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ contact_id, name, ...patch }) => {
+      const contact = await resolveContact({ contact_id, name });
+      const changed = await updateContactFields(contact.id, patch);
+      if (changed.length === 0) throw new Error("Pass at least one field to change");
+      return { summary: `Updated ${contact.name}: ${changed.join(", ")}`, contact_id: contact.id, fields: changed };
+    }),
+  );
+
+  server.registerTool(
+    "add_contact_email",
+    {
+      title: "Add contact email",
+      description:
+        "Add an email address to an existing contact. The first address becomes primary automatically; marking a later one primary demotes the old one so the contact never has two.",
+      inputSchema: addContactEmailSchema,
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ contact_id, name, email, is_primary, source }) => {
+      const contact = await resolveContact({ contact_id, name });
+      const { demotedPrimaries } = await addContactEmail(contact.id, email, { isPrimary: is_primary, source });
+      return {
+        summary:
+          `Added ${email} to ${contact.name}` +
+          (demotedPrimaries > 0 ? ` (now primary; demoted ${demotedPrimaries})` : ""),
+        contact_id: contact.id,
+      };
+    }),
+  );
+
+  server.registerTool(
+    "add_contact_phone",
+    {
+      title: "Add contact phone",
+      description: "Add a phone number to an existing contact.",
+      inputSchema: addContactPhoneSchema,
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ contact_id, name, phone, type, is_primary }) => {
+      const contact = await resolveContact({ contact_id, name });
+      await addContactPhone(contact.id, phone, { type, isPrimary: is_primary });
+      return { summary: `Added ${phone} to ${contact.name}`, contact_id: contact.id };
+    }),
+  );
+
+  server.registerTool(
+    "untag_contact",
+    {
+      title: "Remove tags from contact",
+      description:
+        "Unlink tags from a contact. The tags themselves stay in the workspace for other contacts. Names not on the contact are reported back rather than treated as an error.",
+      inputSchema: untagContactSchema,
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ contact_id, name, tags }) => {
+      const contact = await resolveContact({ contact_id, name });
+      const removed = await untagContact(contact.id, tags);
+      const missed = tags.filter((t) => !removed.some((r) => r.toLowerCase() === t.trim().toLowerCase()));
+      return {
+        summary:
+          removed.length > 0
+            ? `Removed from ${contact.name}: ${removed.join(", ")}` +
+              (missed.length > 0 ? `; not on this contact: ${missed.join(", ")}` : "")
+            : `No matching tags on ${contact.name}`,
+        removed,
+      };
+    }),
+  );
+
+  server.registerTool(
+    "defer_follow_up",
+    {
+      title: "Defer a follow-up",
+      description:
+        "Snooze a contact's follow-up until a date, or permanently stop suggesting a FIRST outreach to them. Both also set a three-week suggestion cooldown. Use this instead of leaving a due follow-up overdue.",
+      inputSchema: deferFollowUpSchema,
+      annotations: { readOnlyHint: false },
+    },
+    handler(async ({ contact_id, name, until, skip_first_outreach }) => {
+      const contact = await resolveContact({ contact_id, name });
+      const { action } = await deferFollowUp(contact.id, { until, skipFirstOutreach: skip_first_outreach });
+      return {
+        summary:
+          action === "skipped"
+            ? `${contact.name}: first outreach skipped`
+            : `${contact.name}: snoozed until ${until}`,
+        contact_id: contact.id,
+      };
     }),
   );
 
