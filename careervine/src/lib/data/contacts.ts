@@ -947,6 +947,24 @@ export async function removeSchoolsFromContact(contactId: number) {
 }
 
 // ── Contact Emails ──
+//
+// ONE INVARIANT GOVERNS THIS SECTION (CAR-279): a contact with any
+// `contact_emails` rows has exactly ONE with `is_primary`. That flag is where
+// mail goes -- resolveRecipient, the outreach queue, the profile card -- and the
+// AI follow-up generator filters on it with no fallback, so a contact with zero
+// primaries silently stops getting follow-ups.
+//
+// The DATABASE owns the invariant (migration 20260811161500_car279_one_primary_email):
+// a partial unique index makes two primaries unrepresentable, a BEFORE trigger
+// demotes the others whenever a row is set primary, and an AFTER trigger
+// promotes a survivor whenever the primary is deleted or demoted. So NEVER
+// hand-demote before promoting -- set `is_primary` on the row you mean and the
+// database settles the rest.
+//
+// The functions below still do the demotion and promotion explicitly. That is
+// deliberate: it states the intent at the call site, and it keeps behaviour
+// identical under the unit tests, which mock PostgREST and therefore have no
+// triggers. The database is the guarantee; this code is the intent.
 
 export async function addEmailToContact(contactId: number, email: string, isPrimary: boolean) {
   const { data, error } = await db()
@@ -956,6 +974,353 @@ export async function addEmailToContact(contactId: number, email: string, isPrim
     .single();
   if (error) throw error;
   return data;
+}
+
+/** A contact's address rows, as every function in this section reads them. */
+type EmailRow = {
+  id: number;
+  email: string | null;
+  is_primary: boolean;
+  source?: string | null;
+  bounced_at?: string | null;
+};
+
+/**
+ * Which address takes over when the primary disappears.
+ *
+ * MUST match `best_primary_contact_email()` in the CAR-279 migration: live
+ * address first, then provenance, then the most recently added. The two are
+ * pinned together by `one-primary-email.itest.ts`, which runs this ranking and
+ * the SQL one over the same fixtures and asserts they pick the same row.
+ *
+ * Ties only. Every caller that means a specific row passes it explicitly.
+ */
+const EMAIL_PRIMARY_SOURCE_RANK: Record<string, number> = {
+  verified: 4,
+  manual: 3,
+  scraped: 2,
+  pattern_guessed: 1,
+};
+
+export function bestPrimaryEmailRow<T extends EmailRow>(rows: T[]): T | null {
+  const ranked = [...rows].sort((a, b) => {
+    const hasAddress = Number(Boolean(a.email)) - Number(Boolean(b.email));
+    if (hasAddress !== 0) return -hasAddress;
+    const live = Number(a.bounced_at == null) - Number(b.bounced_at == null);
+    if (live !== 0) return -live;
+    const source =
+      (EMAIL_PRIMARY_SOURCE_RANK[a.source ?? ""] ?? 0) -
+      (EMAIL_PRIMARY_SOURCE_RANK[b.source ?? ""] ?? 0);
+    if (source !== 0) return -source;
+    return b.id - a.id;
+  });
+  return ranked[0] ?? null;
+}
+
+/** Normalized to match the write-time `lower(trim())` trigger (CAR-153). */
+function normalizeAddress(email: string | null | undefined): string {
+  return (email ?? "").trim().toLowerCase();
+}
+
+/**
+ * Same seam the contact write chokepoint uses: the browser singleton in the UI,
+ * an explicit request-scoped client on the extension-auth route.
+ */
+type EmailWriteOptions = ContactWriteOptions;
+
+/**
+ * A contact's address rows. Bounded deliberately: a person has a handful of
+ * addresses, and an unbounded read here would be a silent PostgREST truncation
+ * at 1000.
+ */
+async function readEmailRows(contactId: number, opts: EmailWriteOptions = {}): Promise<EmailRow[]> {
+  const rows = must(
+    await (opts.client ?? db())
+      .from("contact_emails")
+      .select("id, email, is_primary, source, bounced_at")
+      .eq("contact_id", contactId)
+      .order("id")
+      .limit(200),
+  ) as EmailRow[] | null;
+  return rows ?? [];
+}
+
+/**
+ * Make one of a contact's addresses THE address (CAR-279).
+ *
+ * Target by row id or by address; the address form normalizes the same way the
+ * DB trigger does, so mixed case resolves. Throws when the row is not on the
+ * contact rather than inserting -- promoting an address a contact does not have
+ * is a caller bug, and `attachEmailToContact` is the function that adds one.
+ *
+ * Like every function here, it takes a contact the caller has already proven
+ * ownership of: `contact_emails` has no user_id and cannot scope itself.
+ */
+export async function setPrimaryEmail(
+  contactId: number,
+  target: { id?: number; address?: string },
+  opts: EmailWriteOptions = {},
+): Promise<{ promotedId: number; demotedPrimaries: number }> {
+  const client = opts.client ?? db();
+  const rows = await readEmailRows(contactId, opts);
+  const wanted = normalizeAddress(target.address);
+  const row =
+    target.id != null
+      ? rows.find((r) => r.id === target.id)
+      : rows.find((r) => normalizeAddress(r.email) === wanted && wanted !== "");
+  if (!row) {
+    throw new Error(
+      `${target.address ?? `email ${target.id}`} is not one of this contact's addresses`,
+    );
+  }
+
+  const stale = rows.filter((r) => r.is_primary && r.id !== row.id).map((r) => r.id);
+  if (stale.length > 0) {
+    const { error } = await client.from("contact_emails").update({ is_primary: false }).in("id", stale);
+    if (error) throw error;
+  }
+  if (!row.is_primary) {
+    const { error } = await client.from("contact_emails").update({ is_primary: true }).eq("id", row.id);
+    if (error) throw error;
+  }
+  return { promotedId: row.id, demotedPrimaries: stale.length };
+}
+
+/**
+ * Remove ONE address, leaving the contact still reachable (CAR-279).
+ *
+ * Deleting the primary is the case that matters: the survivor ranked highest
+ * takes over, so a contact never ends up holding addresses none of which is
+ * primary. The database trigger does this too; doing it here as well is what
+ * makes the behaviour visible to the caller and to the unit tests.
+ */
+export async function deleteContactEmail(
+  contactId: number,
+  emailId: number,
+  opts: EmailWriteOptions = {},
+): Promise<{ promotedId: number | null }> {
+  const client = opts.client ?? db();
+  const rows = await readEmailRows(contactId, opts);
+  const doomed = rows.find((r) => r.id === emailId);
+  if (!doomed) return { promotedId: null };
+
+  const { error } = await client
+    .from("contact_emails")
+    .delete()
+    .eq("id", emailId)
+    .eq("contact_id", contactId);
+  if (error) throw error;
+
+  const survivors = rows.filter((r) => r.id !== emailId);
+  if (survivors.length === 0 || survivors.some((r) => r.is_primary)) {
+    return { promotedId: null };
+  }
+  const heir = bestPrimaryEmailRow(survivors);
+  if (!heir) return { promotedId: null };
+  const { error: promoteErr } = await client
+    .from("contact_emails")
+    .update({ is_primary: true })
+    .eq("id", heir.id);
+  if (promoteErr) throw promoteErr;
+  return { promotedId: heir.id };
+}
+
+/**
+ * The address a human just typed into the extension becomes THE address (CAR-279).
+ *
+ * Re-saving someone from the extension is an assertion about how to reach them
+ * now, so the incoming address takes primary whether it is new or already on
+ * file. Before this, a re-add with a better address filed it as secondary and
+ * outreach kept using the old one.
+ *
+ * What happens to the addresses it displaces:
+ *
+ *   * a live one is KEPT, demoted to secondary. Past correspondence is linked to
+ *     contacts BY ADDRESS (email_message_contacts, backfillEmailsForContact) and
+ *     a reply arriving from it still has to resolve to this contact (CAR-227),
+ *     so deleting it would orphan real history;
+ *   * one that has BOUNCED is deleted outright -- it cannot receive mail and is
+ *     not worth carrying. The cost is real and accepted: nothing then remembers
+ *     the address was dead, so a later scrape can re-add it. It returns as
+ *     secondary behind a live primary, so it is not a send target.
+ *
+ * A previously bounced address that the human types in again has its
+ * `bounced_at` CLEARED. Promotion would otherwise be a lie: the send path
+ * refuses a contact whose addresses have all bounced, so the contact would show
+ * a primary nobody could send to.
+ */
+export async function applyImportedPrimaryEmail(
+  contactId: number,
+  email: string,
+  opts: EmailWriteOptions = {},
+): Promise<{ promoted: boolean; inserted: boolean; unbounced: boolean; deletedBounced: number }> {
+  const client = opts.client ?? db();
+  const address = normalizeAddress(email);
+  if (!address) return { promoted: false, inserted: false, unbounced: false, deletedBounced: 0 };
+
+  const rows = await readEmailRows(contactId, opts);
+  const match = rows.find((r) => normalizeAddress(r.email) === address);
+
+  // Promote first, delete second: with the incoming address already primary,
+  // removing the dead ones cannot momentarily leave the contact unreachable.
+  let promoted = false;
+  let inserted = false;
+  let unbounced = false;
+  if (match) {
+    const patch: { is_primary: boolean; bounced_at?: null } = { is_primary: true };
+    if (match.bounced_at != null) {
+      patch.bounced_at = null;
+      unbounced = true;
+    }
+    const stale = rows.filter((r) => r.is_primary && r.id !== match.id).map((r) => r.id);
+    if (stale.length > 0) {
+      const { error } = await client.from("contact_emails").update({ is_primary: false }).in("id", stale);
+      if (error) throw error;
+    }
+    const { error } = await client.from("contact_emails").update(patch).eq("id", match.id);
+    if (error) throw error;
+    promoted = !match.is_primary;
+  } else {
+    const stale = rows.filter((r) => r.is_primary).map((r) => r.id);
+    if (stale.length > 0) {
+      const { error } = await client.from("contact_emails").update({ is_primary: false }).in("id", stale);
+      if (error) throw error;
+    }
+    const { error } = await client
+      .from("contact_emails")
+      .insert({ contact_id: contactId, email: address, is_primary: true });
+    if (error) throw error;
+    inserted = true;
+  }
+
+  const deadIds = rows
+    .filter((r) => r.bounced_at != null && normalizeAddress(r.email) !== address)
+    .map((r) => r.id);
+  if (deadIds.length > 0) {
+    const { error } = await client.from("contact_emails").delete().in("id", deadIds);
+    if (error) throw error;
+  }
+
+  // This is the one path that moves the primary without going through the edit
+  // form, which writes both halves together. The DB trigger deliberately does
+  // not do this (it would need rights on `contacts` that GoTrue's delete cascade
+  // has not got — see the migration), so it is done here, and only for a contact
+  // whose stated preference IS email.
+  const { error: prefErr } = await client
+    .from("contacts")
+    .update({ preferred_contact_value: address })
+    .eq("id", contactId)
+    .eq("preferred_contact_method", "email");
+  if (prefErr) throw prefErr;
+
+  return { promoted, inserted, unbounced, deletedBounced: deadIds.length };
+}
+
+/**
+ * Write a contact's whole address list back (CAR-279).
+ *
+ * DIFFS rather than replacing. The three UI surfaces used to delete every row
+ * and re-insert from form state through `addEmailToContact`, which writes only
+ * (contact_id, email, is_primary) -- so `source` reverted to its 'manual'
+ * default and `bounced_at` was cleared on every save. Editing a contact
+ * silently relabelled scraped and pattern-guessed addresses as hand-entered and
+ * resurrected addresses the bounce detector had already retired, against a
+ * documented promise that a bounced address is refused everywhere afterwards.
+ * Rows whose address is unchanged are therefore left alone entirely.
+ *
+ * Addresses are normalized and de-duplicated, since the form can hold the same
+ * address twice and `contact_emails_contact_email_idx` would reject the second.
+ *
+ * The primary is whichever entry the caller flagged. With none flagged the
+ * incumbent keeps it, and if the incumbent is gone the ranking picks -- an
+ * address list that comes back with no primary at all is the state this whole
+ * change exists to prevent.
+ */
+export async function replaceContactEmails(
+  contactId: number,
+  entries: Array<{ email: string; is_primary?: boolean }>,
+  opts: EmailWriteOptions = {},
+): Promise<{ inserted: number; deleted: number; primaryAddress: string | null }> {
+  const client = opts.client ?? db();
+  const wanted: Array<{ address: string; isPrimary: boolean }> = [];
+  for (const entry of entries) {
+    const address = normalizeAddress(entry.email);
+    if (!address) continue;
+    const seen = wanted.find((w) => w.address === address);
+    if (seen) {
+      seen.isPrimary = seen.isPrimary || Boolean(entry.is_primary);
+      continue;
+    }
+    wanted.push({ address, isPrimary: Boolean(entry.is_primary) });
+  }
+
+  const existing = await readEmailRows(contactId, opts);
+  const keptIds = new Map<string, number>();
+  const doomed: number[] = [];
+  for (const row of existing) {
+    const address = normalizeAddress(row.email);
+    if (address && wanted.some((w) => w.address === address)) keptIds.set(address, row.id);
+    else doomed.push(row.id);
+  }
+
+  if (doomed.length > 0) {
+    const { error } = await client.from("contact_emails").delete().in("id", doomed);
+    if (error) throw error;
+  }
+
+  // Which address ends up primary, decided before any write so the inserts can
+  // carry the flag directly instead of being promoted in a second round trip.
+  const flagged = wanted.find((w) => w.isPrimary);
+  const incumbent = existing.find(
+    (r) => r.is_primary && keptIds.has(normalizeAddress(r.email)),
+  );
+  const survivingRows = existing.filter((r) => keptIds.has(normalizeAddress(r.email)));
+  const fallback =
+    wanted.length > 0
+      ? normalizeAddress(bestPrimaryEmailRow(survivingRows)?.email) || wanted[0].address
+      : null;
+  // `??` on a normalized string would never fall through -- a missing incumbent
+  // normalizes to "", not to null -- so the branch is explicit.
+  const primaryAddress = flagged?.address ?? (incumbent ? normalizeAddress(incumbent.email) : fallback);
+
+  const toInsert = wanted.filter((w) => !keptIds.has(w.address));
+  if (toInsert.length > 0) {
+    const { error } = await client
+      .from("contact_emails")
+      .insert(
+        toInsert.map((w) => ({
+          contact_id: contactId,
+          email: w.address,
+          is_primary: w.address === primaryAddress,
+        })),
+      );
+    if (error) throw error;
+  }
+
+  // A kept row taking over: demote the others first, matching the ordering
+  // `attachEmailToContact` uses, so the contact never holds two primaries even
+  // momentarily and the partial unique index cannot reject the promotion.
+  const keptPrimaryId = primaryAddress ? keptIds.get(primaryAddress) : undefined;
+  if (keptPrimaryId != null) {
+    const stale = survivingRows.filter((r) => r.is_primary && r.id !== keptPrimaryId).map((r) => r.id);
+    if (stale.length > 0) {
+      const { error } = await client.from("contact_emails").update({ is_primary: false }).in("id", stale);
+      if (error) throw error;
+    }
+    if (!survivingRows.some((r) => r.id === keptPrimaryId && r.is_primary)) {
+      const { error } = await client
+        .from("contact_emails")
+        .update({ is_primary: true })
+        .eq("id", keptPrimaryId);
+      if (error) throw error;
+    }
+  }
+
+  return {
+    inserted: toInsert.length,
+    deleted: doomed.length,
+    primaryAddress: primaryAddress || null,
+  };
 }
 
 export async function removeEmailsFromContact(contactId: number) {

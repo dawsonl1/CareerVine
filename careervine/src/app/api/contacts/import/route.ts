@@ -14,7 +14,7 @@ import { syncContactEmailHistoryIfPaid } from "@/lib/contact-email-history";
 import { canonicalizeLinkedinUrl } from "@/lib/linkedin-url";
 import { findOrCreateCompany, findOrCreateLocation, ensureCompanyLocation, ensureCompanyTargets } from "@/lib/company-helpers";
 import { addTagsToContact, downloadAndStorePhoto } from "@/lib/import-db-helpers";
-import { createContact, updateContact } from "@/lib/data/contacts";
+import { createContact, updateContact, applyImportedPrimaryEmail } from "@/lib/data/contacts";
 import type { QueryClient } from "@/lib/data/client";
 import { triggerEnrichOnSave } from "@/lib/apify/scrape-service";
 import { normalizeLocation, normalizeParsedLocation, locationMatchKey } from "@/lib/location-normalizer";
@@ -257,31 +257,25 @@ async function updateExistingContact(supabase: SupabaseClient, contactId: number
     }
   }
 
-  // Upsert primary email if provided. Shared validity gate with the create
-  // path (isValidContactEmail) so both paths accept/reject identically.
+  // The address typed into the extension becomes THE address (CAR-279).
+  // Re-saving someone is an assertion about how to reach them now, so it takes
+  // primary whether it is new or already on file; what happens to the addresses
+  // it displaces (live ones demoted, bounced ones deleted) is documented on
+  // applyImportedPrimaryEmail. Shared validity gate with the create path
+  // (isValidContactEmail) so both paths accept/reject identically.
   const primaryEmail = profileData.contactInfo?.email;
   if (isValidContactEmail(primaryEmail)) {
-    const { data: existingEmails } = await supabase
-      .from('contact_emails')
-      .select('id, email, is_primary')
-      .eq('contact_id', contactId);
-
-    const existing = (existingEmails || []).find(
-      // contact_emails.email is nullable, so the optional call is load-bearing:
-      // the old `e.email.toLowerCase()` under `any` would throw on a null row.
-      (e) => e.email?.toLowerCase() === primaryEmail.toLowerCase()
-    );
-    if (!existing) {
-      // If no emails exist yet, make it primary; otherwise add as non-primary
-      const hasPrimary = (existingEmails || []).some((e) => e.is_primary);
-      const { error: emailError } = await supabase.from('contact_emails').insert({
-        contact_id: contactId,
-        email: primaryEmail,
-        is_primary: !hasPrimary,
+    try {
+      await applyImportedPrimaryEmail(contactId, primaryEmail, {
+        client: supabase as unknown as QueryClient,
       });
-      if (emailError) {
-        console.warn(`[import] Failed to add email for contact ${contactId}:`, emailError.message);
-      }
+    } catch (err) {
+      // Best-effort, as before: an address that will not store must not lose
+      // the user the rest of the import.
+      console.warn(
+        `[import] Failed to apply email for contact ${contactId}:`,
+        (err as { message?: string })?.message ?? String(err),
+      );
     }
   }
 
