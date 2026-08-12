@@ -85,14 +85,23 @@ allowed_cidrs_v6 = ["::/0"]
 # enabled = true
 
 [realtime]
-enabled = true
+# CAR-280: off. The app opens no realtime channel anywhere (grep for `.channel(`
+# or `postgres_changes` under careervine/src returns nothing but generated
+# types), so this was ~250 MB of Docker VM for a feature we do not use. CI
+# already excludes it explicitly in ci.yml. Flip to true if we ever subscribe.
+enabled = false
 # Bind realtime via either IPv4 or IPv6. (default: IPv4)
 # ip_version = "IPv6"
 # The maximum length in bytes of HTTP request headers. (default: 4096)
 # max_header_length = 4096
 
 [studio]
-enabled = true
+# CAR-280: off, with its pg_meta backend, for another ~450 MB. The local
+# dashboard at :54323 serves nobody here — the database is driven through psql,
+# the migration chain, and the Supabase Management API. Flip to true and restart
+# the stack (`supabase stop && supabase start`) when you actually want to click
+# around local data.
+enabled = false
 # Port to use for Supabase Studio.
 port = 54323
 # External URL of the API server that frontend connects to.
@@ -403,7 +412,10 @@ authorization_url_path = "/oauth/consent"
 allow_dynamic_registration = false
 
 [edge_runtime]
-enabled = true
+# CAR-280: off. There is no supabase/functions directory — this project's server
+# code is Next.js routes on Vercel, not Supabase edge functions — so this booted
+# a Deno runtime with nothing to serve. CI excludes it too.
+enabled = false
 # Supported request policies: `oneshot`, `per_worker`.
 # `per_worker` (default) — enables hot reload during local development.
 # `oneshot` — fallback mode if hot reload causes issues (e.g. in large repos or with symlinks).
