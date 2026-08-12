@@ -3112,6 +3112,10 @@ export type Database = {
         Returns: undefined
       }
       apply_bundle_resolutions: { Args: { p_rows: Json }; Returns: number }
+      best_primary_contact_email: {
+        Args: { p_contact_id: number }
+        Returns: number
+      }
       bundle_alumni_stats: {
         Args: { p_bundle_id: number }
         Returns: {
