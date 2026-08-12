@@ -54,7 +54,14 @@ trap 'rm -f "$tmp"' EXIT
 // Hand-authored app-level types (OnboardingState, ...) live in src/lib/app-types.ts.
 
 EOF
-  supabase gen types typescript --local
+  # SUPABASE_DB_PASSWORD is pinned to the local default deliberately (CAR-280).
+  # On a clone that has been `supabase link`ed, the CLI remembers the REMOTE
+  # database password and hands it to `--local` too, so this fails with
+  # `password authentication failed for user "postgres"` — but only on a machine
+  # that has pushed to production, never in CI, which is exactly the machine that
+  # just wrote a migration and needs to regenerate. The local stack's password is
+  # always `postgres`, so stating it costs nothing and removes the trap.
+  SUPABASE_DB_PASSWORD=postgres supabase gen types typescript --local
 } >"$tmp"
 
 mv "$tmp" "$OUT"
