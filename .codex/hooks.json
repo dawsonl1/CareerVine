@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/Users/dawsonpitcher/Projects/Networking-Helper/.claude/worktrees/contact-email-priority-7f1880/.codex/hooks/on-plan-write.sh'"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/Users/dawsonpitcher/Projects/Networking-Helper/.claude/worktrees/contact-email-priority-7f1880/.codex/hooks/on-pr-create.sh'"
+          },
+          {
+            "type": "command",
+            "command": "bash '/Users/dawsonpitcher/Projects/Networking-Helper/.claude/worktrees/contact-email-priority-7f1880/.codex/hooks/on-pr-merge.sh'"
+          }
+        ]
+      }
+    ]
+  }
+}

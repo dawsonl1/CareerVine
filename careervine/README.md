@@ -190,6 +190,13 @@ automatically:
 - **One-click refresh and email finding**: on any contact, refresh their profile on
   demand or search LinkedIn for a verified email when you don't have one, including
   when the address you had starts bouncing.
+- **The address you typed last is the address we use**: save someone again from the
+  extension with a different email and it becomes their primary, so every draft,
+  send and follow-up switches to it. The old address stays on them as a secondary,
+  which keeps past threads attached and lets a reply from it still land on their
+  profile; one that had already bounced is dropped instead. Inside the app, ticking
+  "Preferred" beside an address does the same thing, and deleting the primary hands
+  the job to the next best address rather than leaving nowhere to write.
 - **Fix broken links fast**: when a LinkedIn URL stops working, CareerVine notices
   and offers a guided search to re-link the right profile.
 - **Spend you can see and control**: enrichment runs on a hard monthly budget, with
