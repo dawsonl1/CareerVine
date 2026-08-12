@@ -2390,7 +2390,7 @@ const UNBOUNDED_READ_BASELINE = {
   "src/app/api/calendar/sync/route.ts": ["calendar_events", "contact_emails"],
   "src/app/api/contacts/bulk-import/backfill/route.ts": ["company_locations", "locations"],
   "src/app/api/contacts/check-duplicate/route.ts": ["contact_emails", "contact_schools", "contacts", "contacts"],
-  "src/app/api/contacts/import/route.ts": ["company_locations", "contact_companies", "contact_companies", "contact_emails", "contact_schools", "contact_schools", "contacts"],
+  "src/app/api/contacts/import/route.ts": ["company_locations", "contact_companies", "contact_companies", "contact_schools", "contact_schools", "contacts"],
   "src/app/api/cron/follow-up-nudges/route.ts": ["users"],
   // The second email_follow_up_messages read and contacts.ts's contact_emails
   // read are both bounded by an .in() over a chunked list, which the detector

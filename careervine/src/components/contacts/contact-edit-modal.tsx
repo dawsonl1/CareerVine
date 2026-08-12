@@ -14,11 +14,12 @@ import { Modal, ModalCancelButton } from "@/components/ui/modal";
 import {
   updateContact, findOrCreateSchool, addSchoolToContact,
   removeSchoolsFromContact, findOrCreateCompany, addCompanyToContact, resolveManualCompanyLocation,
-  removeCompaniesFromContact, removeEmailsFromContact, addEmailToContact,
+  removeCompaniesFromContact,
   removePhonesFromContact, addPhoneToContact, getTags, createTag,
   addTagToContact, removeTagFromContact, findOrCreateLocation,
 } from "@/lib/queries";
 // New code goes straight to the domain module; the queries barrel takes no additions.
+import { replaceContactEmails, bestPrimaryEmailRow } from "@/lib/data/contacts";
 import { ensureCompanyTargets } from "@/lib/company-queries";
 import type { Contact, TagRow } from "@/lib/types";
 import {
@@ -43,7 +44,20 @@ type SchoolEntry = { school_name: string; degree: string; field_of_study: string
 /** A fresh row each call, so two added rows never share one object. */
 const emptySchool = (): SchoolEntry => ({ school_name: "", degree: "", field_of_study: "", start_year: null, end_year: null });
 
-type EmailEntry = { email: string; is_primary: boolean };
+/**
+ * `source` and `bounced_at` ride along unedited so this form can rank a
+ * replacement primary with `bestPrimaryEmailRow` — the same function the data
+ * layer and the SQL trigger use — when the user deletes the primary row
+ * (CAR-279). Without them the optimistic pick could differ from the one that
+ * lands, and the row shown as primary would move on the next load.
+ */
+type EmailEntry = {
+  email: string;
+  is_primary: boolean;
+  id?: number;
+  source?: string | null;
+  bounced_at?: string | null;
+};
 type PhoneEntry = { phone: string; type: string; is_primary: boolean };
 
 export interface FormSnapshot {
@@ -169,12 +183,21 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
       start_year: cs.start_year,
       end_year: cs.end_year,
     }));
-    const nextEmails = contact.contact_emails.map((e) => ({ email: e.email || "", is_primary: e.is_primary }));
+    const nextEmails = contact.contact_emails.map((e) => ({
+      email: e.email || "",
+      is_primary: e.is_primary,
+      id: e.id,
+      source: e.source,
+      bounced_at: e.bounced_at,
+    }));
     const nextPhones = contact.contact_phones.map((p) => ({ phone: p.phone, type: p.type, is_primary: p.is_primary }));
     let nextPreferredContactKey = "";
     if (contact.preferred_contact_method && contact.preferred_contact_value) {
       if (contact.preferred_contact_method === "email") {
-        const idx = contact.contact_emails.findIndex((e) => e.email === contact.preferred_contact_value);
+        // Seeded from the FLAG, not from the stored string (CAR-279). The two are
+        // kept equal by a trigger, but the flag is the one that decides where
+        // mail goes, so the checkbox can never contradict the "Primary" tag.
+        const idx = contact.contact_emails.findIndex((e) => e.is_primary);
         nextPreferredContactKey = idx >= 0 ? `email-${idx}` : "";
       } else if (contact.preferred_contact_method === "phone") {
         const idx = contact.contact_phones.findIndex((p) => p.phone === contact.preferred_contact_value);
@@ -219,6 +242,45 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
     !saving &&
     pristine !== null &&
     pristine !== serializeForm({ formData, companies, schools, emails, phones, preferredContactKey, selectedTagIds });
+
+  /**
+   * Preferred means primary (CAR-279). Checking the box on an email row is the
+   * only way to choose where mail goes, so it has to move `is_primary` too —
+   * before this it wrote a string onto the contact that nothing ever read.
+   *
+   * Unchecking does NOT clear the primary: a contact with addresses always has
+   * one. It only drops the stored preference, leaving the row tagged "Primary".
+   */
+  const preferEmail = (index: number, checked: boolean) => {
+    setPreferredContactKey(checked ? `email-${index}` : "");
+    if (checked) setEmails((prev) => prev.map((e, j) => ({ ...e, is_primary: j === index })));
+  };
+
+  /**
+   * Removing the primary hands primary to the best-ranked survivor, matching
+   * what the database would do on its own, so the tag lands where the next load
+   * will show it.
+   */
+  const removeEmailRow = (index: number) => {
+    if (preferredContactKey === `email-${index}`) setPreferredContactKey("");
+    else if (preferredContactKey.startsWith("email-")) {
+      const oldIdx = parseInt(preferredContactKey.split("-")[1]);
+      if (oldIdx > index) setPreferredContactKey(`email-${oldIdx - 1}`);
+    }
+    setEmails((prev) => {
+      const remaining = prev.filter((_, j) => j !== index);
+      if (remaining.length === 0 || remaining.some((e) => e.is_primary)) return remaining;
+      // An unsaved row has no id yet, and is genuinely the newest.
+      const heir = bestPrimaryEmailRow(
+        remaining.map((e, j) => ({
+          ...e,
+          index: j,
+          id: e.id ?? Number.MAX_SAFE_INTEGER - (remaining.length - j),
+        })),
+      );
+      return remaining.map((e, j) => (j === heir?.index ? { ...e, is_primary: true } : e));
+    });
+  };
 
   const handleSave = async () => {
     if (savingRef.current) return;
@@ -311,12 +373,10 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
         }
       }
 
-      await removeEmailsFromContact(contact.id);
-      for (const entry of emails) {
-        if (entry.email.trim()) {
-          await addEmailToContact(contact.id, entry.email.trim(), entry.is_primary);
-        }
-      }
+      // Diffs rather than delete-all/re-add (CAR-279): an untouched address
+      // keeps its row, and with it the `source` and `bounced_at` that the old
+      // loop silently reset on every single save.
+      await replaceContactEmails(contact.id, emails);
 
       await removePhonesFromContact(contact.id);
       for (const entry of phones) {
@@ -542,12 +602,14 @@ export function ContactEditModal({ isOpen, contact, userId, onClose, onContactUp
           {emails.map((entry, i) => (
             <div key={i} className="flex items-center gap-2 mb-2">
               <input type="email" value={entry.email} onChange={(e) => { const u = [...emails]; u[i] = { ...u[i], email: e.target.value }; setEmails(u); }} className={`${inputClasses} !h-11 flex-1`} placeholder="email@example.com" />
-              <Checkbox checked={preferredContactKey === `email-${i}`} onChange={(checked) => setPreferredContactKey(checked ? `email-${i}` : "")} label="Preferred" />
-              <button type="button" onClick={() => {
-                if (preferredContactKey === `email-${i}`) setPreferredContactKey("");
-                else if (preferredContactKey.startsWith("email-")) { const oldIdx = parseInt(preferredContactKey.split("-")[1]); if (oldIdx > i) setPreferredContactKey(`email-${oldIdx - 1}`); }
-                setEmails(emails.filter((_, j) => j !== i));
-              }} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer shrink-0">
+              {/* Only when the two diverge — i.e. the preferred method is a
+                  phone, or none is set. Beside a checked "Preferred" it would
+                  just say the same thing twice. */}
+              {entry.is_primary && preferredContactKey !== `email-${i}` && (
+                <span className="text-[11px] text-primary font-medium shrink-0">Primary</span>
+              )}
+              <Checkbox checked={preferredContactKey === `email-${i}`} onChange={(checked) => preferEmail(i, checked)} label="Preferred" />
+              <button type="button" onClick={() => removeEmailRow(i)} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer shrink-0">
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>

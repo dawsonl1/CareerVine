@@ -110,10 +110,12 @@ Supports multiple emails per contact.
 
 **Normalization invariant (CAR-153, 20260717020000):** `email` is forced to `lower(trim())` by a `BEFORE INSERT OR UPDATE OF email` trigger (`normalize_contact_email`), and all pre-existing rows were normalized (with a dedupe of would-collide casings) in the same migration. Every matcher may therefore use an exact `=`/`.eq` against a lowercased+trimmed input; ILIKE on this column is banned (unescaped `_`/`%` wildcards cross-match).
 
+**One-primary invariant (CAR-279, 20260811161500):** a contact with any rows here has exactly ONE with `is_primary`. At most one is enforced by the partial unique index `contact_emails_one_primary_idx`; at least one by the `contact_emails_ensure_primary` trigger, which promotes the best-ranked survivor whenever the primary is deleted or demoted. Writers must NOT demote by hand first: setting `is_primary` on a row demotes that contact's others through the `contact_emails_demote_other_primaries` BEFORE trigger. Ranking (`best_primary_contact_email()`) is: has an address, then not bounced, then source (`verified` > `manual` > `scraped` > `pattern_guessed`), then newest. Its TypeScript twin is `bestPrimaryEmailRow` in `careervine/src/lib/data/contacts.ts`, pinned by `one-primary-email.itest.ts`. The promote trigger is `SECURITY DEFINER` and skips `pg_trigger_depth() > 1`; both are load-bearing, and the migration's comments say what breaks without them.
+
 - `id`: Auto-incrementing primary key.
 - `contact_id`: Foreign key to `contacts`.
 - `email`: Email address, always lowercase+trimmed (see invariant above).
-- `is_primary`: Whether this is the primary email.
+- `is_primary`: The address this contact is reached at. Exactly one per contact holding rows (see invariant above); it is what every send path resolves, and the AI follow-up generator filters on it with no fallback.
 - `source`: `'manual'` | `'scraped'` | `'pattern_guessed'` | `'verified'` (monotonic upgrade only).
 - `bounced_at`: Set when an NDR is detected for this address.
 

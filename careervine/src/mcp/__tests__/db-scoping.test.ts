@@ -647,6 +647,18 @@ const DATA_TABLES: Record<string, Record<string, Entry>> = {
     removeCompaniesFromContact: { kind: "web-only" },
     removeSchoolsFromContact: { kind: "web-only" },
     removeEmailsFromContact: { kind: "web-only" },
+    // CAR-279. Web surfaces only: the MCP reaches contact_emails through
+    // add_contact_email (attachEmailToContact above), which already holds the
+    // one-primary invariant these three maintain for the UI and the extension
+    // import route. All four key on contact_id — contact_emails carries no
+    // user_id — so every caller proves ownership of the contact first, exactly
+    // as attachEmailToContact's docblock requires.
+    setPrimaryEmail: { kind: "web-only" },
+    deleteContactEmail: { kind: "web-only" },
+    replaceContactEmails: { kind: "web-only" },
+    applyImportedPrimaryEmail: { kind: "web-only" },
+    // Pure ranking function, no query of its own.
+    bestPrimaryEmailRow: { kind: "web-only" },
     removePhonesFromContact: { kind: "web-only" },
     addTagToContact: { kind: "web-only" },
     removeTagFromContact: { kind: "web-only" },

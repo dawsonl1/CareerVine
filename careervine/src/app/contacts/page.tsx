@@ -12,13 +12,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   getContactsStreamed, createContact, findOrCreateSchool, addSchoolToContact,
   findOrCreateCompany, addCompanyToContact, resolveManualCompanyLocation,
-  addEmailToContact, addPhoneToContact,
+  addPhoneToContact,
   getTags, createTag, addTagToContact, findOrCreateLocation,
   activateContact, getNetworkTierCounts,
 } from "@/lib/queries";
 // Straight from the domain module rather than the frozen queries barrel: this
 // is new code, and the barrel takes no additions (src/lib/queries.ts header).
-import { getContactsSearchCorpus, type ContactSearchItem } from "@/lib/data/contacts";
+import {
+  getContactsSearchCorpus, replaceContactEmails, bestPrimaryEmailRow,
+  type ContactSearchItem,
+} from "@/lib/data/contacts";
 import { ensureCompanyTargets, promoteContactToProspect, demoteContactToBench } from "@/lib/company-queries";
 import { track } from "@/lib/analytics/client";
 import { primaryCurrentRole, sortEducation, sortExperiences } from "@/lib/experience-order";
@@ -505,11 +508,9 @@ export default function ContactsPage() {
         });
       }
 
-      for (const entry of emails) {
-        if (entry.email.trim()) {
-          await addEmailToContact(contactId, entry.email.trim(), entry.is_primary);
-        }
-      }
+      // One writer for an address list (CAR-279): normalizes, de-duplicates, and
+      // lands exactly one primary even if the form marked none.
+      await replaceContactEmails(contactId, emails);
       for (const entry of phones) {
         if (entry.phone.trim()) {
           await addPhoneToContact(contactId, entry.phone.trim(), entry.type || "mobile", entry.is_primary);
@@ -1104,11 +1105,24 @@ export default function ContactsPage() {
             {emails.map((entry, i) => (
               <div key={i} className="flex items-center gap-2 mb-2">
                 <input type="email" value={entry.email} onChange={(e) => { const u = [...emails]; u[i] = { ...u[i], email: e.target.value }; setEmails(u); }} className={`${inputClasses} !h-11 flex-1`} placeholder="email@example.com" />
-                <Checkbox checked={preferredContactKey === `email-${i}`} onChange={(checked) => setPreferredContactKey(checked ? `email-${i}` : "")} label="Preferred" />
+                {/* Preferred means primary (CAR-279) — same rule as the edit
+                    modal, so "add with two addresses, prefer the second" and
+                    "edit to prefer the second" do the same thing. */}
+                <Checkbox checked={preferredContactKey === `email-${i}`} onChange={(checked) => {
+                  setPreferredContactKey(checked ? `email-${i}` : "");
+                  if (checked) setEmails((prev) => prev.map((e, j) => ({ ...e, is_primary: j === i })));
+                }} label="Preferred" />
                 <button type="button" onClick={() => {
                   if (preferredContactKey === `email-${i}`) setPreferredContactKey("");
                   else if (preferredContactKey.startsWith("email-")) { const oldIdx = parseInt(preferredContactKey.split("-")[1]); if (oldIdx > i) setPreferredContactKey(`email-${oldIdx - 1}`); }
-                  setEmails(emails.filter((_, j) => j !== i));
+                  setEmails((prev) => {
+                    const remaining = prev.filter((_, j) => j !== i);
+                    // The contact being created still needs a primary, ranked the
+                    // same way the data layer and the DB trigger rank one.
+                    if (remaining.length === 0 || remaining.some((e) => e.is_primary)) return remaining;
+                    const heir = bestPrimaryEmailRow(remaining.map((e, j) => ({ ...e, index: j, id: j })));
+                    return remaining.map((e, j) => (j === heir?.index ? { ...e, is_primary: true } : e));
+                  });
                 }} className="p-1 rounded-full text-muted-foreground hover:text-destructive cursor-pointer shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             ))}

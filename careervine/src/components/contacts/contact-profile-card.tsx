@@ -16,12 +16,12 @@ import { ResolveLinkedinModal } from "@/components/contacts/resolve-linkedin-mod
 import { SCRAPE_FAILURES_BEFORE_RELINK } from "@/lib/constants";
 import {
   updateContact,
-  addEmailToContact,
-  removeEmailsFromContact,
   activateContact,
   uploadContactPhoto,
   removeContactPhoto,
 } from "@/lib/queries";
+// New code goes straight to the domain module; the queries barrel takes no additions.
+import { replaceContactEmails } from "@/lib/data/contacts";
 import { validateContactPhotoFile } from "@/lib/contact-photo";
 import { primaryCurrentRole } from "@/lib/experience-order";
 import { FOLLOW_UP_OPTIONS } from "@/lib/form-styles";
@@ -106,16 +106,21 @@ export function ContactProfileCard({
     if (trimmed === (primaryEmail || "")) return;
 
     try {
-      await removeEmailsFromContact(contact.id);
-      if (trimmed) {
-        await addEmailToContact(contact.id, trimmed, true);
-      }
-      // Re-add other emails
-      for (const e of contact.contact_emails) {
-        if (e.email && e.email !== primaryEmail) {
-          await addEmailToContact(contact.id, e.email, e.is_primary && !trimmed);
-        }
-      }
+      // Edits the DISPLAYED row and leaves the rest alone (CAR-279). This used
+      // to delete every address and re-add them through a writer that takes
+      // neither `source` nor `bounced_at`, so one inline edit relabelled the
+      // contact's other addresses as hand-entered and cleared their bounce
+      // flags — resurrecting addresses the bounce detector had retired.
+      // Clearing the field removes the displayed address; the best-ranked
+      // survivor takes over as primary rather than the contact keeping
+      // addresses with no primary at all.
+      const others = contact.contact_emails
+        .filter((e) => e.email && e.id !== displayedEmailRow?.id)
+        .map((e) => ({ email: e.email as string }));
+      await replaceContactEmails(
+        contact.id,
+        trimmed ? [{ email: trimmed, is_primary: true }, ...others] : others,
+      );
       onContactUpdate();
       // The roster this person appears on is cached and unmounted (CAR-268).
       // Deliberately NOT paired with `refreshCompaniesList()` the way the other
